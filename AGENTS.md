@@ -183,7 +183,11 @@ are not expected to be smooth. Embedded subtitle tracks are not shown; `.srt`
 files are.
 
 **TMDB.** A v3 key or a v4 token. One request per film brings the poster, the
-wallpaper and the description (`overview`). Fetched pictures never replace
+wallpaper and the description (`overview`), and only for a film with no cover:
+`missing_covers` skips every film that has a poster, its own or a fetched one
+(fetched art is kept in `/download0/hui/covers` and filled back in at start-up),
+so a rescan or restart asks TMDB about new films only; "Refresh cover and info"
+is the way to fetch the rest. Fetched pictures never replace
 pictures the user put beside the film. The language follows the app unless
 `TMDB_LANGUAGE` says otherwise. The app has its own DNS client and a CA bundle
 in `assets/certs`; `DNS_SERVER` helps behind a router that blocks public DNS.

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Covers, wallpapers and descriptions are fetched only for films that have no
+  cover. A rescan or restart no longer asks TMDB about films that already have
+  one (their own or a fetched one), so films TMDB has no wallpaper or description
+  for are not searched for again. "Refresh cover and info" still fetches
+  everything for one film.
+
 ## 0.2.0 (01.000.020)
 
 - The details sheet is now a full-screen page: the film's wallpaper behind it,

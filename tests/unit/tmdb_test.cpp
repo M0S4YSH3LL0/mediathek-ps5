@@ -249,13 +249,13 @@ TEST(Covers, AFilmWithoutADescriptionIsNotAskedAgain)
             m->poster = "/own.jpg";
             m->backdrop = "/own-fanart.jpg";
         });
-    EXPECT_EQ(missing_covers(library, store).size(), 1u); // the description is still wanted
+    EXPECT_TRUE(missing_covers(library, store).empty()); // it has a cover: not asked at all
     const CoverStore known(temp_directory());
     std::string unused;
     CoverJob again = dune_job(library[0].id);
     again.year = 1984;
     EXPECT_EQ(fetch_cover(config, web.get(), known, again, &unused), FetchOutcome::stored);
-    EXPECT_TRUE(missing_covers(library, known).empty()); // nothing missing any more
+    EXPECT_TRUE(missing_covers(library, known).empty());
 }
 
 TEST(Covers, ALongOrHostileDescriptionIsCutAndCleaned)
@@ -322,7 +322,7 @@ TEST(Covers, ASearchWithoutTheYearIsTriedWhenTheYearFindsNothing)
     EXPECT_FALSE(store.no_match("bb22"));
 }
 
-TEST(Covers, OnlyFetchesWhatIsMissingAndSkipsFilmsTmdbRejected)
+TEST(Covers, OnlyFilmsWithoutACoverAreFetchedAndNotThoseTmdbRejected)
 {
     ScanResult scan;
     scan.roots = {"/data/movies"};
@@ -344,19 +344,16 @@ TEST(Covers, OnlyFetchesWhatIsMissingAndSkipsFilmsTmdbRejected)
     store.mark_no_match(library[2].id);
 
     const std::vector<CoverJob> jobs = missing_covers(library, store);
-    ASSERT_EQ(jobs.size(), 2u); // C was rejected before
-    for (const CoverJob &job : jobs)
-    {
-        if (job.title == "A")
-        {
-            EXPECT_FALSE(job.want_poster); // has its own
-            EXPECT_TRUE(job.want_wallpaper);
-        }
-        else
-        {
-            EXPECT_TRUE(job.want_poster);
-        }
-    }
+    // A has a cover of its own and C was rejected before: only B is asked for.
+    ASSERT_EQ(jobs.size(), 1u);
+    EXPECT_EQ(jobs[0].title, "B");
+    EXPECT_TRUE(jobs[0].want_poster);
+    EXPECT_TRUE(jobs[0].want_wallpaper);
+    EXPECT_TRUE(jobs[0].want_overview);
+
+    // Rejected by TMDB, B is left alone too.
+    store.mark_no_match(library[1].id);
+    EXPECT_TRUE(missing_covers(library, store).empty());
 }
 
 TEST(Covers, ServiceFetchesInTheBackgroundAndReportsWhatArrived)

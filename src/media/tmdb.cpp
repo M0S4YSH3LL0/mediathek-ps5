@@ -312,17 +312,18 @@ std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &s
     std::vector<CoverJob> jobs;
     for (const Movie &movie : library.movies())
     {
-        if (store.no_match(movie.id))
+        // A film that has a cover (its own, or one fetched earlier and filled in by
+        // CoverStore::fill) is done: asking TMDB again on every scan and start would
+        // cost a request per film that lacks a wallpaper or description TMDB never had.
+        if (!movie.poster.empty() || store.no_match(movie.id))
             continue;
         CoverJob job;
         job.id = movie.id;
         job.title = movie.title;
         job.year = movie.year;
-        job.want_poster = movie.poster.empty();
         job.want_wallpaper = movie.backdrop.empty();
         job.want_overview = !store.has_overview(movie.id);
-        if (job.want_poster || job.want_wallpaper || job.want_overview)
-            jobs.push_back(std::move(job));
+        jobs.push_back(std::move(job));
     }
     return jobs;
 }

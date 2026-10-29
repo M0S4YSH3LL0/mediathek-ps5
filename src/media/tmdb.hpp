@@ -106,8 +106,9 @@ struct CoverJob
     bool again = false; // fetched on request: pictures shown before must be reloaded
 };
 
-// What a library still lacks: films with no poster, no wallpaper or no
-// description that TMDB has not already turned down.
+// What a library still lacks: films with no cover that TMDB has not already
+// turned down. Each is asked for its poster, and for the wallpaper and
+// description it has none of; a film that has a cover is never asked again.
 std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &store);
 
 enum class FetchOutcome : unsigned char

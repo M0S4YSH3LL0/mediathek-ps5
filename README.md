@@ -136,9 +136,9 @@ Put films anywhere below a `movies` folder, up to six levels deep:
 
 A film without artwork gets a generated cover. The app can fetch the real
 poster, a wide wallpaper (the picture behind the selected film) and the
-description shown on the details page from The Movie Database by itself. A
-picture beside the film is never replaced; the description is fetched for every
-film.
+description shown on the details page from The Movie Database by itself, but
+only for a film that has no cover yet. A picture beside the film is never
+replaced, and a film that already has a cover is not asked about again.
 
 1. Get a free key for personal use at themoviedb.org/settings/api.
 2. Create a text file `mediathek.env` in `/data/homebrew/PPSA66120/` on the
@@ -154,11 +154,12 @@ film.
    public DNS, add `DNS_SERVER=192.168.0.1` with your router's address. When you
    build from source, `make` writes this file for you from the project's `.env`
    (never into the `.zip`; the key is yours, keep it out of anything you share).
-3. Start the app. After every scan it asks for the films that are missing a
-   picture or a description, one at a time in the background, and each new
-   picture appears within a couple of seconds. A film TMDB does not know is not
-   asked again. In a film's details, **Refresh cover and info** downloads the
-   pictures and the description anew. The description comes in
+3. Start the app. After every scan it asks for the films that have no cover,
+   one at a time in the background, and each new picture appears within a
+   couple of seconds. Films that already have a cover (yours, or one fetched
+   before) and films TMDB does not know are not asked again. In a film's
+   details, **Refresh cover and info** downloads the pictures and the
+   description anew. The description comes in
    `TMDB_LANGUAGE`; where TMDB has none in that language, the page says so.
 
 The fetched pictures are kept in the app's save area (`/download0/hui/covers`).
