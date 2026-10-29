@@ -1,0 +1,1945 @@
+// Mediathek - The movie library screen: hero billboard, shelves, grid, details and player.
+// Copyright (C) 2026 BlackBearReloaded
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// A living-room movie browser in the manner of the big streaming apps:
+//
+//   - a billboard for the focused movie (its fanart, or its poster when the
+//     folder has none) above horizontal shelves of posters: Continue Watching,
+//     Recently Added, collections, decades, everything A to Z;
+//   - the page takes its tint from the focused poster, eased, and the billboard
+//     collapses to a slim header once the focus leaves the first shelf;
+//   - a second tab lays every movie out as a grid with sorting;
+//   - Cross opens a full-screen details page (play, resume, start over, watched),
+//     Square plays at once;
+//   - the player is part of the screen: a black stage with a fading on-screen
+//     display, scrubber, audio track and subtitle switching, and resume points
+//     that are saved as the movie plays.
+//
+// Posters are decoded on a worker thread and fade in when they arrive; a movie
+// without art gets a generated cover from its title.
+
+#include "concepts/concepts.hpp"
+
+#include "core/i18n.hpp"
+#include "core/save_file.hpp"
+#include "core/tween.hpp"
+#include "media/library.hpp"
+#include "media/services.hpp"
+#include "media/subtitles.hpp"
+#include "ui/glyphs.hpp"
+#include "ui/motion.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <functional>
+#include <map>
+#include <string>
+#include <vector>
+
+namespace hui::concepts
+{
+
+namespace
+{
+
+using gfx::Color;
+using gfx::Rect;
+using i18n::Text;
+using i18n::tr; // the text in the language of the console
+
+const Color kInk = Color::rgb(0xf5f5f7);
+const Color kBlack = Color::rgb(0x07070b);
+const Color kAccent = Color::rgb(0xff4d5e);
+
+constexpr float kMargin = 96.0f;
+constexpr float kExitConfirmSeconds = 2.5f;
+constexpr float kCardW = 176.0f; // poster at rest on a shelf
+constexpr float kCardH = 264.0f;
+constexpr float kCardGap = 20.0f;
+constexpr float kCardGrow = 1.14f;
+constexpr float kRowPitch = 372.0f;
+constexpr float kTopFull = 700.0f;    // top of the focused shelf's posters, billboard open
+constexpr float kTopCompact = 440.0f; // ... and with the billboard collapsed
+
+constexpr int kGridColumns = 8;
+constexpr float kGridW = 190.0f;
+constexpr float kGridH = 285.0f;
+constexpr float kGridPitchX = 218.0f;
+constexpr float kGridPitchY = 332.0f;
+constexpr float kGridTop = 232.0f;
+// Cards scrolling up under the "All Movies" header fade out above this line.
+constexpr float kGridFadeTop = kGridTop - 34.0f;
+
+constexpr float kOsdSeconds = 4.0f;
+constexpr float kSaveEvery = 5.0f;
+
+constexpr const char *kTechniques[] = {
+    "Billboard and page tint follow the focused poster (ui::SpringColor)",
+    "Posters decode on a worker thread and fade in; missing art gets a generated cover",
+    "Shelves for continue watching, new, collections, decades; a sortable grid",
+    "Full-screen details page; resume points saved while a movie plays",
+    "Player stage with scrubber, audio tracks and SubRip subtitles",
+};
+
+// A picture shows the state before its own step's input acts, so each named
+// step follows the step that caused what it shows.
+constexpr app::TourStep kTour[] = {
+    {0.9f, 0, Direction::right},
+    {0.25f, 0, Direction::right},
+    {0.9f, 0, Direction::none, "home"},
+    {0.2f, 0, Direction::down},
+    {0.2f, 0, Direction::right},
+    {0.2f, 0, Direction::right},
+    {1.0f, 0, Direction::down},
+    {1.0f, 0, Direction::none, "shelves"},
+    {0.2f, action_bit(Action::confirm), Direction::none},
+    {0.8f, 0, Direction::none, "details"},
+    {0.2f, action_bit(Action::back)},
+    {0.4f, action_bit(Action::page_next)},
+    {1.0f, 0, Direction::none, "grid"},
+    {0.3f, 0, Direction::down},
+    {0.3f, 0, Direction::right},
+    {0.3f, 0, Direction::right},
+    {1.0f, 0, Direction::down},
+    {1.0f, 0, Direction::none, "movies"},
+    {0.2f, action_bit(Action::west)},
+    {1.6f, 0, Direction::none, "playing"},
+    {0.2f, 0, Direction::right},
+    {0.9f, 0, Direction::none, "seek"},
+    {0.2f, action_bit(Action::confirm)},
+    {0.8f, 0, Direction::none, "paused"},
+    {0.4f, action_bit(Action::back)},
+    {0.8f, action_bit(Action::page_prev)},
+};
+
+enum class Screen : std::uint8_t
+{
+    browse,
+    details,
+    player,
+};
+
+enum class Tab : std::uint8_t
+{
+    home,
+    movies,
+};
+
+enum class Sort : std::uint8_t
+{
+    title,
+    newest,
+    year,
+    count,
+};
+
+enum class SheetAction : std::uint8_t
+{
+    play,
+    restart,
+    watched,
+    cover,
+    close,
+};
+
+struct Shelf
+{
+    std::string title;
+    std::vector<int> movies; // library indices
+    int column = 0;
+    ui::Scroller scroll;
+};
+
+float hash01(const std::string &text, std::uint32_t salt)
+{
+    std::uint32_t h = 2166136261u ^ salt;
+    for (const char c : text)
+        h = (h ^ static_cast<std::uint8_t>(c)) * 16777619u;
+    return static_cast<float>(h % 10007u) / 10007.0f;
+}
+
+Color hsv(float h, float s, float v)
+{
+    h = h - std::floor(h);
+    const float k = h * 6.0f;
+    const int i = static_cast<int>(k);
+    const float f = k - static_cast<float>(i);
+    const float p = v * (1.0f - s);
+    const float q = v * (1.0f - s * f);
+    const float t = v * (1.0f - s * (1.0f - f));
+    switch (i % 6)
+    {
+    case 0:
+        return {v, t, p, 1.0f};
+    case 1:
+        return {q, v, p, 1.0f};
+    case 2:
+        return {p, v, t, 1.0f};
+    case 3:
+        return {p, q, v, 1.0f};
+    case 4:
+        return {t, p, v, 1.0f};
+    default:
+        return {v, p, q, 1.0f};
+    }
+}
+
+// Texture rectangle that fills `aspect` (width / height) from an image of
+// the given size, cropping the overflow equally on both sides.
+Rect cover_uv(float width, float height, float aspect)
+{
+    const float image = width / std::max(1.0f, height);
+    if (image > aspect)
+    {
+        const float u = aspect / image;
+        return {(1.0f - u) * 0.5f, 0.0f, u, 1.0f};
+    }
+    const float v = image / aspect;
+    return {0.0f, (1.0f - v) * 0.5f, 1.0f, v};
+}
+
+std::string format_size(std::uint64_t bytes)
+{
+    char text[32];
+    if (bytes >= (1ull << 30))
+        std::snprintf(text, sizeof(text), "%.1f GB", static_cast<double>(bytes) / (1ull << 30));
+    else
+        std::snprintf(text, sizeof(text), "%.0f MB", static_cast<double>(bytes) / (1ull << 20));
+    return text;
+}
+
+std::string format_time(double seconds)
+{
+    const int total = std::max(0, static_cast<int>(seconds));
+    char text[32];
+    if (total >= 3600)
+        std::snprintf(text, sizeof(text), "%d:%02d:%02d", total / 3600, total / 60 % 60,
+                      total % 60);
+    else
+        std::snprintf(text, sizeof(text), "%d:%02d", total / 60, total % 60);
+    return text;
+}
+
+std::string meta_line(const media::Movie &movie)
+{
+    std::string line;
+    const auto add = [&](const std::string &part)
+    {
+        if (part.empty())
+            return;
+        if (!line.empty())
+            line += "  \xC2\xB7  ";
+        line += part;
+    };
+    if (movie.year > 0)
+        add(std::to_string(movie.year));
+    add(movie.quality);
+    if (movie.size > 0)
+        add(format_size(movie.size));
+    add(movie.drive);
+    return line;
+}
+
+class Mediathek final : public app::Concept
+{
+  public:
+    explicit Mediathek(app::Context &context)
+        : context_(context), svc_(context.media != nullptr ? context.media : &fallback_)
+    {
+        rebuild();
+        snap_layout();
+    }
+
+    const app::ConceptInfo &info() const override
+    {
+        static const app::ConceptInfo kInfo{
+            "mediathek",
+            "Mediathek",
+            "Movies from the console's drives, shelved like a streaming service",
+            "src/concepts/mediathek.cpp",
+            audio::SoundSet::glass,
+            kAccent,
+            kTechniques,
+        };
+        return kInfo;
+    }
+
+    void enter() override
+    {
+        age_ = 0.0f;
+    }
+
+    void update(const InputFrame &input, float dt, app::Feedback &feedback) override
+    {
+        age_ += dt;
+        clock_ += dt;
+        exit_armed_ = std::max(0.0f, exit_armed_ - dt);
+        if (revision_ != svc_->revision)
+            rebuild();
+        if (svc_->cover_note != cover_note_)
+        {
+            cover_note_ = svc_->cover_note;
+            if (!cover_note_.empty())
+            {
+                toast_ = cover_note_;
+                toast_time_ = 4.5f;
+            }
+        }
+
+        switch (screen_)
+        {
+        case Screen::browse:
+            update_browse(input, feedback);
+            break;
+        case Screen::details:
+            update_details(input, feedback);
+            break;
+        case Screen::player:
+            update_player(input, dt, feedback);
+            break;
+        }
+        animate(dt);
+    }
+
+    void draw(app::Frame &frame) const override
+    {
+        if (screen_ == Screen::player)
+        {
+            frame.backdrop.mode = gfx::BackdropMode::none;
+            draw_player(frame.scene);
+            return;
+        }
+        draw_page(frame);
+    }
+
+    std::span<const app::TourStep> tour() const override
+    {
+        return kTour;
+    }
+
+    // ---- for tests ----
+    int focused_movie_for_test() const
+    {
+        return focused_movie();
+    }
+    bool playing_for_test() const
+    {
+        return screen_ == Screen::player;
+    }
+    bool details_open_for_test() const
+    {
+        return screen_ == Screen::details;
+    }
+
+  private:
+    // ---------------------------------------------------------------- data
+
+    const media::Library &library() const
+    {
+        return svc_->library;
+    }
+    const media::Movie &movie(int index) const
+    {
+        return svc_->library[static_cast<std::size_t>(index)];
+    }
+
+    int focused_movie() const
+    {
+        if (tab_ == Tab::home)
+        {
+            if (shelves_.empty())
+                return -1;
+            const Shelf &shelf = shelves_[static_cast<std::size_t>(row_)];
+            return shelf.movies.empty() ? -1 : shelf.movies[static_cast<std::size_t>(shelf.column)];
+        }
+        return grid_.empty() ? -1 : grid_[static_cast<std::size_t>(grid_focus_)];
+    }
+
+    void rebuild()
+    {
+        revision_ = svc_->revision;
+        const std::string keep = focus_id_;
+        shelves_.clear();
+        const media::Library &lib = library();
+        const int total = static_cast<int>(lib.size());
+
+        const auto add = [&](std::string title, std::vector<int> movies)
+        {
+            if (movies.empty())
+                return;
+            Shelf shelf;
+            shelf.title = std::move(title);
+            shelf.movies = std::move(movies);
+            shelves_.push_back(std::move(shelf));
+        };
+
+        std::vector<int> continuing;
+        for (const media::Watch *watch : svc_->progress.in_progress_recent())
+        {
+            const int index = lib.find(watch->id);
+            if (index >= 0 && continuing.size() < 20)
+                continuing.push_back(index);
+        }
+        add(tr(Text::shelf_continue), continuing);
+
+        std::vector<int> all(static_cast<std::size_t>(total));
+        for (int i = 0; i < total; ++i)
+            all[static_cast<std::size_t>(i)] = i;
+
+        if (total >= 8)
+        {
+            std::vector<int> recent = all;
+            std::stable_sort(recent.begin(), recent.end(),
+                             [&](int a, int b) { return movie(a).added > movie(b).added; });
+            recent.resize(std::min<std::size_t>(recent.size(), 24));
+            add(tr(Text::shelf_recent), recent);
+        }
+
+        std::map<std::string, std::vector<int>> collections;
+        std::map<int, std::vector<int>, std::greater<int>> decades;
+        for (const int i : all)
+        {
+            if (!movie(i).collection.empty())
+                collections[movie(i).collection].push_back(i);
+            if (movie(i).year > 0)
+                decades[movie(i).year / 10 * 10].push_back(i);
+        }
+        for (auto &entry : collections)
+            if (entry.second.size() >= 2)
+                add(entry.first, entry.second);
+        if (total >= 12)
+            for (auto &entry : decades)
+                if (entry.second.size() >= 3)
+                    add(i18n::format(Text::decade, std::to_string(entry.first)), entry.second);
+
+        add(tr(total >= 8 ? Text::shelf_all : Text::shelf_yours), all);
+
+        row_ = 0;
+        if (!keep.empty())
+        {
+            // Back to the same movie, in the first shelf that holds it.
+            const int wanted = lib.find(keep);
+            for (int r = 0; wanted >= 0 && r < static_cast<int>(shelves_.size()); ++r)
+            {
+                const auto &movies = shelves_[static_cast<std::size_t>(r)].movies;
+                const auto it = std::find(movies.begin(), movies.end(), wanted);
+                if (it != movies.end())
+                {
+                    row_ = r;
+                    shelves_[static_cast<std::size_t>(r)].column =
+                        static_cast<int>(it - movies.begin());
+                    break;
+                }
+            }
+        }
+        rebuild_grid(keep);
+        previous_ = shown_ = focused_movie();
+    }
+
+    void rebuild_grid(const std::string &keep)
+    {
+        const media::Library &lib = library();
+        grid_.resize(lib.size());
+        for (std::size_t i = 0; i < grid_.size(); ++i)
+            grid_[i] = static_cast<int>(i);
+        std::stable_sort(grid_.begin(), grid_.end(),
+                         [&](int a, int b)
+                         {
+                             switch (sort_)
+                             {
+                             case Sort::newest:
+                                 return movie(a).added > movie(b).added;
+                             case Sort::year:
+                                 return movie(a).year != movie(b).year
+                                            ? movie(a).year > movie(b).year
+                                            : false;
+                             default:
+                                 return false; // the library is already A to Z
+                             }
+                         });
+        grid_focus_ = 0;
+        const int wanted = keep.empty() ? -1 : lib.find(keep);
+        for (std::size_t i = 0; wanted >= 0 && i < grid_.size(); ++i)
+            if (grid_[i] == wanted)
+                grid_focus_ = static_cast<int>(i);
+    }
+
+    // ------------------------------------------------------------- update
+
+    void notify(app::Feedback &feedback, const std::string &text, audio::Cue cue)
+    {
+        toast_ = text;
+        toast_time_ = 2.6f;
+        feedback.play(cue);
+    }
+
+    void refuse(app::Feedback &feedback, const InputFrame &input)
+    {
+        if (input.nav_repeat)
+            return;
+        feedback.play(audio::Cue::error, 1.0f, 0.0f, 0.6f);
+        feedback.rumble(0.25f, 0.05f);
+        nudge_.trigger();
+    }
+
+    void update_browse(const InputFrame &input, app::Feedback &feedback)
+    {
+        if (input.is_pressed(Action::page_next) || input.is_pressed(Action::page_prev))
+        {
+            const Tab next = input.is_pressed(Action::page_next) ? Tab::movies : Tab::home;
+            if (next != tab_)
+            {
+                tab_ = next;
+                tab_age_ = 0.0f;
+                feedback.play(audio::Cue::tab, next == Tab::movies ? 1.08f : 0.94f);
+            }
+        }
+        if (input.is_pressed(Action::back) && handle_back(feedback))
+            return;
+        if (input.is_pressed(Action::menu) && svc_->rescan && !svc_->scanning)
+        {
+            svc_->rescan();
+            notify(feedback, tr(Text::looking_for_movies), audio::Cue::notify);
+        }
+
+        const int focused = focused_movie();
+        if (focused < 0)
+            return; // nothing to move over
+
+        if (tab_ == Tab::home)
+            update_shelves(input, feedback);
+        else
+            update_grid(input, feedback);
+
+        if (input.is_pressed(Action::confirm))
+        {
+            open_details(feedback);
+        }
+        else if (input.is_pressed(Action::west))
+        {
+            start_playback(focused, true, feedback);
+        }
+        else if (input.is_pressed(Action::north))
+        {
+            if (tab_ == Tab::movies)
+            {
+                sort_ = static_cast<Sort>((static_cast<int>(sort_) + 1) %
+                                          static_cast<int>(Sort::count));
+                rebuild_grid(movie(focused).id);
+                notify(feedback, i18n::format(Text::sorted_by, sort_name()), audio::Cue::tab);
+            }
+            else
+            {
+                toggle_watched(focused, feedback);
+            }
+        }
+    }
+
+    // Back steps out one level at a time: Movies to Home, then to the first
+    // film, then (asking twice, so a stray press does not close the app) out.
+    // True when the press was used.
+    bool handle_back(app::Feedback &feedback)
+    {
+        if (tab_ == Tab::movies)
+        {
+            tab_ = Tab::home;
+            tab_age_ = 0.0f;
+            feedback.play(audio::Cue::back);
+            return true;
+        }
+        if (!shelves_.empty() && (row_ != 0 || shelves_[0].column != 0))
+        {
+            row_ = 0;
+            shelves_[0].column = 0;
+            feedback.play(audio::Cue::back);
+            return true;
+        }
+        if (!svc_->quit)
+            return false;
+        if (exit_armed_ > 0.0f)
+        {
+            svc_->quit();
+            return true;
+        }
+        exit_armed_ = kExitConfirmSeconds;
+        notify(feedback, tr(Text::press_back_again), audio::Cue::notify);
+        toast_time_ = kExitConfirmSeconds;
+        return true;
+    }
+
+    const char *sort_name() const
+    {
+        switch (sort_)
+        {
+        case Sort::newest:
+            return tr(Text::sort_newest);
+        case Sort::year:
+            return tr(Text::sort_year);
+        default:
+            return tr(Text::sort_title);
+        }
+    }
+
+    void update_shelves(const InputFrame &input, app::Feedback &feedback)
+    {
+        Shelf &shelf = shelves_[static_cast<std::size_t>(row_)];
+        const int count = static_cast<int>(shelf.movies.size());
+        const int rows = static_cast<int>(shelves_.size());
+        switch (input.nav)
+        {
+        case Direction::left:
+        case Direction::right:
+        {
+            const int next = shelf.column + (input.nav == Direction::right ? 1 : -1);
+            if (next >= 0 && next < count)
+            {
+                shelf.column = next;
+                feedback.play(audio::Cue::focus, 1.0f, ui::pan_for_x(card_rect(row_, next).cx()));
+            }
+            else
+            {
+                nudge_direction_ = input.nav == Direction::right ? 1.0f : -1.0f;
+                refuse(feedback, input);
+            }
+            break;
+        }
+        case Direction::up:
+        case Direction::down:
+        {
+            const int next = row_ + (input.nav == Direction::down ? 1 : -1);
+            if (next >= 0 && next < rows)
+            {
+                row_ = next;
+                feedback.play(audio::Cue::tab, 1.12f - 0.05f * static_cast<float>(row_));
+            }
+            else
+            {
+                nudge_direction_ = 0.0f;
+                refuse(feedback, input);
+            }
+            break;
+        }
+        case Direction::none:
+            break;
+        }
+    }
+
+    void update_grid(const InputFrame &input, app::Feedback &feedback)
+    {
+        const int count = static_cast<int>(grid_.size());
+        int next = grid_focus_;
+        switch (input.nav)
+        {
+        case Direction::left:
+            next = grid_focus_ % kGridColumns == 0 ? -1 : grid_focus_ - 1;
+            break;
+        case Direction::right:
+            next = grid_focus_ % kGridColumns == kGridColumns - 1 || grid_focus_ + 1 >= count
+                       ? -1
+                       : grid_focus_ + 1;
+            break;
+        case Direction::up:
+            next = grid_focus_ - kGridColumns < 0 ? -1 : grid_focus_ - kGridColumns;
+            break;
+        case Direction::down:
+            next = grid_focus_ + kGridColumns >= count
+                       ? (grid_focus_ / kGridColumns < (count - 1) / kGridColumns ? count - 1 : -1)
+                       : grid_focus_ + kGridColumns;
+            break;
+        case Direction::none:
+            return;
+        }
+        if (next < 0)
+        {
+            nudge_direction_ = input.nav == Direction::left    ? -1.0f
+                               : input.nav == Direction::right ? 1.0f
+                                                               : 0.0f;
+            refuse(feedback, input);
+            return;
+        }
+        grid_focus_ = next;
+        feedback.play(audio::Cue::focus, 1.0f, ui::pan_for_x(grid_rect(next).cx()));
+    }
+
+    void open_details(app::Feedback &feedback)
+    {
+        screen_ = Screen::details;
+        action_ = 0;
+        action_position_.snap(0.0f);
+        feedback.play(audio::Cue::open);
+    }
+
+    std::vector<SheetAction> sheet_actions() const
+    {
+        std::vector<SheetAction> actions = {SheetAction::play};
+        const int index = focused_movie();
+        if (index >= 0 && svc_->progress.in_progress(movie(index).id))
+            actions.push_back(SheetAction::restart);
+        actions.push_back(SheetAction::watched);
+        if (svc_->refetch_cover)
+            actions.push_back(SheetAction::cover);
+        actions.push_back(SheetAction::close);
+        return actions;
+    }
+
+    void update_details(const InputFrame &input, app::Feedback &feedback)
+    {
+        const std::vector<SheetAction> actions = sheet_actions();
+        const int count = static_cast<int>(actions.size());
+        action_ = std::min(action_, count - 1);
+        if (input.nav == Direction::up || input.nav == Direction::down)
+        {
+            const int next =
+                std::clamp(action_ + (input.nav == Direction::down ? 1 : -1), 0, count - 1);
+            if (next != action_)
+            {
+                action_ = next;
+                feedback.play(audio::Cue::focus, 1.0f, 0.35f);
+            }
+        }
+        const int focused = focused_movie();
+        if (input.is_pressed(Action::confirm) && focused >= 0)
+        {
+            switch (actions[static_cast<std::size_t>(action_)])
+            {
+            case SheetAction::play:
+                start_playback(focused, true, feedback);
+                break;
+            case SheetAction::restart:
+                start_playback(focused, false, feedback);
+                break;
+            case SheetAction::watched:
+                toggle_watched(focused, feedback);
+                break;
+            case SheetAction::cover:
+            {
+                const std::string refused = svc_->refetch_cover(movie(focused).id);
+                if (refused.empty())
+                    notify(feedback, tr(Text::fetching_info), audio::Cue::notify);
+                else
+                    notify(feedback, refused, audio::Cue::error);
+                break;
+            }
+            case SheetAction::close:
+                screen_ = Screen::browse;
+                feedback.play(audio::Cue::modal_close);
+                break;
+            }
+        }
+        else if (input.is_pressed(Action::back))
+        {
+            screen_ = Screen::browse;
+            feedback.play(audio::Cue::back);
+        }
+    }
+
+    void toggle_watched(int index, app::Feedback &feedback)
+    {
+        const std::string &id = movie(index).id;
+        const bool now_watched = !svc_->progress.watched(id);
+        svc_->progress.set_watched(id, now_watched, svc_->now());
+        feedback.play(now_watched ? audio::Cue::favorite_on : audio::Cue::favorite_off);
+        toast_ = tr(now_watched ? Text::marked_watched : Text::marked_unwatched);
+        toast_time_ = 2.2f;
+        // A watched movie leaves Continue Watching.
+        ++svc_->revision;
+    }
+
+    // ------------------------------------------------------------- player
+
+    void start_playback(int index, bool resume, app::Feedback &feedback)
+    {
+        if (svc_->player == nullptr)
+        {
+            notify(feedback, tr(Text::playback_unavailable), audio::Cue::error);
+            return;
+        }
+        const media::Movie &m = movie(index);
+        const double start = resume ? svc_->progress.resume_position(m.id) : 0.0;
+        svc_->player->open(m.path, start);
+        playing_ = index;
+        screen_ = Screen::player;
+        osd_ = kOsdSeconds;
+        paused_ = false;
+        subtitles_on_ = true;
+        last_save_ = 0.0f;
+        seek_flash_ = 0.0f;
+        subtitles_ = media::Subtitles{};
+        if (!m.subtitle.empty())
+        {
+            std::string text;
+            if (save::read_file(m.subtitle, &text, 4u << 20))
+                subtitles_.parse(text);
+        }
+        feedback.play(audio::Cue::launch);
+        feedback.rumble(0.6f, 0.15f);
+    }
+
+    void save_progress()
+    {
+        if (svc_->player == nullptr || playing_ < 0)
+            return;
+        svc_->progress.update(movie(playing_).id, svc_->player->position(),
+                              svc_->player->duration(), svc_->now());
+    }
+
+    void stop_playback(app::Feedback &feedback)
+    {
+        save_progress();
+        if (svc_->player != nullptr)
+            svc_->player->close();
+        screen_ = Screen::browse;
+        ++svc_->revision; // the shelves may need a Continue Watching entry
+        feedback.play(audio::Cue::resume);
+    }
+
+    void update_player(const InputFrame &input, float dt, app::Feedback &feedback)
+    {
+        media::Player &player = *svc_->player;
+        player.update(dt);
+        osd_ = std::max(0.0f, osd_ - dt);
+        seek_flash_ = std::max(0.0f, seek_flash_ - dt);
+        last_save_ += dt;
+        const media::PlayerState state = player.state();
+
+        if (state == media::PlayerState::playing && last_save_ >= kSaveEvery)
+        {
+            last_save_ = 0.0f;
+            save_progress();
+        }
+        if (state == media::PlayerState::ended)
+        {
+            svc_->progress.set_watched(movie(playing_).id, true, svc_->now());
+            player.close();
+            screen_ = Screen::browse;
+            ++svc_->revision;
+            notify(feedback, tr(Text::finished), audio::Cue::complete);
+            return;
+        }
+        const bool usable = state == media::PlayerState::playing ||
+                            state == media::PlayerState::paused ||
+                            state == media::PlayerState::buffering;
+
+        if (input.is_pressed(Action::back))
+        {
+            stop_playback(feedback);
+            return;
+        }
+        if (state == media::PlayerState::failed || !usable)
+            return; // wait for the file to open; Circle (above) leaves
+
+        const bool any_nav = input.nav != Direction::none || input.pressed != 0;
+        if (any_nav)
+            osd_ = kOsdSeconds;
+
+        if (input.is_pressed(Action::confirm))
+        {
+            paused_ = !paused_;
+            player.pause(paused_);
+            feedback.play(paused_ ? audio::Cue::modal_open : audio::Cue::resume);
+            osd_ = paused_ ? 3600.0f : kOsdSeconds; // a paused picture keeps its controls
+        }
+        double jump = 0.0;
+        if (input.nav == Direction::left || input.nav == Direction::right)
+        {
+            // Holding the direction speeds up: 10 s, then 30 s steps.
+            const double step = input.nav_repeat ? 30.0 : 10.0;
+            jump = input.nav == Direction::right ? step : -step;
+        }
+        if (input.is_pressed(Action::jump_next) || input.is_pressed(Action::page_next))
+            jump = 60.0;
+        if (input.is_pressed(Action::jump_prev) || input.is_pressed(Action::page_prev))
+            jump = -60.0;
+        if (jump != 0.0)
+        {
+            player.seek_by(jump);
+            seek_flash_ = 0.9f;
+            seek_amount_ = static_cast<float>(jump);
+            feedback.play(audio::Cue::tick, jump > 0 ? 1.1f : 0.9f, jump > 0 ? 0.3f : -0.3f);
+            if (paused_)
+                osd_ = 3600.0f;
+        }
+        if (input.is_pressed(Action::west) && player.audio_tracks().size() > 1)
+        {
+            const int count = static_cast<int>(player.audio_tracks().size());
+            const int next = (player.audio_track() + 1) % count;
+            player.select_audio(next);
+            notify(feedback,
+                   i18n::format(Text::audio_track,
+                                player.audio_tracks()[static_cast<std::size_t>(next)].label),
+                   audio::Cue::toggle);
+        }
+        if (input.is_pressed(Action::north) && !subtitles_.empty())
+        {
+            subtitles_on_ = !subtitles_on_;
+            notify(feedback, tr(subtitles_on_ ? Text::subtitles_on : Text::subtitles_off),
+                   audio::Cue::toggle);
+        }
+        if (input.is_pressed(Action::menu))
+        {
+            info_ = !info_;
+            feedback.play(audio::Cue::tick);
+        }
+    }
+
+    // ---------------------------------------------------------- animation
+
+    void snap_layout()
+    {
+        hero_.snap(1.0f);
+        row_position_.snap(0.0f);
+        tone_.snap(tone_for(focused_movie()));
+        ring_.snap(target_rect());
+        sheet_.snap(0.0f);
+    }
+
+    Color tone_for(int index) const
+    {
+        if (index < 0)
+            return Color::rgb(0x3b4a7a);
+        const media::Movie &m = movie(index);
+        if (svc_->posters != nullptr && !m.poster.empty())
+            if (const media::Art *art = svc_->posters->get(m.poster, media::ArtKind::poster))
+                return art->tone;
+        return hsv(hash01(m.id, 1), 0.55f, 0.62f);
+    }
+
+    Rect target_rect() const
+    {
+        if (focused_movie() < 0)
+            return {kMargin, kTopFull, kCardW, kCardH};
+        return tab_ == Tab::home
+                   ? grown(card_rect(row_, shelves_[static_cast<std::size_t>(row_)].column),
+                           kCardGrow)
+                   : grown(grid_rect(grid_focus_), 1.1f);
+    }
+
+    static Rect grown(const Rect &r, float factor)
+    {
+        const float w = r.w * factor;
+        const float h = r.h * factor;
+        return {r.cx() - w * 0.5f, r.cy() - h * 0.5f, w, h};
+    }
+
+    void animate(float dt)
+    {
+        const bool calm = context_.settings.reduced_motion;
+        tab_age_ += dt;
+        toast_time_ = std::max(0.0f, toast_time_ - dt);
+
+        const int focused = focused_movie();
+        if (focused >= 0 && static_cast<std::size_t>(focused) < library().size())
+            focus_id_ = movie(focused).id;
+        if (focused != shown_)
+        {
+            previous_ = shown_;
+            shown_ = focused;
+            hero_fade_.start(calm ? 0.1f : 0.42f);
+        }
+        hero_fade_.update(dt);
+
+        hero_.target = tab_ == Tab::home && row_ == 0 ? 1.0f : 0.0f;
+        hero_.update(dt, calm ? 30.0f : 9.0f);
+        row_position_.target = static_cast<float>(row_);
+        row_position_.update(dt, 11.0f);
+        for (int r = 0; r < static_cast<int>(shelves_.size()); ++r)
+        {
+            Shelf &shelf = shelves_[static_cast<std::size_t>(r)];
+            const float start = static_cast<float>(shelf.column) * (kCardW + kCardGap);
+            shelf.scroll.reveal(start, start + kCardW * kCardGrow, gfx::kVirtualWidth - kMargin,
+                                kMargin * 2.2f);
+            shelf.scroll.update(dt, 12.0f);
+        }
+        if (tab_ == Tab::movies && !grid_.empty())
+        {
+            const float top = static_cast<float>(grid_focus_ / kGridColumns) * kGridPitchY;
+            grid_scroll_.reveal(top, top + kGridH * 1.1f + 20.0f,
+                                gfx::kVirtualHeight - kGridTop - 60.0f, 40.0f);
+            grid_scroll_.update(dt, 12.0f);
+        }
+        tone_.target(tone_for(focused));
+        tone_.update(dt, 4.0f);
+
+        ring_.target(target_rect());
+        ring_.update(dt, 20.0f);
+        nudge_.update(dt, 9.0f);
+        sheet_.target = screen_ == Screen::details ? 1.0f : 0.0f;
+        sheet_.update(dt, calm ? 40.0f : 13.0f);
+        action_position_.target = static_cast<float>(action_);
+        action_position_.update(dt, 22.0f);
+        osd_show_.target = osd_ > 0.0f ? 1.0f : 0.0f;
+        osd_show_.update(dt, 12.0f);
+    }
+
+    // ------------------------------------------------------------ layout
+
+    // A shelf card's rectangle at rest (the focused one grows around it).
+    Rect card_rect(int row, int column) const
+    {
+        const Shelf &shelf = shelves_[static_cast<std::size_t>(row)];
+        const float extra = kCardW * (kCardGrow - 1.0f);
+        float x =
+            kMargin + static_cast<float>(column) * (kCardW + kCardGap) - shelf.scroll.offset();
+        if (row == row_)
+        {
+            if (column < shelf.column)
+                x -= extra * 0.5f;
+            else if (column > shelf.column)
+                x += extra * 0.5f;
+        }
+        return {x, shelf_top(row), kCardW, kCardH};
+    }
+
+    float focus_top() const
+    {
+        return tween::lerp(kTopCompact, kTopFull, tween::clamp01(hero_.value));
+    }
+
+    float shelf_top(int row) const
+    {
+        return focus_top() + (static_cast<float>(row) - row_position_.value) * kRowPitch;
+    }
+
+    Rect grid_rect(int index) const
+    {
+        const int row = index / kGridColumns;
+        const int column = index % kGridColumns;
+        return {kMargin + static_cast<float>(column) * kGridPitchX,
+                kGridTop + static_cast<float>(row) * kGridPitchY - grid_scroll_.offset(), kGridW,
+                kGridH};
+    }
+
+    // --------------------------------------------------------- drawing
+
+    // The art for one card, or a generated cover. alpha fades the whole card.
+    void draw_poster(gfx::DrawList &list, int index, const Rect &rect, float radius,
+                     float alpha) const
+    {
+        const media::Movie &m = movie(index);
+        const media::Art *art = nullptr;
+        if (svc_->posters != nullptr && !m.poster.empty())
+            art = svc_->posters->get(m.poster, media::ArtKind::poster);
+        // The generated cover stays underneath while the picture fades in.
+        float fade = 0.0f;
+        if (art != nullptr)
+        {
+            auto it = seen_.find(m.poster);
+            if (it == seen_.end())
+            {
+                if (seen_.size() > 800)
+                    seen_.clear();
+                it = seen_.emplace(m.poster, clock_).first;
+            }
+            fade = tween::clamp01((clock_ - it->second) / 0.3f);
+        }
+        if (fade < 1.0f)
+            draw_generated_cover(list, m, rect, radius, alpha);
+        if (art != nullptr)
+        {
+            const Rect uv = cover_uv(static_cast<float>(art->width),
+                                     static_cast<float>(art->height), rect.w / rect.h);
+            list.image(art->texture, rect, uv, Color{1, 1, 1, alpha * fade}, radius);
+        }
+        if (const float done = svc_->progress.fraction(m.id); done > 0.0f)
+        {
+            const Rect bar{rect.x + rect.w * 0.08f, rect.y + rect.h - 16.0f, rect.w * 0.84f, 5.0f};
+            list.rounded_rect(bar, 2.5f, Color::rgb(0x000000, 0.6f * alpha));
+            list.rounded_rect({bar.x, bar.y, std::max(5.0f, bar.w * done), bar.h}, 2.5f,
+                              kAccent.with_alpha(alpha));
+        }
+        else if (svc_->progress.watched(m.id))
+        {
+            const float r = rect.w * 0.075f;
+            const float cx = rect.x + rect.w - r * 1.8f;
+            const float cy = rect.y + r * 1.8f;
+            list.circle(cx, cy, r, Color::rgb(0x000000, 0.7f * alpha));
+            list.line(cx - r * 0.45f, cy + r * 0.05f, cx - r * 0.1f, cy + r * 0.4f, 2.4f,
+                      kInk.with_alpha(alpha));
+            list.line(cx - r * 0.1f, cy + r * 0.4f, cx + r * 0.5f, cy - r * 0.35f, 2.4f,
+                      kInk.with_alpha(alpha));
+        }
+        if (m.quality == "4K")
+        {
+            const float w = rect.w * 0.2f;
+            list.rounded_rect({rect.x + rect.w * 0.07f, rect.y + rect.w * 0.07f, w, rect.w * 0.12f},
+                              4, kBlack.with_alpha(0.72f * alpha));
+            ui::text(list, context_.fonts.semibold, "4K", rect.x + rect.w * 0.07f + w * 0.5f,
+                     rect.y + rect.w * 0.07f + rect.w * 0.095f, rect.w * 0.085f,
+                     kInk.with_alpha(alpha), gfx::Align::center);
+        }
+    }
+
+    void draw_generated_cover(gfx::DrawList &list, const media::Movie &m, const Rect &rect,
+                              float radius, float alpha) const
+    {
+        const float hue = hash01(m.id, 7);
+        const Color top = hsv(hue, 0.52f, 0.58f).with_alpha(alpha);
+        const Color bottom = hsv(hue + 0.06f, 0.62f, 0.2f).with_alpha(alpha);
+        list.gradient_rect(rect, radius, top, bottom);
+        list.circle(rect.x + rect.w * 0.82f, rect.y + rect.h * 0.18f, rect.w * 0.42f,
+                    Color{1, 1, 1, 0.06f * alpha});
+        list.circle(rect.x + rect.w * 0.1f, rect.y + rect.h * 0.9f, rect.w * 0.55f,
+                    Color{0, 0, 0, 0.12f * alpha});
+        const float size = rect.w * 0.125f;
+        const float pad = rect.w * 0.1f;
+        ui::paragraph(list, context_.fonts.display, m.title, rect.x + pad, rect.y + rect.h * 0.62f,
+                      size, rect.w - 2.0f * pad, size * 1.22f, kInk.with_alpha(alpha), 4);
+        if (m.year > 0)
+        {
+            char year[16];
+            std::snprintf(year, sizeof(year), "%d", m.year);
+            ui::text(list, context_.fonts.semibold, year, rect.x + pad,
+                     rect.y + rect.h - pad * 0.9f, size * 0.82f, kInk.with_alpha(0.7f * alpha),
+                     gfx::Align::left, 2.0f);
+        }
+    }
+
+    void draw_page(app::Frame &frame) const
+    {
+        const Color tone = tone_.value();
+        frame.backdrop.mode = gfx::BackdropMode::gradient;
+        frame.backdrop.colors[0] = gfx::mix(tone, kBlack, 0.82f);
+        frame.backdrop.colors[1] = kBlack;
+        frame.backdrop.colors[2] = gfx::mix(tone, kBlack, 0.45f);
+        frame.backdrop.params[0] = 0.78f;
+        frame.backdrop.params[1] = 0.12f;
+        frame.backdrop.params[2] = 0.55f;
+        frame.backdrop.time = clock_;
+
+        gfx::DrawList &list = frame.scene;
+        const float back = tween::clamp01(sheet_.value);
+        // Once the details cover the screen the page below is not drawn at all.
+        if (back < 0.999f)
+        {
+            list.push_transform(1.0f + 0.04f * back, 960, 540, 0, 0);
+            if (library().size() == 0)
+            {
+                draw_top_bar(list);
+                draw_empty(list);
+            }
+            else if (tab_ == Tab::home)
+            {
+                draw_hero(list);
+                draw_shelves(list);
+                draw_top_bar(list);
+            }
+            else
+            {
+                draw_grid(list);
+                draw_top_bar(list);
+            }
+            list.pop_transform();
+        }
+        if (back > 0.01f && focused_movie() >= 0)
+            draw_details(list);
+        draw_toast(back > 0.5f ? frame.overlay : list);
+        draw_hints(back > 0.5f ? frame.overlay : list);
+    }
+
+    void draw_top_bar(gfx::DrawList &list) const
+    {
+        const ui::Fonts &fonts = context_.fonts;
+        const float in = tween::stagger(age_, 0, 0.05f, 0.5f);
+        list.push_opacity(in);
+        // A scrim keeps the bar legible over any billboard.
+        list.gradient_rect({0, 0, gfx::kVirtualWidth, 170}, 0, kBlack.with_alpha(0.78f),
+                           kBlack.with_alpha(0.0f));
+        const float y = 86.0f - 8.0f * (1.0f - in);
+        float x = ui::text(list, fonts.display, "MEDIATHEK", kMargin, y, 30, kAccent,
+                           gfx::Align::left, 5.0f);
+        // Version and author, small, under the logo.
+        ui::text(list, fonts.regular, "v0.2.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
+                 kInk.with_alpha(0.5f), gfx::Align::left, 1.0f);
+        x = kMargin + x + 64.0f;
+        const char *tabs[] = {tr(Text::tab_home), tr(Text::tab_movies)};
+        for (int i = 0; i < 2; ++i)
+        {
+            const bool active = static_cast<int>(tab_) == i;
+            const float w = ui::text(list, active ? fonts.semibold : fonts.regular, tabs[i], x,
+                                     y - 2, 26, kInk.with_alpha(active ? 1.0f : 0.55f));
+            if (active)
+            {
+                const float slide = tween::clamp01(tab_age_ / 0.3f);
+                list.rounded_rect({x, y + 14, w * tween::cubic_out(slide), 4}, 2, kAccent);
+            }
+            x += w + 44.0f;
+        }
+        if (!svc_->library.movies().empty() || svc_->scanning)
+        {
+            ui::text(list, fonts.regular,
+                     svc_->scanning && library().size() == 0 ? tr(Text::scanning)
+                                                             : i18n::movie_count(library().size()),
+                     gfx::kVirtualWidth - kMargin, y - 2, 22, kInk.with_alpha(0.6f),
+                     gfx::Align::right);
+        }
+        if (svc_->scanning)
+        {
+            const float cx = gfx::kVirtualWidth - kMargin - 150.0f -
+                             fonts.regular.measure(i18n::movie_count(9999), 22);
+            list.arc(cx, y - 9, 11, 3, clock_ * 5.0f, 4.2f, kInk.with_alpha(0.8f));
+        }
+        list.pop_opacity();
+    }
+
+    static std::string fit(const ui::FontRef &font, const std::string &text, float size,
+                           float width)
+    {
+        return font.font->fit(text, size, width);
+    }
+
+    // One movie's billboard text, drawn at an opacity and a slide so two can cross-fade.
+    void draw_hero_item(gfx::DrawList &list, int index, float alpha, float slide) const
+    {
+        if (alpha <= 0.01f || index < 0 || static_cast<std::size_t>(index) >= library().size())
+            return;
+        const ui::Fonts &fonts = context_.fonts;
+        const media::Movie &m = movie(index);
+        const float h = tween::clamp01(hero_.value);
+        list.push_opacity(alpha);
+
+        const float x = kMargin + slide;
+        const Shelf &shelf = shelves_[static_cast<std::size_t>(row_)];
+        const float title_size = tween::lerp(54.0f, 86.0f, h);
+        const float title_y = tween::lerp(268.0f, 338.0f, h);
+        // The red line names the shelf, which helps for "Continue Watching" or a
+        // collection; "Your Movies" and "All Movies" say nothing the shelf title below
+        // does not.
+        const bool generic =
+            shelf.title == tr(Text::shelf_yours) || shelf.title == tr(Text::shelf_all);
+        if (h > 0.02f && !generic)
+            ui::text(list, fonts.semibold, ui::upper(shelf.title), x, title_y - 108.0f * h - 8.0f,
+                     19, kAccent.with_alpha(h), gfx::Align::left, 4.0f);
+        float size = title_size;
+        const float width = fonts.display.measure(m.title, size);
+        const float max_width = 1000.0f;
+        if (width > max_width)
+            size = std::max(title_size * 0.62f, size * max_width / width);
+        ui::text(list, fonts.display, fit(fonts.display, m.title, size, max_width), x - 3, title_y,
+                 size, kInk);
+        const float meta_y = title_y + tween::lerp(40.0f, 52.0f, h);
+        ui::text(list, fonts.regular, meta_line(m), x, meta_y, tween::lerp(23.0f, 26.0f, h),
+                 kInk.with_alpha(0.78f));
+
+        if (h > 0.02f)
+        {
+            list.push_opacity(h);
+            const float bar_y = meta_y + 34.0f;
+            const float done = svc_->progress.fraction(m.id);
+            if (done > 0.0f)
+            {
+                const Rect bar{x, bar_y, 360, 6};
+                list.rounded_rect(bar, 3, kInk.with_alpha(0.2f));
+                list.rounded_rect({bar.x, bar.y, std::max(6.0f, bar.w * done), bar.h}, 3, kAccent);
+                const std::string text =
+                    i18n::format(Text::time_left, format_time(svc_->progress.find(m.id)->duration -
+                                                              svc_->progress.find(m.id)->position));
+                ui::text(list, fonts.regular, text, bar.x + bar.w + 20, bar.y + 10, 21,
+                         kInk.with_alpha(0.7f));
+            }
+            const float by = bar_y + (done > 0.0f ? 36.0f : 6.0f);
+            const bool resuming = svc_->progress.in_progress(m.id);
+            const Rect play{x, by, resuming ? 250.0f : 214.0f, 64};
+            list.glow(play, 32, 20, kAccent.with_alpha(0.32f));
+            list.rounded_rect(play, 32, kInk);
+            list.triangle({play.x + 30, play.cy() - 13, 24, 26}, kBlack, 0.0f, 1.5708f);
+            ui::text(list, fonts.semibold, tr(resuming ? Text::button_resume : Text::button_play),
+                     play.x + 74, play.cy() + 10, 28, kBlack);
+            const Rect more{play.x + play.w + 20, by, 214, 64};
+            list.bordered_rect(more, 32, kInk.with_alpha(0.1f), 2, kInk.with_alpha(0.32f));
+            ui::draw_button(list, fonts, ui::GlyphStyle::dark(), ui::Button::cross, more.x + 20,
+                            more.cy(), 34);
+            ui::text(list, fonts.semibold, tr(Text::button_details), more.x + 70, more.cy() + 10,
+                     26, kInk);
+            list.pop_opacity();
+        }
+        list.pop_opacity();
+    }
+
+    void draw_backdrop_art(gfx::DrawList &list, int index, float alpha) const
+    {
+        if (alpha <= 0.01f || index < 0 || static_cast<std::size_t>(index) >= library().size())
+            return;
+        const media::Movie &m = movie(index);
+        const float h = tween::clamp01(hero_.value);
+        const float height = tween::lerp(560.0f, 900.0f, h);
+        const Rect area{0, 0, gfx::kVirtualWidth, height};
+        const Color tone = tone_.value();
+
+        const media::Art *wide = nullptr;
+        if (svc_->posters != nullptr && !m.backdrop.empty())
+            wide = svc_->posters->get(m.backdrop, media::ArtKind::backdrop);
+        if (wide != nullptr)
+        {
+            const Rect uv = cover_uv(static_cast<float>(wide->width),
+                                     static_cast<float>(wide->height), area.w / area.h);
+            const float strength = tween::lerp(0.3f, 0.92f, h) * alpha;
+            list.image_gradient(wide->texture, area, uv, Color{1, 1, 1, strength},
+                                Color{1, 1, 1, 0.0f * strength});
+        }
+        else
+        {
+            // No fanart: the poster itself, large, on the right.
+            const media::Art *poster = nullptr;
+            if (svc_->posters != nullptr && !m.poster.empty())
+                poster = svc_->posters->get(m.poster, media::ArtKind::poster);
+            const float bob =
+                context_.settings.reduced_motion ? 0.0f : std::sin(clock_ * 0.8f) * 5.0f;
+            const Rect art{1290.0f, 120.0f + bob - 40.0f * (1.0f - h), 400.0f, 600.0f};
+            list.push_opacity(alpha * h);
+            list.glow(art.inset(40), 40, 100, tone.with_alpha(0.28f));
+            list.shadow({art.x, art.y + 30, art.w, art.h}, 28, 50, Color::rgb(0x000000, 0.6f));
+            if (poster != nullptr)
+                list.image(poster->texture, art,
+                           cover_uv(static_cast<float>(poster->width),
+                                    static_cast<float>(poster->height), art.w / art.h),
+                           kInk, 24);
+            else
+                draw_generated_cover(list, m, art, 24, 1.0f);
+            list.bordered_rect(art, 24, Color{0, 0, 0, 0}, 2, kInk.with_alpha(0.14f));
+            list.pop_opacity();
+        }
+        // Scrims. Nothing may end in a hard edge: the page behind is tinted, so
+        // a black block that stops at `height` shows up as a seam across the
+        // shelves. The text-side scrim is therefore stepped down to nothing at
+        // the bottom, and the vertical one is a bump that returns to zero.
+        constexpr float kFade = 280.0f;
+        constexpr int kSteps = 28;
+        const float side = 0.86f * alpha;
+        list.gradient_rect_h({0, 0, 1280, std::round(height - kFade)}, 0, kBlack.with_alpha(side),
+                             kBlack.with_alpha(0.0f));
+        // Whole-pixel strips that touch but do not overlap: overlaps double
+        // the alpha and fractional edges leave hairlines.
+        for (int i = 0; i < kSteps; ++i)
+        {
+            const float t = (static_cast<float>(i) + 0.5f) / static_cast<float>(kSteps);
+            const float y0 = std::round(height - kFade +
+                                        kFade * static_cast<float>(i) / static_cast<float>(kSteps));
+            const float y1 = std::round(
+                height - kFade + kFade * static_cast<float>(i + 1) / static_cast<float>(kSteps));
+            list.gradient_rect_h({0, y0, 1280, y1 - y0}, 0, kBlack.with_alpha(side * (1.0f - t)),
+                                 kBlack.with_alpha(0.0f));
+        }
+        const float peak = tween::lerp(0.35f, 0.85f, h) * alpha;
+        list.gradient_rect({0, height - 440, gfx::kVirtualWidth, 260}, 0, kBlack.with_alpha(0.0f),
+                           kBlack.with_alpha(peak));
+        list.gradient_rect({0, height - 180, gfx::kVirtualWidth, 180}, 0, kBlack.with_alpha(peak),
+                           kBlack.with_alpha(0.0f));
+    }
+
+    void draw_hero(gfx::DrawList &list) const
+    {
+        const float in = tween::stagger(age_, 1, 0.08f, 0.6f);
+        list.push_opacity(in);
+        if (hero_fade_.running)
+        {
+            const float t = hero_fade_.progress();
+            draw_backdrop_art(list, previous_, 1.0f - tween::smoothstep(t));
+            draw_backdrop_art(list, shown_, tween::smoothstep(t));
+            draw_hero_item(list, previous_, 1.0f - tween::smoothstep(t * 2.2f),
+                           -36.0f * tween::cubic_in(tween::clamp01(t * 2.2f)));
+            const float arrive = tween::clamp01((t - 0.25f) / 0.75f);
+            draw_hero_item(list, shown_, tween::smoothstep(arrive),
+                           44.0f * (1.0f - tween::quint_out(arrive)));
+        }
+        else
+        {
+            draw_backdrop_art(list, shown_, 1.0f);
+            draw_hero_item(list, shown_, 1.0f, 30.0f * (1.0f - in));
+        }
+        list.pop_opacity();
+    }
+
+    void draw_shelves(gfx::DrawList &list) const
+    {
+        const ui::Fonts &fonts = context_.fonts;
+        const float nudge = ui::shake(nudge_.value, clock_, 16.0f, 8.0f) * nudge_direction_;
+        for (int r = 0; r < static_cast<int>(shelves_.size()); ++r)
+        {
+            const Shelf &shelf = shelves_[static_cast<std::size_t>(r)];
+            const float distance = static_cast<float>(r) - row_position_.value;
+            // Shelves above the focused one are gone; the one below peeks in.
+            const float visible =
+                tween::clamp01(1.0f + distance * 2.5f) *
+                (distance > 0.0f ? 1.0f - 0.35f * tween::clamp01(distance) : 1.0f);
+            if (visible <= 0.01f)
+                continue;
+            const float in = tween::stagger(age_, 3 + r, 0.09f, 0.6f);
+            list.push_opacity(visible * in);
+            const float y = shelf_top(r) + 40.0f * (1.0f - in);
+            ui::text(list, fonts.semibold, shelf.title, kMargin, y - 46, 25,
+                     kInk.with_alpha(r == row_ ? 0.96f : 0.62f));
+            if (r == row_)
+            {
+                char count[24];
+                std::snprintf(count, sizeof(count), "%d / %zu", shelf.column + 1,
+                              shelf.movies.size());
+                ui::text(list, fonts.mono, count, gfx::kVirtualWidth - kMargin, y - 46, 20,
+                         kInk.with_alpha(0.45f), gfx::Align::right);
+            }
+            for (int c = 0; c < static_cast<int>(shelf.movies.size()); ++c)
+            {
+                Rect rect = card_rect(r, c);
+                rect.y = y;
+                if (rect.x > gfx::kVirtualWidth || rect.x + rect.w < -80.0f)
+                    continue;
+                if (r == row_ && c == shelf.column)
+                    continue; // drawn last, on top
+                draw_poster(list, shelf.movies[static_cast<std::size_t>(c)], rect, 14,
+                            r == row_ ? 0.94f : 0.7f);
+            }
+            list.pop_opacity();
+        }
+
+        // The focused card: grown, lifted, ringed.
+        if (focused_movie() < 0)
+            return;
+        Rect ring = ring_.value();
+        ring.x += nudge;
+        const float in = tween::stagger(age_, 3 + row_, 0.09f, 0.6f);
+        list.push_opacity(in);
+        draw_focused_card(list, focused_movie(), ring);
+        list.pop_opacity();
+    }
+
+    void draw_focused_card(gfx::DrawList &list, int index, const Rect &ring) const
+    {
+        const Color tone = tone_.value();
+        list.shadow({ring.x, ring.y + 20, ring.w, ring.h}, 18, 36, Color::rgb(0x000000, 0.65f));
+        list.glow(ring, 18, 26, tone.with_alpha(0.38f + 0.14f * ui::breathe(clock_)));
+        draw_poster(list, index, ring, 14, 1.0f);
+        list.bordered_rect(ring.inset(-4), 17, Color{0, 0, 0, 0}, 3.5f, kInk);
+    }
+
+    void draw_grid(gfx::DrawList &list) const
+    {
+        const ui::Fonts &fonts = context_.fonts;
+        const float in = tween::stagger(tab_age_, 0, 0.0f, 0.35f);
+        list.push_opacity(in);
+        // Header: what this page is, and how it is sorted.
+        ui::text(list, fonts.display, tr(Text::shelf_all), kMargin, 168, 34, kInk);
+        ui::text(list, fonts.regular, i18n::format(Text::sorted_by, sort_name()),
+                 gfx::kVirtualWidth - kMargin, 164, 22, kInk.with_alpha(0.6f), gfx::Align::right);
+
+        list.push_clip({0, kGridFadeTop, gfx::kVirtualWidth, gfx::kVirtualHeight - kGridFadeTop});
+        const float nudge = ui::shake(nudge_.value, clock_, 14.0f, 8.0f) * nudge_direction_;
+        for (int i = 0; i < static_cast<int>(grid_.size()); ++i)
+        {
+            Rect rect = grid_rect(i);
+            if (rect.y > gfx::kVirtualHeight || rect.y + rect.h < kGridTop - 40.0f)
+                continue;
+            if (i == grid_focus_)
+                continue;
+            const float appear =
+                tween::stagger(tab_age_, (i / kGridColumns) + (i % kGridColumns) / 3, 0.03f, 0.4f);
+            rect.y += 24.0f * (1.0f - appear);
+            // A card leaving upwards fades as it passes the header, not cut off by it.
+            const float leaving = tween::smoothstep(
+                tween::clamp01((rect.y + rect.h * 0.95f - kGridFadeTop) / 120.0f));
+            list.push_opacity(appear * leaving);
+            draw_poster(list, grid_[static_cast<std::size_t>(i)], rect, 12, 0.88f);
+            list.pop_opacity();
+        }
+        if (!grid_.empty())
+        {
+            Rect ring = ring_.value();
+            ring.x += nudge;
+            draw_focused_card(list, grid_[static_cast<std::size_t>(grid_focus_)], ring);
+        }
+        list.pop_clip();
+        list.pop_opacity();
+
+        // The focused movie, bottom left.
+        if (const int focused = focused_movie(); focused >= 0)
+        {
+            const media::Movie &m = movie(focused);
+            // Opaque under the hint row, or the covers read through its text.
+            list.gradient_rect({0, 850, gfx::kVirtualWidth, 130}, 0, kBlack.with_alpha(0.0f),
+                               kBlack.with_alpha(0.97f));
+            list.rounded_rect({0, 980, gfx::kVirtualWidth, 100}, 0, kBlack.with_alpha(0.97f));
+            ui::text(list, fonts.semibold, fit(fonts.semibold, m.title, 30, 1000), kMargin, 1000,
+                     30, kInk);
+            ui::text(list, fonts.regular, meta_line(m), kMargin, 1036, 22, kInk.with_alpha(0.65f));
+        }
+    }
+
+    void draw_empty(gfx::DrawList &list) const
+    {
+        const ui::Fonts &fonts = context_.fonts;
+        const float in = tween::stagger(age_, 1, 0.08f, 0.7f);
+        list.push_opacity(in);
+        const float cx = gfx::kVirtualWidth * 0.5f;
+        const float cy = 470.0f - 20.0f * (1.0f - in);
+        // A film reel drawn from shapes.
+        list.circle(cx, cy - 120, 78, kInk.with_alpha(0.08f));
+        list.ring(cx, cy - 120, 78, 5, kInk.with_alpha(0.5f));
+        for (int i = 0; i < 6; ++i)
+        {
+            const float a = clock_ * 0.4f + static_cast<float>(i) * 1.0471976f;
+            list.circle(cx + std::sin(a) * 44, cy - 120 - std::cos(a) * 44, 13,
+                        kInk.with_alpha(0.55f));
+        }
+        list.circle(cx, cy - 120, 9, kInk.with_alpha(0.7f));
+        ui::text(list, fonts.display,
+                 tr(svc_->scanning ? Text::looking_for_movies : Text::no_movies_found), cx, cy + 30,
+                 52, kInk, gfx::Align::center);
+        ui::text(list, fonts.regular, tr(Text::put_files_in), cx, cy + 90, 26,
+                 kInk.with_alpha(0.7f), gfx::Align::center);
+        const char *places[] = {tr(Text::place_internal), tr(Text::place_usb),
+                                tr(Text::place_extended)};
+        for (int i = 0; i < 3; ++i)
+            ui::text(list, fonts.mono, places[i], cx, cy + 148 + static_cast<float>(i) * 40, 24,
+                     kInk.with_alpha(0.9f), gfx::Align::center);
+        ui::text(list, fonts.regular, tr(Text::name_them), cx, cy + 300, 22, kInk.with_alpha(0.55f),
+                 gfx::Align::center);
+        if (!svc_->scan_note.empty())
+            ui::text(list, fonts.regular, svc_->scan_note, cx, cy + 346, 22, kAccent,
+                     gfx::Align::center);
+        list.pop_opacity();
+    }
+
+    // The wallpaper of the page behind the details, over the whole screen. A
+    // film without one leaves the tinted page colour, with a glow.
+    void draw_details_art(gfx::DrawList &list, int index, float t) const
+    {
+        const media::Movie &m = movie(index);
+        const Color tone = tone_.value();
+        const media::Art *wide = nullptr;
+        if (svc_->posters != nullptr && !m.backdrop.empty())
+            wide = svc_->posters->get(m.backdrop, media::ArtKind::backdrop);
+        // It drifts out to its full size as the page opens, like the hero.
+        const float grow = 28.0f * (1.0f - t);
+        const Rect area{-grow, -grow * 0.5625f, gfx::kVirtualWidth + 2.0f * grow,
+                        gfx::kVirtualHeight + 1.125f * grow};
+        if (wide != nullptr)
+        {
+            const Rect uv = cover_uv(static_cast<float>(wide->width),
+                                     static_cast<float>(wide->height), area.w / area.h);
+            list.image_gradient(wide->texture, area, uv, Color{1, 1, 1, 0.92f * t},
+                                Color{1, 1, 1, 0.5f * t});
+        }
+        else
+        {
+            list.glow({1100, 120, 800, 800}, 400, 220, tone.with_alpha(0.3f * t));
+        }
+        // The text side stays dark whatever the picture is; the bottom keeps the
+        // button hints readable.
+        list.gradient_rect_h({0, 0, 1500, gfx::kVirtualHeight}, 0, kBlack.with_alpha(0.86f * t),
+                             kBlack.with_alpha(0.0f));
+        list.gradient_rect({0, 560, gfx::kVirtualWidth, 520}, 0, kBlack.with_alpha(0.0f),
+                           kBlack.with_alpha(0.78f * t));
+    }
+
+    // The full-screen page of one movie: the cover on the left, the facts and
+    // the description in the middle, the actions on the right.
+    void draw_details(gfx::DrawList &list) const
+    {
+        const int index = focused_movie();
+        if (index < 0)
+            return;
+        const ui::Fonts &fonts = context_.fonts;
+        const media::Movie &m = movie(index);
+        const float t = tween::clamp01(sheet_.value);
+        const Color tone = tone_.value();
+
+        // A veil of the page colour hides the page behind it: fading the page
+        // itself would turn its shadows grey.
+        list.rounded_rect({0, 0, gfx::kVirtualWidth, gfx::kVirtualHeight}, 0,
+                          gfx::mix(tone, kBlack, 0.82f).with_alpha(t));
+        draw_details_art(list, index, t);
+
+        constexpr float kCenter = gfx::kVirtualHeight * 0.5f;
+        constexpr float kColumn = 600.0f;
+        constexpr float kColumnWidth = 760.0f;
+
+        // The cover, vertically centred, sliding in from the left.
+        const float arrive = tween::stagger(t, 0, 0.12f, 0.6f);
+        const Rect art{120.0f - 40.0f * (1.0f - arrive), kCenter - 300.0f, 400, 600};
+        list.push_opacity(arrive);
+        list.glow(art.inset(40), 40, 100, tone.with_alpha(0.3f));
+        list.shadow({art.x, art.y + 30, art.w, art.h}, 28, 50, Color::rgb(0x000000, 0.6f));
+        draw_poster(list, index, art, 24, 1.0f);
+        list.bordered_rect(art, 24, Color{0, 0, 0, 0}, 2, kInk.with_alpha(0.14f));
+        list.pop_opacity();
+
+        // Title and the facts the Home billboard shows.
+        const float head = tween::stagger(t, 1, 0.12f, 0.6f);
+        const float top = art.y;
+        list.push_opacity(head);
+        const std::string label = m.collection.empty() ? m.drive : m.collection;
+        ui::text(list, fonts.semibold, ui::upper(label), kColumn, top + 36, 19, kAccent,
+                 gfx::Align::left, 4.0f);
+        float size = 78.0f;
+        const float width = fonts.display.measure(m.title, size);
+        if (width > kColumnWidth)
+            size = std::max(50.0f, size * kColumnWidth / width);
+        ui::text(list, fonts.display, fit(fonts.display, m.title, size, kColumnWidth), kColumn - 3,
+                 top + 36 + 14 + size * 0.86f, size, kInk);
+        const float meta_y = top + 36 + 14 + size * 0.86f + 52.0f;
+        ui::text(list, fonts.regular, meta_line(m), kColumn, meta_y, 26, kInk.with_alpha(0.78f));
+        const double resume = svc_->progress.resume_position(m.id);
+        float y = meta_y + 30.0f;
+        const float done = svc_->progress.fraction(m.id);
+        if (done > 0.0f)
+        {
+            const Rect bar{kColumn, y, 360, 6};
+            list.rounded_rect(bar, 3, kInk.with_alpha(0.2f));
+            list.rounded_rect({bar.x, bar.y, std::max(6.0f, bar.w * done), bar.h}, 3, kAccent);
+            const media::Watch *entry = svc_->progress.find(m.id);
+            if (entry != nullptr)
+                ui::text(
+                    list, fonts.regular,
+                    i18n::format(Text::time_left, format_time(entry->duration - entry->position)),
+                    bar.x + bar.w + 20, bar.y + 10, 21, kInk.with_alpha(0.7f));
+            y += 30.0f;
+        }
+        list.pop_opacity();
+
+        // The description, from TMDB; a film it does not know has none.
+        const float body = tween::stagger(t, 2, 0.12f, 0.6f);
+        list.push_opacity(body);
+        constexpr float kLine = 36.0f;
+        const float text_y = y + 40.0f + 8.0f * (1.0f - body);
+        // The file and status sit at the foot of the cover; a long description stops
+        // (with an ellipsis) a line above their labels instead of running into them.
+        const float facts_y = art.y + art.h - 4.0f;
+        const int fits = static_cast<int>((facts_y - 30.0f - 40.0f - text_y) / kLine) + 1;
+        if (!m.overview.empty())
+            ui::paragraph(list, fonts.regular, m.overview, kColumn, text_y, 24, kColumnWidth, kLine,
+                          kInk.with_alpha(0.86f), std::clamp(fits, 1, 9));
+        else
+            ui::paragraph(list, fonts.regular,
+                          tr(svc_->refetch_cover ? Text::no_description_try : Text::no_description),
+                          kColumn, text_y, 24, kColumnWidth, kLine, kInk.with_alpha(0.5f), 3);
+        list.pop_opacity();
+
+        // The file and where the viewer stands, small, under the description.
+        const float facts = tween::stagger(t, 3, 0.12f, 0.6f);
+        list.push_opacity(facts);
+        const std::string file =
+            m.path.substr(m.path.rfind('/') == std::string::npos ? 0 : m.path.rfind('/') + 1);
+        const std::string status = svc_->progress.watched(m.id) ? tr(Text::status_watched)
+                                   : resume > 0.0
+                                       ? i18n::format(Text::status_at, format_time(resume))
+                                       : tr(Text::status_not_started);
+        ui::text(list, fonts.semibold, tr(Text::label_file), kColumn, facts_y - 30, 15,
+                 kInk.with_alpha(0.5f), gfx::Align::left, 3.0f);
+        ui::text(list, fonts.mono, fit(fonts.mono, file, 20, 440), kColumn, facts_y, 20,
+                 kInk.with_alpha(0.9f));
+        ui::text(list, fonts.semibold, tr(Text::label_status), kColumn + 480, facts_y - 30, 15,
+                 kInk.with_alpha(0.5f), gfx::Align::left, 3.0f);
+        ui::text(list, fonts.semibold,
+                 status + (m.subtitle.empty()
+                               ? ""
+                               : std::string("  \xC2\xB7  ") + tr(Text::status_subtitles)),
+                 kColumn + 480, facts_y, 24, kInk);
+        list.pop_opacity();
+
+        // Actions: one highlight that springs between the rows.
+        const std::vector<SheetAction> actions = sheet_actions();
+        const float ax = 1824.0f - 384.0f + 36.0f * (1.0f - tween::stagger(t, 2, 0.12f, 0.6f));
+        const float ay = kCenter - (static_cast<float>(actions.size()) * 84.0f - 12.0f) * 0.5f;
+        list.push_opacity(tween::stagger(t, 2, 0.12f, 0.6f));
+        list.rounded_rect({ax, ay + action_position_.value * 84, 384, 72}, 36, kInk);
+        for (std::size_t i = 0; i < actions.size(); ++i)
+        {
+            const bool focused = static_cast<int>(i) == action_;
+            const float row = ay + static_cast<float>(i) * 84;
+            std::string text;
+            switch (actions[i])
+            {
+            case SheetAction::play:
+                text = resume > 0.0 ? i18n::format(Text::resume_from, format_time(resume))
+                                    : tr(Text::button_play);
+                break;
+            case SheetAction::restart:
+                text = tr(Text::start_over);
+                break;
+            case SheetAction::watched:
+                text = tr(svc_->progress.watched(m.id) ? Text::mark_unwatched : Text::mark_watched);
+                break;
+            case SheetAction::cover:
+                text = tr(Text::refresh_info);
+                break;
+            case SheetAction::close:
+                text = tr(Text::action_back);
+                break;
+            }
+            if (!focused)
+                list.bordered_rect({ax, row, 384, 72}, 36, kInk.with_alpha(0.08f), 1.5f,
+                                   kInk.with_alpha(0.22f));
+            ui::text(list, fonts.semibold, text, ax + 36, row + 46, 25,
+                     focused ? kBlack : kInk.with_alpha(0.9f));
+        }
+        list.pop_opacity();
+    }
+
+    void draw_toast(gfx::DrawList &list) const
+    {
+        if (toast_time_ <= 0.0f || toast_.empty())
+            return;
+        const ui::Fonts &fonts = context_.fonts;
+        const float a =
+            tween::clamp01(std::min(toast_time_ * 4.0f, (2.6f - toast_time_) * 6.0f + 0.001f));
+        const float w = fonts.semibold.measure(toast_, 24) + 64;
+        const Rect pill{gfx::kVirtualWidth * 0.5f - w * 0.5f, 906.0f - 14.0f * (1.0f - a), w, 56};
+        list.push_opacity(a);
+        list.shadow({pill.x, pill.y + 8, pill.w, pill.h}, 28, 24, Color::rgb(0x000000, 0.5f));
+        list.rounded_rect(pill, 28, Color::rgb(0x15161f, 0.96f));
+        list.bordered_rect(pill, 28, Color{0, 0, 0, 0}, 1.5f, kInk.with_alpha(0.2f));
+        ui::text(list, fonts.semibold, toast_, pill.cx(), pill.y + 37, 24, kInk,
+                 gfx::Align::center);
+        list.pop_opacity();
+    }
+
+    void draw_hints(gfx::DrawList &list) const
+    {
+        const ui::GlyphStyle style = ui::GlyphStyle::dark();
+        if (screen_ == Screen::details)
+        {
+            const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_choose)},
+                                      {ui::Button::circle, tr(Text::hint_back)}};
+            ui::draw_hints(list, context_.fonts, style, hints, 2, 1824, true);
+        }
+        else if (library().size() == 0)
+        {
+            const ui::Hint hints[] = {{ui::Button::options, tr(Text::hint_look_again)}};
+            ui::draw_hints(list, context_.fonts, style, hints, 1, 1824, true);
+        }
+        else if (tab_ == Tab::home)
+        {
+            const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_details)},
+                                      {ui::Button::square, tr(Text::hint_play)},
+                                      {ui::Button::triangle, tr(Text::hint_watched)},
+                                      {ui::Button::l1, tr(Text::hint_tab), ui::Button::r1}};
+            ui::draw_hints(list, context_.fonts, style, hints, 4, 1824, true);
+        }
+        else
+        {
+            const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_details)},
+                                      {ui::Button::square, tr(Text::hint_play)},
+                                      {ui::Button::triangle, tr(Text::hint_sort)},
+                                      {ui::Button::l1, tr(Text::hint_tab), ui::Button::r1}};
+            ui::draw_hints(list, context_.fonts, style, hints, 4, 1824, true);
+        }
+    }
+
+    // ---------------------------------------------------------- the stage
+
+    void draw_player(gfx::DrawList &list) const
+    {
+        const ui::Fonts &fonts = context_.fonts;
+        const media::Player *player = svc_->player;
+        list.rounded_rect({0, 0, gfx::kVirtualWidth, gfx::kVirtualHeight}, 0, Color::rgb(0x000000));
+        if (player == nullptr || playing_ < 0)
+            return;
+        const media::Movie &m = movie(playing_);
+        const media::PlayerState state = player->state();
+
+        if (player->texture() != 0 && player->video_width() > 0)
+        {
+            const float aspect = static_cast<float>(player->video_width()) /
+                                 static_cast<float>(player->video_height());
+            float w = gfx::kVirtualWidth;
+            float h = w / aspect;
+            if (h > gfx::kVirtualHeight)
+            {
+                h = gfx::kVirtualHeight;
+                w = h * aspect;
+            }
+            list.image(player->texture(),
+                       {(gfx::kVirtualWidth - w) * 0.5f, (gfx::kVirtualHeight - h) * 0.5f, w, h},
+                       gfx::kFullUv, Color{1, 1, 1, 1});
+        }
+
+        if (state == media::PlayerState::failed)
+        {
+            const Rect card{gfx::kVirtualWidth * 0.5f - 460, 360, 920, 260};
+            list.rounded_rect(card, 28, Color::rgb(0x15161f));
+            list.bordered_rect(card, 28, Color{0, 0, 0, 0}, 1.5f, kAccent.with_alpha(0.6f));
+            ui::text(list, fonts.display, tr(Text::wont_play), card.cx(), card.y + 92, 40, kInk,
+                     gfx::Align::center);
+            ui::paragraph(list, fonts.regular,
+                          svc_->player->error().empty() ? std::string(tr(Text::file_not_opened))
+                                                        : svc_->player->error(),
+                          card.x + 60, card.y + 150, 24, card.w - 120, 34, kInk.with_alpha(0.75f),
+                          3);
+            const ui::Hint hints[] = {{ui::Button::circle, tr(Text::hint_back)}};
+            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, 1, 1824, true);
+            return;
+        }
+        if (state == media::PlayerState::opening || state == media::PlayerState::idle ||
+            state == media::PlayerState::buffering)
+        {
+            const float cx = gfx::kVirtualWidth * 0.5f;
+            if (player->texture() == 0)
+            {
+                ui::text(list, fonts.display, fit(fonts.display, m.title, 56, 1400), cx, 480, 56,
+                         kInk, gfx::Align::center);
+                ui::text(list, fonts.regular, tr(Text::opening), cx, 540, 26, kInk.with_alpha(0.6f),
+                         gfx::Align::center);
+            }
+            list.arc(cx, 640, 26, 5, clock_ * 5.5f, 4.4f, kInk.with_alpha(0.9f));
+        }
+
+        // Subtitles sit above the controls and stay when they hide.
+        if (subtitles_on_ && !subtitles_.empty())
+            if (const media::Cue *cue = subtitles_.at(player->position()))
+                draw_subtitle(list, *cue);
+
+        const float show = osd_show_.value;
+        if (show > 0.01f && state != media::PlayerState::opening)
+        {
+            list.push_opacity(show);
+            list.gradient_rect({0, 0, gfx::kVirtualWidth, 260}, 0, Color::rgb(0x000000, 0.8f),
+                               Color::rgb(0x000000, 0.0f));
+            list.gradient_rect({0, 760, gfx::kVirtualWidth, 320}, 0, Color::rgb(0x000000, 0.0f),
+                               Color::rgb(0x000000, 0.88f));
+            ui::text(list, fonts.display, fit(fonts.display, m.title, 44, 1300), kMargin, 112, 44,
+                     kInk);
+            ui::text(list, fonts.regular, meta_line(m), kMargin, 152, 24, kInk.with_alpha(0.7f));
+            if (info_ && !player->summary().empty())
+                ui::text(list, fonts.mono, player->summary(), kMargin, 192, 22,
+                         kInk.with_alpha(0.8f));
+
+            const double position = player->position();
+            const double duration = player->duration();
+            const Rect bar{kMargin, 900, gfx::kVirtualWidth - 2 * kMargin, 8};
+            list.rounded_rect(bar, 4, kInk.with_alpha(0.25f));
+            const float fraction =
+                duration > 0.0 ? static_cast<float>(std::clamp(position / duration, 0.0, 1.0))
+                               : 0.0f;
+            list.rounded_rect({bar.x, bar.y, std::max(8.0f, bar.w * fraction), bar.h}, 4, kAccent);
+            list.glow({bar.x + bar.w * fraction - 14, bar.y - 10, 28, 28}, 14, 18,
+                      kAccent.with_alpha(0.5f));
+            list.circle(bar.x + bar.w * fraction, bar.cy(), 14, kInk);
+            ui::text(list, fonts.mono, format_time(position), kMargin, 954, 24, kInk);
+            if (duration > 0.0)
+                ui::text(list, fonts.mono, "-" + format_time(duration - position),
+                         gfx::kVirtualWidth - kMargin, 954, 24, kInk.with_alpha(0.75f),
+                         gfx::Align::right);
+
+            // Pause icon in the middle while paused.
+            if (state == media::PlayerState::paused)
+            {
+                const float cx = gfx::kVirtualWidth * 0.5f;
+                list.circle(cx, 540, 70, Color::rgb(0x000000, 0.55f));
+                list.rounded_rect({cx - 24, 540 - 28, 16, 56}, 4, kInk);
+                list.rounded_rect({cx + 8, 540 - 28, 16, 56}, 4, kInk);
+            }
+            const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_pause)},
+                                      {ui::Button::dpad, tr(Text::hint_seek)},
+                                      {ui::Button::square, tr(Text::hint_audio)},
+                                      {ui::Button::triangle, tr(Text::hint_subtitles)},
+                                      {ui::Button::circle, tr(Text::hint_stop)}};
+            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, 5, 1824, true);
+            list.pop_opacity();
+        }
+        if (seek_flash_ > 0.0f)
+        {
+            const float a = tween::clamp01(seek_flash_ * 3.0f);
+            char text[24];
+            std::snprintf(text, sizeof(text), "%s%d s", seek_amount_ > 0 ? "+" : "\xE2\x80\x93",
+                          static_cast<int>(std::fabs(seek_amount_)));
+            const float cx = gfx::kVirtualWidth * 0.5f + (seek_amount_ > 0 ? 340.0f : -340.0f);
+            list.push_opacity(a);
+            list.circle(cx, 540, 74, Color::rgb(0x000000, 0.55f));
+            ui::text(list, fonts.semibold, text, cx, 550, 32, kInk, gfx::Align::center);
+            list.pop_opacity();
+        }
+        draw_toast(list);
+    }
+
+    void draw_subtitle(gfx::DrawList &list, const media::Cue &cue) const
+    {
+        const ui::Fonts &fonts = context_.fonts;
+        std::vector<std::string> lines;
+        std::size_t start = 0;
+        while (start <= cue.text.size())
+        {
+            const std::size_t end = cue.text.find('\n', start);
+            lines.push_back(
+                cue.text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+            if (end == std::string::npos)
+                break;
+            start = end + 1;
+        }
+        constexpr float kSize = 42.0f;
+        float y = 880.0f - static_cast<float>(lines.size() - 1) * 52.0f -
+                  (osd_show_.value > 0.5f ? 40.0f : 0.0f);
+        for (const std::string &line : lines)
+        {
+            // Outline by offset copies: legible on any picture.
+            for (const float dx : {-2.0f, 2.0f})
+                for (const float dy : {-2.0f, 2.0f})
+                    ui::text(list, fonts.semibold, line, gfx::kVirtualWidth * 0.5f + dx, y + dy,
+                             kSize, Color::rgb(0x000000, 0.9f), gfx::Align::center);
+            ui::text(list, fonts.semibold, line, gfx::kVirtualWidth * 0.5f, y, kSize, kInk,
+                     gfx::Align::center);
+            y += 52.0f;
+        }
+    }
+
+    // ------------------------------------------------------------ state
+
+    app::Context &context_;
+    media::Services fallback_; // used when the app gives the screen none
+    media::Services *svc_;
+
+    Screen screen_ = Screen::browse;
+    Tab tab_ = Tab::home;
+    Sort sort_ = Sort::title;
+    std::uint32_t revision_ = 0;
+    float exit_armed_ = 0.0f; // seconds left in which a second Back press exits
+    std::string cover_note_;  // the last cover problem announced
+
+    std::vector<Shelf> shelves_;
+    int row_ = 0;
+    std::vector<int> grid_;
+    int grid_focus_ = 0;
+    ui::Scroller grid_scroll_;
+
+    int shown_ = -1;
+    int previous_ = -1;
+    std::string focus_id_; // survives a rescan: the shelves are rebuilt around it
+    tween::Timer hero_fade_;
+    tween::Spring hero_;
+    tween::Spring row_position_;
+    ui::SpringColor tone_;
+    ui::SpringRect ring_;
+    ui::Pulse nudge_;
+    float nudge_direction_ = 0.0f;
+    float age_ = 0.0f;
+    float clock_ = 0.0f;
+    float tab_age_ = 1.0f;
+
+    tween::Spring sheet_;
+    int action_ = 0;
+    tween::Spring action_position_;
+
+    int playing_ = -1;
+    bool paused_ = false;
+    bool info_ = false;
+    bool subtitles_on_ = true;
+    float osd_ = 0.0f;
+    tween::Spring osd_show_;
+    float last_save_ = 0.0f;
+    float seek_flash_ = 0.0f;
+    float seek_amount_ = 0.0f;
+    media::Subtitles subtitles_;
+
+    std::string toast_;
+    float toast_time_ = 0.0f;
+    // First time each poster was drawn, for its fade-in.
+    mutable std::map<std::string, float> seen_;
+};
+
+} // namespace
+
+std::unique_ptr<app::Concept> make_mediathek(app::Context &context)
+{
+    return std::make_unique<Mediathek>(context);
+}
+
+} // namespace hui::concepts
