@@ -25,10 +25,16 @@ struct Movie
     std::int64_t added = 0; // modification time, seconds since the epoch
     std::string poster;     // image file, or ""
     std::string backdrop;   // wide image file, or ""
-    std::string subtitle;   // sidecar .srt / .vtt, or ""
-    std::string overview;   // the description (fetched from TMDB), or ""
-    std::string drive;      // "Internal", "USB 1", "Drive 2"
-    std::string collection; // folder name when the movie sits in a subfolder of movies/
+    std::string subtitle;   // sidecar .srt / .vtt (the readable copy), or ""
+    // Its language as the original file's name says ("ger" for "Film.de.srt"), "und" when the
+    // name says none, "" without a subtitle file. The copy's name is a hash, so this is read
+    // from the original path when the files are paired.
+    std::string subtitle_language;
+    std::string overview;    // the description (fetched from TMDB), or ""
+    float rating = 0.0f;     // TMDB's user score, 0 to 10; 0 = none
+    std::vector<int> genres; // TMDB genre ids, most telling first; see genre_name()
+    std::string drive;       // "Internal", "USB 1", "Drive 2"
+    std::string collection;  // folder name when the movie sits in a subfolder of movies/
 };
 
 // A file the scan saw, before names and artwork are paired up.

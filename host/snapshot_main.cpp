@@ -24,7 +24,9 @@
 #include "gfx/renderer.hpp"
 #include "manifest.hpp"
 #include "core/i18n.hpp"
+#include "media/info_service.hpp"
 #include "media/library.hpp"
+#include "media/mediainfo.hpp"
 #include "media/services.hpp"
 #include "ui/fonts.hpp"
 
@@ -321,6 +323,25 @@ int main(int argc, char **argv)
                     if (movie->title == entry.title)
                         movie->overview = entry.text;
             });
+        // What TMDB's search would have added (invented): the user score and genres.
+        const struct
+        {
+            const char *title;
+            float rating;
+            std::vector<int> genres;
+        } facts[] = {{"Orbital Dawn", 7.7f, {878, 12}},     {"Winter Cartographer", 6.9f, {18, 14}},
+                     {"Blue Harbor", 7.2f, {9648, 18, 53}}, {"Copper Skies", 8.1f, {878, 28}},
+                     {"Velvet Static", 5.8f, {27, 53}},     {"Sundial", 6.4f, {35}}};
+        services.library.edit_all(
+            [&](hui::media::Movie *movie)
+            {
+                for (const auto &entry : facts)
+                    if (movie->title == entry.title)
+                    {
+                        movie->rating = entry.rating;
+                        movie->genres = entry.genres;
+                    }
+            });
         const struct
         {
             const char *title;
@@ -343,6 +364,54 @@ int main(int argc, char **argv)
     }
     services.posters = &posters;
     services.clock = [] { return std::int64_t{1700000000}; };
+    // What a probe of the files would have found (invented), asked for in advance so a
+    // picture never shows the "reading" state by chance.
+    const std::string info_directory = data_root + "/info";
+    for (const hui::media::Movie &movie : services.library.movies())
+        std::remove((info_directory + "/" + movie.id + ".info").c_str());
+    hui::media::InfoService info(
+        [](const std::string &path, hui::media::MediaInfo *out)
+        {
+            hui::media::MediaInfo sample;
+            sample.duration = 8040.0;
+            sample.video_codec = "HEVC";
+            sample.width = 1920;
+            sample.height = 800;
+            sample.container = "MKV";
+            sample.audio_format = "E-AC3 5.1";
+            sample.audio_languages = {"eng", "ger"};
+            if (path.find("Blue Harbor") != std::string::npos)
+            {
+                sample.duration = 6300.0;
+                sample.video_codec = "H.264";
+                sample.audio_format = "AAC 2.0";
+                sample.audio_languages = {"eng"};
+            }
+            else if (path.find("Copper Skies") != std::string::npos)
+            {
+                sample.video_codec = "HEVC";
+                sample.width = 3840;
+                sample.height = 1600;
+                sample.audio_languages = {"ger", "eng", "jpn"};
+            }
+            if (path.find("Quiet Orchard") != std::string::npos)
+                return false; // a file the probe cannot read
+            *out = sample;
+            return true;
+        },
+        info_directory);
+    for (const hui::media::Movie &movie : services.library.movies())
+        info.request(movie.id, movie.path);
+    for (int waited = 0; waited < 500; ++waited)
+    {
+        bool all = true;
+        for (const hui::media::Movie &movie : services.library.movies())
+            all = all && info.peek(movie.id).state != hui::media::InfoService::State::pending;
+        if (all)
+            break;
+        usleep(10 * 1000);
+    }
+    services.info = &info;
     hui::media::VideoSurface surface;
     surface.create = [&](int w, int h, const std::uint8_t *rgba)
     { return renderer.batch().create_texture(w, h, rgba); };

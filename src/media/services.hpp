@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "media/info_service.hpp"
 #include "media/library.hpp"
 #include "media/player.hpp"
 #include "media/poster_cache.hpp"
@@ -24,6 +25,9 @@ struct Services
     ProgressStore progress;
     PosterCache *posters = nullptr;
     Player *player = nullptr;
+    // Reads what a file contains (codecs, length, languages) for the details page.
+    // Null where nothing can read a file; the page then shows what the names say.
+    InfoService *info = nullptr;
 
     // Bumped whenever `library` is replaced, so a screen rebuilds its shelves.
     std::uint32_t revision = 1;

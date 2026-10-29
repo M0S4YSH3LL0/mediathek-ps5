@@ -31,6 +31,7 @@
 #include "platform/ps5/display_egl.hpp"
 #include "platform/ps5/ffmpeg_player.hpp"
 #include "platform/ps5/http.hpp"
+#include "platform/ps5/media_probe.hpp"
 #include "platform/ps5/pad.hpp"
 #include "platform/ps5/scanner.hpp"
 #include "platform/ps5/system.hpp"
@@ -65,6 +66,8 @@ constexpr std::uint16_t kProgressVersion = 1;
 // where a PC can write it; and where the fetched pictures are kept.
 constexpr const char *kEnvPath = "/app0/mediathek.env";
 constexpr const char *kCoverDir = "/download0/hui/covers";
+// What each film file contains, read once (length, codecs, languages).
+constexpr const char *kInfoDir = "/download0/hui/info";
 // New pictures reach the screen at most this often: each one rebuilds the shelves.
 constexpr double kCoverApplySeconds = 1.5;
 // Saved at most this often while something changes; the player also marks its
@@ -298,6 +301,8 @@ int main()
              tmdb.problem.c_str());
     media::CoverService covers(tmdb, ps5::make_http_get(std::string(kAssets) + "/certs/cacert.pem"),
                                kCoverDir);
+    media::InfoService info(ps5::make_media_probe(), kInfoDir);
+    services.info = &info;
     services.refetch_cover = [&](const std::string &id) -> std::string
     {
         const int index = services.library.find(id);
@@ -316,6 +321,7 @@ int main()
         job.want_wallpaper = ours(movie.backdrop);
         job.want_overview = true; // the description is always ours
         job.again = true;
+        info.refresh(movie.id, movie.path); // the file too: it may have been replaced
         if (!tmdb.usable())
             return tmdb.problem;
         covers.redo(job);

@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (01.000.030)
+
+- The details page shows more: genres next to the collection above the title, chips
+  for the year, TMDB's user score (out of 10), length, video format (codec,
+  resolution, container) and sound format, and rows for the audio languages (the
+  tracks the app can decode) and the subtitle language (the `.srt` beside the film). The
+  length, formats and languages are read from the file with FFmpeg when the page
+  opens and kept in `/download0/hui/info`; the score and genres come with the
+  TMDB search answer. Films that already had a cover are asked once for their score
+  and genres. The size moved to the file line.
 
 - Covers, wallpapers and descriptions are fetched only for films that have no
   cover. A rescan or restart no longer asks TMDB about films that already have

@@ -6,6 +6,7 @@
 
 #include "audio/mixer.hpp"
 #include "core/i18n.hpp"
+#include "platform/ps5/av_names.hpp"
 #include "platform/ps5/system.hpp"
 
 #include <fcntl.h>
@@ -91,51 +92,9 @@ struct Picture
     int serial = 0;
 };
 
-const char *video_name(AVCodecID id)
-{
-    switch (id)
-    {
-    case AV_CODEC_ID_H264:
-        return "H.264";
-    case AV_CODEC_ID_HEVC:
-        return "HEVC";
-    case AV_CODEC_ID_AV1:
-        return "AV1";
-    case AV_CODEC_ID_VP9:
-        return "VP9";
-    case AV_CODEC_ID_MPEG4:
-        return "MPEG-4";
-    case AV_CODEC_ID_MPEG2VIDEO:
-        return "MPEG-2";
-    default:
-        return avcodec_get_name(id);
-    }
-}
-
-std::string audio_name(AVCodecID id)
-{
-    std::string name = avcodec_get_name(id);
-    for (char &c : name)
-        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    return name;
-}
-
-const char *layout_name(int channels)
-{
-    switch (channels)
-    {
-    case 1:
-        return "1.0";
-    case 2:
-        return "2.0";
-    case 6:
-        return "5.1";
-    case 8:
-        return "7.1";
-    default:
-        return "";
-    }
-}
+using av::audio_name;
+using av::layout_name;
+using av::video_name;
 
 // The film file behind FFmpeg's reads, with a count of what the drive gave.
 struct FileSource

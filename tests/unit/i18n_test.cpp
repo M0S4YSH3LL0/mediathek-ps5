@@ -51,8 +51,9 @@ TEST_F(I18nTest, EveryTextHasBothLanguages)
             << en << " / " << de;
         same += en == de ? 1 : 0;
     }
-    // A few words are the same in both (Details, Pause, STATUS, USB {}); most are not.
-    EXPECT_LT(same, 8);
+    // A few words are the same in both (Details, Pause, STATUS, USB {}), and so are about
+    // ten genre and language names (Drama, Horror, Hindi, Science Fiction ...); most are not.
+    EXPECT_LT(same, 24);
 }
 
 TEST_F(I18nTest, GermanTextsAreValidUtf8WithTheirUmlauts)

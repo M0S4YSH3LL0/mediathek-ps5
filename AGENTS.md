@@ -23,14 +23,17 @@ kit's OpenGL renderer.
 ```
 src/concepts/mediathek.cpp   the whole UI: home, grid, details page, player screen
 src/main.cpp                 start-up: env file, language, library, services, cover jobs
-src/media/                   the movie side, no platform code:
+src/media/                   the movie side, no platform code (mediainfo: languages,
+                               runtime and the cache text of what a file contains;
+                               info_service: reads files in the background):
                                library (scan index -> Movie list, shelves' data), title
                                (file name -> title, year, quality), progress (resume
                                points, watched), subtitles (.srt), tmdb + cover_service
                                (poster, wallpaper, description), poster_cache,
                                player.hpp (the interface), simulated_player (PC preview)
 src/core/i18n*               texts: i18n_texts.inc is THE table (English, German)
-src/platform/ps5/            ffmpeg_player, scanner (talks to the helper), display,
+src/platform/ps5/            ffmpeg_player, media_probe (stream list of a file, no
+                             decoding), scanner (talks to the helper), display,
                              pad, audio_out, http + dns (own TLS client), system
 src/runtime/app_heap.c       the app's own heap (see "Memory" below)
 helper/mt-scan.c             the scan helper payload, built into assets/helper/mt-scan.elf
@@ -152,7 +155,7 @@ git init -q && git add -A && make lint
 - This folder is not a git repository. Do not `git init`, commit, tag or push
   unless the owner asks. When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.020` is the app's 0.2.0); the app shows the short form (`v0.2.0` in
+  (`01.000.030` is the app's 0.3.0); the app shows the short form (`v0.3.0` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -168,7 +171,8 @@ nothing. The install folder `/data/homebrew/PPSA66120` is `/app0` inside the app
 **Where things are written.** App-writable storage is `/download0/hui`: covers,
 wallpapers and descriptions in `covers/` (a description is `<id>.txt`; an empty
 one is stored as `"\n"` so TMDB is not asked again, because `CoverStore::exists`
-needs size > 0), resume points beside them. Settings are read from
+needs size > 0; likewise `<id>.rating` is `"0"` and `<id>.genres` is `"-"` when TMDB has
+none), what a file contains in `info/<id>.info`, resume points beside them. Settings are read from
 `/app0/mediathek.env`.
 
 **Memory.** FFmpeg needs far more than the kit's original 128 MiB heap; a 1080p

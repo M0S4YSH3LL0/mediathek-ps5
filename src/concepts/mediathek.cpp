@@ -25,6 +25,7 @@
 #include "core/save_file.hpp"
 #include "core/tween.hpp"
 #include "media/library.hpp"
+#include "media/mediainfo.hpp"
 #include "media/services.hpp"
 #include "media/subtitles.hpp"
 #include "ui/glyphs.hpp"
@@ -668,6 +669,10 @@ class Mediathek final : public app::Concept
         screen_ = Screen::details;
         action_ = 0;
         action_position_.snap(0.0f);
+        // The page shows what the file contains; reading it takes a moment on a
+        // drive that has to spin up, so the page opens first and fills in.
+        if (const int index = focused_movie(); index >= 0 && svc_->info != nullptr)
+            svc_->info->request(movie(index).id, movie(index).path);
         feedback.play(audio::Cue::open);
     }
 
@@ -1150,7 +1155,7 @@ class Mediathek final : public app::Concept
         float x = ui::text(list, fonts.display, "MEDIATHEK", kMargin, y, 30, kAccent,
                            gfx::Align::left, 5.0f);
         // Version and author, small, under the logo.
-        ui::text(list, fonts.regular, "v0.2.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
+        ui::text(list, fonts.regular, "v0.3.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
                  kInk.with_alpha(0.5f), gfx::Align::left, 1.0f);
         x = kMargin + x + 64.0f;
         const char *tabs[] = {tr(Text::tab_home), tr(Text::tab_movies)};
@@ -1187,6 +1192,23 @@ class Mediathek final : public app::Concept
                            float width)
     {
         return font.font->fit(text, size, width);
+    }
+
+    // "English, Deutsch +2": as many names as fit in `width`, then how many more there are.
+    static std::string list_fit(const ui::FontRef &font, const std::vector<std::string> &names,
+                                float size, float width)
+    {
+        std::string text;
+        for (std::size_t i = 0; i < names.size(); ++i)
+        {
+            const std::string next = text.empty() ? names[i] : text + ", " + names[i];
+            const std::size_t left = names.size() - i - 1;
+            const std::string more = left > 0 ? "  +" + std::to_string(left) : std::string();
+            if (i > 0 && font.measure(next + more, size) > width)
+                return text + "  +" + std::to_string(names.size() - i);
+            text = next;
+        }
+        return fit(font, text, size, width);
     }
 
     // One movie's billboard text, drawn at an opacity and a slide so two can cross-fade.
@@ -1567,9 +1589,19 @@ class Mediathek final : public app::Concept
         const float head = tween::stagger(t, 1, 0.12f, 0.6f);
         const float top = art.y;
         list.push_opacity(head);
-        const std::string label = m.collection.empty() ? m.drive : m.collection;
-        ui::text(list, fonts.semibold, ui::upper(label), kColumn, top + 36, 19, kAccent,
-                 gfx::Align::left, 4.0f);
+        // What the file says about itself, once it has been read.
+        const media::InfoService::Lookup lookup =
+            svc_->info != nullptr ? svc_->info->peek(m.id) : media::InfoService::Lookup{};
+        const media::MediaInfo *content = lookup.info.get();
+
+        // Where the film lives, and what kind of film it is.
+        std::string label = m.collection.empty() ? m.drive : m.collection;
+        for (std::size_t i = 0; i < m.genres.size() && i < 2; ++i)
+            if (const std::string genre = media::genre_name(m.genres[i]); !genre.empty())
+                label += "  \xC2\xB7  " + genre;
+        ui::text(list, fonts.semibold,
+                 fit(fonts.semibold, ui::upper(label), 19, kColumnWidth - 120), kColumn, top + 36,
+                 19, kAccent, gfx::Align::left, 4.0f);
         float size = 78.0f;
         const float width = fonts.display.measure(m.title, size);
         if (width > kColumnWidth)
@@ -1577,7 +1609,71 @@ class Mediathek final : public app::Concept
         ui::text(list, fonts.display, fit(fonts.display, m.title, size, kColumnWidth), kColumn - 3,
                  top + 36 + 14 + size * 0.86f, size, kInk);
         const float meta_y = top + 36 + 14 + size * 0.86f + 52.0f;
-        ui::text(list, fonts.regular, meta_line(m), kColumn, meta_y, 26, kInk.with_alpha(0.78f));
+        {
+            // The facts as chips: year, TMDB's user score, length, picture, sound. The last
+            // ones are dropped where they would run into the buttons.
+            struct Chip
+            {
+                std::string text;
+                bool star = false;
+            };
+            std::vector<Chip> chips;
+            if (m.year > 0)
+                chips.push_back({std::to_string(m.year), false});
+            if (m.rating > 0.0f)
+            {
+                char score[16];
+                std::snprintf(score, sizeof(score), "%.1f", static_cast<double>(m.rating));
+                chips.push_back({score, true});
+            }
+            if (content != nullptr && !media::format_runtime(content->duration).empty())
+                chips.push_back({media::format_runtime(content->duration), false});
+            std::string picture;
+            const auto join = [&picture](const std::string &part)
+            {
+                if (part.empty())
+                    return;
+                picture += picture.empty() ? "" : "  \xC2\xB7  ";
+                picture += part;
+            };
+            if (content != nullptr)
+            {
+                const std::string size_label =
+                    media::resolution_label(content->width, content->height);
+                join(content->video_codec);
+                join(size_label.empty() ? m.quality : size_label);
+                join(content->container);
+            }
+            else
+            {
+                join(m.quality);
+            }
+            if (!picture.empty())
+                chips.push_back({picture, false});
+            if (content != nullptr && !content->audio_format.empty())
+                chips.push_back({content->audio_format, false});
+
+            const float chip_y = meta_y - 29.0f;
+            float chip_x = kColumn;
+            for (const Chip &chip : chips)
+            {
+                const float width =
+                    fonts.semibold.measure(chip.text, 22) + 36.0f + (chip.star ? 26.0f : 0.0f);
+                if (chip_x + width > kColumn + kColumnWidth + 60.0f)
+                    break;
+                list.bordered_rect({chip_x, chip_y, width, 40.0f}, 20, kInk.with_alpha(0.08f), 1.5f,
+                                   kInk.with_alpha(0.22f));
+                float text_x = chip_x + 18.0f;
+                if (chip.star)
+                {
+                    list.star(text_x + 9.0f, chip_y + 20.0f, 9.0f, Color::rgb(0xffc94a));
+                    text_x += 26.0f;
+                }
+                ui::text(list, fonts.semibold, chip.text, text_x, chip_y + 27.0f, 22,
+                         kInk.with_alpha(0.92f));
+                chip_x += width + 10.0f;
+            }
+        }
         const double resume = svc_->progress.resume_position(m.id);
         float y = meta_y + 30.0f;
         const float done = svc_->progress.fraction(m.id);
@@ -1604,7 +1700,7 @@ class Mediathek final : public app::Concept
         // The file and status sit at the foot of the cover; a long description stops
         // (with an ellipsis) a line above their labels instead of running into them.
         const float facts_y = art.y + art.h - 4.0f;
-        const int fits = static_cast<int>((facts_y - 30.0f - 40.0f - text_y) / kLine) + 1;
+        const int fits = static_cast<int>((facts_y - 100.0f - 40.0f - text_y) / kLine) + 1;
         if (!m.overview.empty())
             ui::paragraph(list, fonts.regular, m.overview, kColumn, text_y, 24, kColumnWidth, kLine,
                           kInk.with_alpha(0.86f), std::clamp(fits, 1, 9));
@@ -1623,17 +1719,43 @@ class Mediathek final : public app::Concept
                                    : resume > 0.0
                                        ? i18n::format(Text::status_at, format_time(resume))
                                        : tr(Text::status_not_started);
-        ui::text(list, fonts.semibold, tr(Text::label_file), kColumn, facts_y - 30, 15,
-                 kInk.with_alpha(0.5f), gfx::Align::left, 3.0f);
-        ui::text(list, fonts.mono, fit(fonts.mono, file, 20, 440), kColumn, facts_y, 20,
+        constexpr float kSecond = kColumn + 440.0f; // the second column of the foot rows
+        const auto caption = [&](const std::string &text, float x, float y)
+        {
+            ui::text(list, fonts.semibold, text, x, y, 15, kInk.with_alpha(0.5f), gfx::Align::left,
+                     3.0f);
+        };
+        // Which languages the film offers: the sound the player can play (read from the
+        // file, so it may still be on its way) and the .srt beside the film.
+        const auto languages =
+            [&](const std::vector<std::string> &names, float x, float width, bool from_file)
+        {
+            const bool known = !names.empty();
+            const std::string text = known ? list_fit(fonts.regular, names, 22, width)
+                                     : content != nullptr || !from_file ? tr(Text::info_none)
+                                     : lookup.state == media::InfoService::State::pending
+                                         ? tr(Text::info_reading)
+                                         : tr(Text::info_unavailable);
+            ui::text(list, fonts.regular, text, x, facts_y - 70, 22,
+                     kInk.with_alpha(known ? 0.92f : 0.5f));
+        };
+        caption(tr(Text::label_audio), kColumn, facts_y - 100);
+        languages(media::language_names(content != nullptr ? content->audio_languages
+                                                           : std::vector<std::string>()),
+                  kColumn, 400.0f, true);
+        caption(tr(Text::label_subtitles), kSecond, facts_y - 100);
+        languages(media::language_names(m.subtitle.empty()
+                                            ? std::vector<std::string>()
+                                            : std::vector<std::string>{m.subtitle_language}),
+                  kSecond, 1360.0f - kSecond, false);
+        caption(m.size > 0
+                    ? std::string(tr(Text::label_file)) + "  \xC2\xB7  " + format_size(m.size)
+                    : std::string(tr(Text::label_file)),
+                kColumn, facts_y - 30);
+        ui::text(list, fonts.mono, fit(fonts.mono, file, 20, 400), kColumn, facts_y, 20,
                  kInk.with_alpha(0.9f));
-        ui::text(list, fonts.semibold, tr(Text::label_status), kColumn + 480, facts_y - 30, 15,
-                 kInk.with_alpha(0.5f), gfx::Align::left, 3.0f);
-        ui::text(list, fonts.semibold,
-                 status + (m.subtitle.empty()
-                               ? ""
-                               : std::string("  \xC2\xB7  ") + tr(Text::status_subtitles)),
-                 kColumn + 480, facts_y, 24, kInk);
+        caption(tr(Text::label_status), kSecond, facts_y - 30);
+        ui::text(list, fonts.semibold, status, kSecond, facts_y, 24, kInk);
         list.pop_opacity();
 
         // Actions: one highlight that springs between the rows.

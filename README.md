@@ -1,6 +1,6 @@
 # Mediathek
 
-[![Version 0.2.0](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
+[![Version 0.3.0](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](#build-from-source)
@@ -37,9 +37,11 @@ glass behave like the console's own software.
   two or more movies) and per decade, and *All Movies*.
 - **Movies**: an eight-column grid, sortable by title, newest or year.
 - **Details**: a full-screen page for the film: its wallpaper behind, the cover
-  on the left, then title, year, quality, size, a description (from TMDB) and
-  where you stopped; Play / Resume, Start over, Mark as watched and Refresh
-  cover and info on the right.
+  on the left, then title and genres, chips for the year, TMDB's user score,
+  length, video format (codec, resolution, container) and sound format, a
+  description (from TMDB), the languages of the sound and of the subtitles, the
+  file with its size, and where you stopped; Play / Resume, Start over, Mark as
+  watched and Refresh cover and info on the right.
 - **Player**: scrubber, seek ±10 s (hold: ±30 s, L1/R1 or L2/R2: ±60 s), pause,
   audio track and `.srt` subtitle switching, a stream info panel. It remembers
   where you stopped and resumes there; 92% counts as watched.
@@ -137,7 +139,8 @@ Put films anywhere below a `movies` folder, up to six levels deep:
 A film without artwork gets a generated cover. The app can fetch the real
 poster, a wide wallpaper (the picture behind the selected film) and the
 description shown on the details page from The Movie Database by itself, but
-only for a film that has no cover yet. A picture beside the film is never
+only for a film that has no cover yet (the score and genres, kept since 0.3.0,
+are also fetched once for a film that has a cover). A picture beside the film is never
 replaced, and a film that already has a cover is not asked about again.
 
 1. Get a free key for personal use at themoviedb.org/settings/api.
@@ -162,7 +165,14 @@ replaced, and a film that already has a cover is not asked about again.
    description anew. The description comes in
    `TMDB_LANGUAGE`; where TMDB has none in that language, the page says so.
 
-The fetched pictures are kept in the app's save area (`/download0/hui/covers`).
+The fetched pictures, descriptions, scores and genres are kept in the app's save
+area (`/download0/hui/covers`). The *score* is TMDB's user score out of 10, not a
+critics' score, and it is left out for a film with no votes. What the file itself
+holds (length, codecs, audio and subtitle languages) is read from the file when you
+open its details and kept in `/download0/hui/info`; **Refresh cover and info** reads
+it again. Only what can be used is listed: the audio tracks the app can decode, and the
+`.srt` beside the film (its language comes from the file name, `Film.de.srt`); subtitle
+tracks inside the file are not shown by the player, so they are not listed.
 The connection is checked against the certificate bundle in `assets/certs`. A
 PC can do the same job with `python3 tools/fetch-posters.py /path/to/movies`
 (`--dry-run` lists what is missing). This product uses the TMDB API but is not
@@ -208,11 +218,12 @@ the code and the rules for changes; a release tag is the exact
 
 ## Status
 
-Version 0.2.0 (`contentVersion` 01.000.020).
+Version 0.3.0 (`contentVersion` 01.000.030).
 
 **Checked on the author's console:** the app starts, the scan finds the films,
-covers, wallpapers and descriptions download, the details page shows them, and
-a large 1080p H.264 MKV plays with sound without glitches. The console's firmware and loader versions were not recorded;
+covers, wallpapers and descriptions download, the details page shows them with
+the film's length, formats, score, genres and the audio and subtitle languages,
+and a large 1080p H.264 MKV plays with sound without glitches. The console's firmware and loader versions were not recorded;
 reports for others are welcome.
 
 **Not checked on a console yet:** the language detection (the console's

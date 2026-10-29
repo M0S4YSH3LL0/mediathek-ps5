@@ -236,14 +236,28 @@ TEST(MovieLibrary, FindsSubtitlesInASubsFolder)
     for (std::size_t i = 0; i < library.size(); ++i)
     {
         const Movie &movie = library[i];
+        // The language comes from the original file's name: the copy's name ("/art/en.srt" here,
+        // a hash on a console) says nothing.
         if (movie.title == "Aa")
+        {
             EXPECT_EQ(movie.subtitle, "/art/en.srt"); // alone: owns the folder, English first
+            EXPECT_EQ(movie.subtitle_language, "eng");
+        }
         else if (movie.title == "Bb")
+        {
             EXPECT_EQ(movie.subtitle, "/art/de.srt");
+            EXPECT_EQ(movie.subtitle_language, "ger");
+        }
         else if (movie.title == "One")
+        {
             EXPECT_EQ(movie.subtitle, "/art/one.srt"); // shared: only its own name
+            EXPECT_EQ(movie.subtitle_language, "und"); // "One.srt" names no language
+        }
         else
+        {
             EXPECT_TRUE(movie.subtitle.empty()); // "Two" has none
+            EXPECT_TRUE(movie.subtitle_language.empty());
+        }
     }
 }
 

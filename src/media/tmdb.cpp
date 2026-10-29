@@ -8,8 +8,10 @@
 #include "core/json.hpp"
 #include "core/save_file.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -90,6 +92,37 @@ bool exists(const std::string &path)
 {
     struct stat info{};
     return stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) && info.st_size > 0;
+}
+
+// The score file: "7.8", or "0" when TMDB has no votes. A damaged file means no score.
+float parse_rating(const std::string &text)
+{
+    char *end = nullptr;
+    const double value = std::strtod(text.c_str(), &end);
+    if (end == text.c_str() || !(value > 0.0))
+        return 0.0f;
+    return static_cast<float>(std::min(value, 10.0));
+}
+
+// The genres file: numbers separated by commas, "-" for none.
+std::vector<int> parse_genres(const std::string &text)
+{
+    std::vector<int> ids;
+    const char *at = text.c_str();
+    while (*at != '\0' && ids.size() < 8)
+    {
+        char *end = nullptr;
+        const long value = std::strtol(at, &end, 10);
+        if (end == at)
+        {
+            ++at; // a comma, a "-" or a stray character
+            continue;
+        }
+        if (value > 0 && value < 1000000)
+            ids.push_back(static_cast<int>(value));
+        at = end;
+    }
+    return ids;
 }
 
 // One line of text: line breaks and runs of blanks become one space, controls
@@ -244,10 +277,22 @@ bool pick_match(std::string_view answer, int year, Match *out)
         best = text_only;
     if (best == nullptr)
         return false;
+    *out = Match(); // nothing of an earlier answer stays
     out->title = best->text("title");
     out->poster_path = best->text("poster_path");
     out->backdrop_path = best->text("backdrop_path");
     out->overview = best->text("overview");
+    if (const json::Value *average = best->get("vote_average");
+        average != nullptr && average->kind == json::Value::Kind::number)
+        out->vote_average = average->number;
+    if (const json::Value *ids = best->get("genre_ids");
+        ids != nullptr && ids->kind == json::Value::Kind::array)
+        for (const json::Value &id : ids->items)
+            if (id.kind == json::Value::Kind::number && id.number > 0.0 && id.number < 1e6)
+                out->genre_ids.push_back(static_cast<int>(id.number));
+    if (const json::Value *votes = best->get("vote_count");
+        votes != nullptr && votes->kind == json::Value::Kind::number)
+        out->vote_count = votes->number;
     return true;
 }
 
@@ -279,6 +324,22 @@ bool CoverStore::has_overview(const std::string &id) const
 {
     return exists(overview_path(id));
 }
+std::string CoverStore::rating_path(const std::string &id) const
+{
+    return directory_ + "/" + id + ".rating";
+}
+bool CoverStore::has_rating(const std::string &id) const
+{
+    return exists(rating_path(id));
+}
+std::string CoverStore::genres_path(const std::string &id) const
+{
+    return directory_ + "/" + id + ".genres";
+}
+bool CoverStore::has_genres(const std::string &id) const
+{
+    return exists(genres_path(id));
+}
 bool CoverStore::no_match(const std::string &id) const
 {
     struct stat info{};
@@ -293,6 +354,8 @@ void CoverStore::forget(const std::string &id) const
     unlink(poster_path(id).c_str());
     unlink(wallpaper_path(id).c_str());
     unlink(overview_path(id).c_str());
+    unlink(rating_path(id).c_str());
+    unlink(genres_path(id).c_str());
     unlink((directory_ + "/" + id + ".none").c_str());
 }
 void CoverStore::fill(Movie *movie) const
@@ -305,6 +368,10 @@ void CoverStore::fill(Movie *movie) const
     if (has_overview(movie->id) &&
         save::read_file(overview_path(movie->id), &text, kMaxOverview + 16))
         movie->overview = clean_overview(text, false);
+    if (has_rating(movie->id) && save::read_file(rating_path(movie->id), &text, 16))
+        movie->rating = parse_rating(text);
+    if (has_genres(movie->id) && save::read_file(genres_path(movie->id), &text, 128))
+        movie->genres = parse_genres(text);
 }
 
 std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &store)
@@ -312,17 +379,31 @@ std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &s
     std::vector<CoverJob> jobs;
     for (const Movie &movie : library.movies())
     {
-        // A film that has a cover (its own, or one fetched earlier and filled in by
-        // CoverStore::fill) is done: asking TMDB again on every scan and start would
-        // cost a request per film that lacks a wallpaper or description TMDB never had.
-        if (!movie.poster.empty() || store.no_match(movie.id))
+        if (store.no_match(movie.id))
             continue;
         CoverJob job;
         job.id = movie.id;
         job.title = movie.title;
         job.year = movie.year;
-        job.want_wallpaper = movie.backdrop.empty();
-        job.want_overview = !store.has_overview(movie.id);
+        job.want_facts = !store.has_rating(movie.id) || !store.has_genres(movie.id);
+        if (!movie.poster.empty())
+        {
+            // A film that has a cover (its own, or one fetched earlier and filled in by
+            // CoverStore::fill) is done: asking TMDB again on every scan and start would
+            // cost a request per film that lacks a wallpaper or description TMDB never
+            // had. Only the score, kept since 0.3.0, is asked for once, whether TMDB has
+            // one or not (the file says "0" then).
+            if (!job.want_facts)
+                continue;
+            job.want_poster = false;
+            job.want_wallpaper = false;
+            job.want_overview = false;
+        }
+        else
+        {
+            job.want_wallpaper = movie.backdrop.empty();
+            job.want_overview = !store.has_overview(movie.id);
+        }
         jobs.push_back(std::move(job));
     }
     return jobs;
@@ -410,6 +491,26 @@ FetchOutcome fetch_cover(const TmdbConfig &config, const HttpGet &get, const Cov
         const std::string text = clean_overview(match.overview);
         const std::string failure =
             save::write_atomic(store.overview_path(job.id), text.empty() ? "\n" : text);
+        if (!failure.empty())
+        {
+            *note = i18n::format(i18n::Text::tmdb_cannot_save_description, failure);
+            return stored ? FetchOutcome::stored : FetchOutcome::network;
+        }
+        stored = true;
+    }
+    if (job.want_facts)
+    {
+        // "0" and "-" record that TMDB has no usable score or genres, so the film is
+        // not asked again.
+        char text[16] = "0";
+        if (match.vote_count > 0.0 && match.vote_average > 0.0)
+            std::snprintf(text, sizeof(text), "%.1f", std::min(match.vote_average, 10.0));
+        std::string genres;
+        for (const int genre : match.genre_ids)
+            genres += (genres.empty() ? "" : ",") + std::to_string(genre);
+        std::string failure = save::write_atomic(store.rating_path(job.id), text);
+        if (failure.empty())
+            failure = save::write_atomic(store.genres_path(job.id), genres.empty() ? "-" : genres);
         if (!failure.empty())
         {
             *note = i18n::format(i18n::Text::tmdb_cannot_save_description, failure);

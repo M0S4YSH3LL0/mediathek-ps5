@@ -53,9 +53,12 @@ Request image_request(const std::string &path, int width);
 struct Match
 {
     std::string title;
-    std::string poster_path;   // "/abc.jpg" or ""
-    std::string backdrop_path; // "/abc.jpg" or ""
-    std::string overview;      // the description in the configured language, or ""
+    std::string poster_path;    // "/abc.jpg" or ""
+    std::string backdrop_path;  // "/abc.jpg" or ""
+    std::string overview;       // the description in the configured language, or ""
+    double vote_average = 0.0;  // TMDB's user score, 0 to 10
+    double vote_count = 0.0;    // how many votes it rests on; 0 means the score means nothing
+    std::vector<int> genre_ids; // TMDB's genre numbers, most telling first
 };
 // The film in a search answer: an exact year first, else the first hit that has a
 // picture, else the first that has a description. False when the answer is no
@@ -68,7 +71,9 @@ using HttpGet = std::function<bool(const Request &request, std::size_t max_bytes
 
 // What was fetched so far: <dir>/<id>.jpg (cover), <id>-wallpaper.jpg,
 // <id>.txt (the description; empty when TMDB has none, so it is not asked
-// again) and <id>.none for a film TMDB does not know.
+// again), <id>.rating (the user score, "0" when TMDB has none), <id>.genres
+// (genre numbers separated by commas, "-" when there are none) and <id>.none
+// for a film TMDB does not know.
 class CoverStore
 {
   public:
@@ -79,6 +84,10 @@ class CoverStore
     bool has_wallpaper(const std::string &id) const;
     std::string overview_path(const std::string &id) const;
     bool has_overview(const std::string &id) const;
+    std::string rating_path(const std::string &id) const;
+    bool has_rating(const std::string &id) const;
+    std::string genres_path(const std::string &id) const;
+    bool has_genres(const std::string &id) const;
     bool no_match(const std::string &id) const;
     void mark_no_match(const std::string &id) const;
     // Forgets the film: the next fetch starts from nothing.
@@ -103,12 +112,15 @@ struct CoverJob
     bool want_poster = true;
     bool want_wallpaper = true;
     bool want_overview = true;
-    bool again = false; // fetched on request: pictures shown before must be reloaded
+    bool want_facts = true; // the user score and the genres
+    bool again = false;     // fetched on request: pictures shown before must be reloaded
 };
 
 // What a library still lacks: films with no cover that TMDB has not already
-// turned down. Each is asked for its poster, and for the wallpaper and
-// description it has none of; a film that has a cover is never asked again.
+// turned down. Each is asked for its poster, and for the wallpaper, description
+// and score and genres it has none of. A film that has a cover is asked for
+// nothing, except once for its score and genres if it was fetched before they
+// were kept.
 std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &store);
 
 enum class FetchOutcome : unsigned char

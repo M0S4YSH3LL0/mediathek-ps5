@@ -6,6 +6,7 @@
 
 #include "core/i18n.hpp"
 #include "core/save_file.hpp"
+#include "media/mediainfo.hpp"
 #include "media/title.hpp"
 
 #include <algorithm>
@@ -329,6 +330,11 @@ Library Library::from_scan(const ScanResult &scan)
                 if (movie.subtitle.empty() || (english && !have_english))
                 {
                     movie.subtitle = subtitle->readable;
+                    const std::size_t slash = subtitle->path.rfind('/');
+                    const std::string code = language_from_filename(
+                        slash == std::string::npos ? subtitle->path
+                                                   : subtitle->path.substr(slash + 1));
+                    movie.subtitle_language = code.empty() ? "und" : code;
                     have_english = english;
                 }
             }

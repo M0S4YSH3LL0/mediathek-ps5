@@ -24,7 +24,7 @@ namespace json = hui::json;
 
 constexpr const char *kAnswer = R"({"page":1,"results":[
   {"title":"Dune","release_date":"1984-12-14","poster_path":"/old.jpg","backdrop_path":null},
-  {"title":"Dune: Part Two","release_date":"2024-02-27","poster_path":"/two.jpg","backdrop_path":"/two_bd.jpg","overview":"  Paul unites with\n\tChani  and the Fremen.\r\n"},
+  {"title":"Dune: Part Two","release_date":"2024-02-27","poster_path":"/two.jpg","backdrop_path":"/two_bd.jpg","overview":"  Paul unites with\n\tChani  and the Fremen.\r\n","vote_average":8.2456,"vote_count":5400,"genre_ids":[878,12,18]},
   {"title":"No picture","release_date":"2024-01-01","poster_path":null,"backdrop_path":null}
 ],"total_results":3})";
 
@@ -161,6 +161,18 @@ TEST(Tmdb, PicksTheFilmOfTheRightYear)
     EXPECT_FALSE(pick_match(R"({"results":[{"title":"x","poster_path":null}]})", 0, &match));
 }
 
+TEST(Tmdb, PicksTheScoreAndTheGenres)
+{
+    Match match;
+    ASSERT_TRUE(pick_match(kAnswer, 2024, &match));
+    EXPECT_DOUBLE_EQ(match.vote_average, 8.2456);
+    EXPECT_DOUBLE_EQ(match.vote_count, 5400.0);
+    EXPECT_EQ(match.genre_ids, (std::vector<int>{878, 12, 18}));
+    ASSERT_TRUE(pick_match(kAnswer, 1984, &match));
+    EXPECT_DOUBLE_EQ(match.vote_count, 0.0); // the old film has no votes in the answer
+    EXPECT_TRUE(match.genre_ids.empty());
+}
+
 CoverJob dune_job(const std::string &id)
 {
     CoverJob job;
@@ -218,6 +230,54 @@ TEST(Covers, StoresTheDescriptionTidiedAndFillsTheMovie)
     EXPECT_FALSE(store.has_overview("dd44"));
 }
 
+TEST(Covers, StoresTheScoreAndGenresAndFillsTheMovie)
+{
+    FakeWeb web;
+    const CoverStore store(temp_directory());
+    TmdbConfig config;
+    config.key = "k";
+    std::string note;
+    EXPECT_EQ(fetch_cover(config, web.get(), store, dune_job("ff66"), &note), FetchOutcome::stored);
+    EXPECT_TRUE(store.has_rating("ff66"));
+    EXPECT_TRUE(store.has_genres("ff66"));
+    Movie movie;
+    movie.id = "ff66";
+    store.fill(&movie);
+    EXPECT_FLOAT_EQ(movie.rating, 8.2f);
+    EXPECT_EQ(movie.genres, (std::vector<int>{878, 12, 18}));
+
+    // TMDB with no votes and no genres: the files still exist, so it is not asked again.
+    CoverJob old_film = dune_job("gg77");
+    old_film.year = 1984;
+    EXPECT_EQ(fetch_cover(config, web.get(), store, old_film, &note), FetchOutcome::stored);
+    EXPECT_TRUE(store.has_rating("gg77"));
+    EXPECT_TRUE(store.has_genres("gg77"));
+    Movie plain;
+    plain.id = "gg77";
+    store.fill(&plain);
+    EXPECT_EQ(plain.rating, 0.0f);
+    EXPECT_TRUE(plain.genres.empty());
+
+    store.forget("ff66");
+    EXPECT_FALSE(store.has_rating("ff66"));
+    EXPECT_FALSE(store.has_genres("ff66"));
+}
+
+TEST(Covers, ABrokenScoreFileMeansNoScore)
+{
+    const CoverStore store(temp_directory());
+    std::ofstream(store.rating_path("hh88")) << "not a number";
+    std::ofstream(store.genres_path("hh88")) << "x,,-5,99999999999,28";
+    Movie movie;
+    movie.id = "hh88";
+    store.fill(&movie);
+    EXPECT_EQ(movie.rating, 0.0f);
+    EXPECT_EQ(movie.genres, (std::vector<int>{28}));
+    std::ofstream(store.rating_path("hh88")) << "12.5";
+    store.fill(&movie);
+    EXPECT_EQ(movie.rating, 10.0f); // a score is never above ten
+}
+
 TEST(Covers, AFilmWithoutADescriptionIsNotAskedAgain)
 {
     FakeWeb web;
@@ -249,7 +309,13 @@ TEST(Covers, AFilmWithoutADescriptionIsNotAskedAgain)
             m->poster = "/own.jpg";
             m->backdrop = "/own-fanart.jpg";
         });
-    EXPECT_TRUE(missing_covers(library, store).empty()); // it has a cover: not asked at all
+    // It has a cover, so nothing is fetched for it but the score and genres kept since 0.3.0.
+    const std::vector<CoverJob> asked = missing_covers(library, store);
+    ASSERT_EQ(asked.size(), 1u);
+    EXPECT_FALSE(asked[0].want_poster);
+    EXPECT_FALSE(asked[0].want_wallpaper);
+    EXPECT_FALSE(asked[0].want_overview);
+    EXPECT_TRUE(asked[0].want_facts);
     const CoverStore known(temp_directory());
     std::string unused;
     CoverJob again = dune_job(library[0].id);
@@ -344,15 +410,26 @@ TEST(Covers, OnlyFilmsWithoutACoverAreFetchedAndNotThoseTmdbRejected)
     store.mark_no_match(library[2].id);
 
     const std::vector<CoverJob> jobs = missing_covers(library, store);
-    // A has a cover of its own and C was rejected before: only B is asked for.
-    ASSERT_EQ(jobs.size(), 1u);
-    EXPECT_EQ(jobs[0].title, "B");
-    EXPECT_TRUE(jobs[0].want_poster);
-    EXPECT_TRUE(jobs[0].want_wallpaper);
-    EXPECT_TRUE(jobs[0].want_overview);
+    // C was rejected before. A has a cover of its own: only its score and genres are asked
+    // for. B has none: everything is.
+    ASSERT_EQ(jobs.size(), 2u);
+    for (const CoverJob &job : jobs)
+    {
+        EXPECT_TRUE(job.want_facts);
+        EXPECT_EQ(job.want_poster, job.title == "B");
+        EXPECT_EQ(job.want_wallpaper, job.title == "B");
+        EXPECT_EQ(job.want_overview, job.title == "B");
+    }
 
-    // Rejected by TMDB, B is left alone too.
+    // Rejected by TMDB, B is left alone too; A, once its score is kept, is done.
     store.mark_no_match(library[1].id);
+    std::string unused;
+    TmdbConfig config;
+    config.key = "k";
+    FakeWeb web;
+    CoverJob facts = dune_job(library[0].id);
+    facts.want_poster = facts.want_wallpaper = facts.want_overview = false;
+    ASSERT_EQ(fetch_cover(config, web.get(), store, facts, &unused), FetchOutcome::stored);
     EXPECT_TRUE(missing_covers(library, store).empty());
 }
 
