@@ -10,6 +10,7 @@ src/audio/mixer.cpp
 src/audio/music.cpp
 src/audio/wav.cpp
 src/concepts/*.cpp
+src/core/build_info.cpp
 src/core/frame_stats.cpp
 src/core/i18n.cpp
 src/core/json.cpp

@@ -153,7 +153,7 @@ folder's git repository and takes more than two minutes; use a long timeout.
   commit, the tag, the push and the GitHub release (zip and `.sha256` from `dist/release`).
   When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.060` is the app's 0.6.0); the app shows the short form (`v0.6.0` in
+  (`01.000.061` is the app's 0.6.1); the app shows the short form (`kAppVersion` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -166,6 +166,9 @@ and subtitles next to the app and writes `mediathek-index.txt`, which the app
 reads as `/app0/mediathek-index.txt`. Without a loader the app starts and finds
 nothing. The install folder `/data/homebrew/PPSA66120` is `/app0` inside the app.
 
+**The scan helper is silent.** It posts a console notification only when it fails. The "Found N
+movies" message after a scan is the app's own toast at the bottom (`Services::scan_found`).
+
 **Where things are written.** App-writable storage is `/download0/hui`: covers,
 wallpapers and descriptions in `covers/` (a description is `<id>.txt`; an empty
 one is stored as `"\n"` so TMDB is not asked again, because `CoverStore::exists`
@@ -175,9 +178,11 @@ none), what a file contains in `info/<id>.info`, resume points beside them. Sett
 
 **The settings page.** The gear tab (`Tab::settings`, a `ui::Form` in `mediathek.cpp`)
 edits the kit's `Settings`: *UI sounds* is `ui_volume` (0 off, else the default), *Debug
-info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` (keeps
+info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` (on by default; keeps
 `hero_` open on every shelf, `animate()`; the settings file is format version 2, version 1 still
-loads). A change sets `context_.settings_changed`;
+loads with the default). The page's bottom left shows the version and `build_time()`
+(`core/build_info.cpp`, `__DATE__`/`__TIME__`; `tools/build.sh` touches the file so every build
+stamps it). A change sets `context_.settings_changed`;
 the shell saves `/download0/hui/settings.bin` 0.75 s after the last one, and `main.cpp`
 (`apply_ui_sounds`, also at start-up) mutes the `ui` and `sfx` mixer buses. The music bus
 is deliberately left at its tuned gain; do not route the kit's volume curve through it.

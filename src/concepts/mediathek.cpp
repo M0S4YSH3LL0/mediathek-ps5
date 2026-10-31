@@ -21,6 +21,7 @@
 
 #include "concepts/concepts.hpp"
 
+#include "core/build_info.hpp"
 #include "core/i18n.hpp"
 #include "core/save_file.hpp"
 #include "core/tween.hpp"
@@ -88,6 +89,7 @@ constexpr float kGridTop = 232.0f;
 // Cards scrolling up under the "All Movies" header fade out above this line.
 constexpr float kGridFadeTop = kGridTop - 34.0f;
 
+constexpr const char *kAppVersion = "0.6.1"; // equals contentVersion 01.000.061 in param.json
 constexpr float kOsdSeconds = 4.0f;
 constexpr float kSeekHoldGap = 0.5f;   // a pause this long in the repeats ends a hold
 constexpr double kSeekHeldStep = 30.0; // first held step, and what each held second adds
@@ -340,6 +342,18 @@ class Mediathek final : public app::Concept
                 toast_ = cover_note_;
                 toast_time_ = 4.5f;
             }
+        }
+
+        if (svc_->scan_found >= 0)
+        {
+            // The small message at the bottom once a scan has finished, after "Looking for
+            // movies...". It is the app's own: the helper payload cannot post one of its own
+            // that fits the app.
+            notify(feedback,
+                   i18n::format(Text::scan_found,
+                                i18n::movie_count(static_cast<std::size_t>(svc_->scan_found))),
+                   audio::Cue::notify);
+            svc_->scan_found = -1;
         }
 
         switch (screen_)
@@ -720,7 +734,7 @@ class Mediathek final : public app::Concept
         settings_form_.add_toggle(kRowUiSounds, tr(Text::settings_ui_sounds), true).description =
             tr(Text::settings_ui_sounds_hint);
         settings_form_.add_header(tr(Text::settings_home));
-        settings_form_.add_toggle(kRowPinBillboard, tr(Text::settings_pin_billboard), false)
+        settings_form_.add_toggle(kRowPinBillboard, tr(Text::settings_pin_billboard), true)
             .description = tr(Text::settings_pin_billboard_hint);
         settings_form_.add_header(tr(Text::settings_developer));
         settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug), false).description =
@@ -1540,6 +1554,12 @@ class Mediathek final : public app::Concept
                  kInk.with_alpha(0.5f), gfx::Align::right);
         ui::Canvas canvas{list, fonts, 0, clock_};
         settings_form_.draw(canvas);
+        // Which build this is, bottom left where the hints leave room; the date and time say
+        // whether the console runs the build you just made.
+        std::string build = std::string("v") + kAppVersion;
+        if (const std::string stamp = build_time(); !stamp.empty())
+            build += std::string("  \xC2\xB7  ") + tr(Text::settings_built) + " " + stamp;
+        ui::text(list, fonts.regular, build, kMargin, 1018.0f, 20, kInk.with_alpha(0.5f));
         list.pop_opacity();
     }
 
@@ -1572,8 +1592,8 @@ class Mediathek final : public app::Concept
         float x = ui::text(list, fonts.display, "MEDIATHEK", kMargin, y, 30, kAccent,
                            gfx::Align::left, 5.0f);
         // Version and author, small, under the logo.
-        ui::text(list, fonts.regular, "v0.6.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
-                 kInk.with_alpha(0.5f), gfx::Align::left, 1.0f);
+        ui::text(list, fonts.regular, std::string("v") + kAppVersion + " \xC2\xB7 by m0", kMargin,
+                 y + 30, 17, kInk.with_alpha(0.5f), gfx::Align::left, 1.0f);
         x = kMargin + x + 64.0f;
         const char *tabs[] = {tr(Text::tab_home), tr(Text::tab_movies)};
         for (int i = 0; i < 2; ++i)
@@ -1690,12 +1710,6 @@ class Mediathek final : public app::Concept
             list.triangle({play.x + 30, play.cy() - 13, 24, 26}, kBlack, 0.0f, 1.5708f);
             ui::text(list, fonts.semibold, tr(resuming ? Text::button_resume : Text::button_play),
                      play.x + 74, play.cy() + 10, 28, kBlack);
-            const Rect more{play.x + play.w + 20, by, 214, 64};
-            list.bordered_rect(more, 32, kInk.with_alpha(0.1f), 2, kInk.with_alpha(0.32f));
-            ui::draw_button(list, fonts, ui::GlyphStyle::dark(), ui::Button::cross, more.x + 20,
-                            more.cy(), 34);
-            ui::text(list, fonts.semibold, tr(Text::button_details), more.x + 70, more.cy() + 10,
-                     26, kInk);
             list.pop_opacity();
         }
         list.pop_opacity();

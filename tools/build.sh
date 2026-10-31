@@ -150,6 +150,9 @@ if (( ${#pacbrew_packages[@]} > 0 || ${#pacbrew_includes[@]} > 0 || ${#pacbrew_a
     printf 'PacBrew dependencies: %s\n' "${pacbrew_packages[*]:-(manual archives)}"
 fi
 
+# __DATE__ and __TIME__ are read when this file is compiled, so every build recompiles it.
+touch "$root/src/core/build_info.cpp"
+
 objects=()
 for source in "${sources[@]}"; do
     [[ $source =~ ^src/[A-Za-z0-9_./-]+\.(c|cc|cpp)$ && -f $root/$source ]] || {

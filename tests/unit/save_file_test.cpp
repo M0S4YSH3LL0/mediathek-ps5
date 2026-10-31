@@ -84,7 +84,7 @@ TEST(Settings, RoundTripsEveryField)
     settings.resolution = 1;
     settings.hint_size = 2;
     settings.concept_index = 7;
-    settings.pin_billboard = true;
+    settings.pin_billboard = false;
     hui::Settings read;
     ASSERT_TRUE(hui::decode_settings(hui::encode_settings(settings), &read));
     EXPECT_EQ(read.music_volume, 3);
@@ -98,22 +98,23 @@ TEST(Settings, RoundTripsEveryField)
     EXPECT_EQ(read.resolution, 1);
     EXPECT_EQ(read.hint_size, 2);
     EXPECT_EQ(read.concept_index, 7);
-    EXPECT_TRUE(read.pin_billboard);
+    EXPECT_FALSE(read.pin_billboard);
     EXPECT_FLOAT_EQ(hui::Settings::gain(10), 1.0f);
     EXPECT_FLOAT_EQ(hui::Settings::gain(0), 0.0f);
 }
 
 // Files saved before the billboard setting existed hold one byte less and the old version.
-TEST(Settings, AFileFromBeforeTheFixedBillboardStillLoadsWithItOff)
+TEST(Settings, AFileFromBeforeTheFixedBillboardStillLoadsWithItsDefault)
 {
     std::string data = hui::encode_settings(hui::Settings{});
     data.pop_back();
     data[0] = 1;
     hui::Settings read;
-    read.pin_billboard = true;
+    read.pin_billboard = false;
     read.music_volume = 2;
     ASSERT_TRUE(hui::decode_settings(data, &read));
-    EXPECT_FALSE(read.pin_billboard);
+    EXPECT_EQ(read.pin_billboard, hui::Settings{}.pin_billboard);
+    EXPECT_TRUE(read.pin_billboard);
     EXPECT_EQ(read.music_volume, hui::Settings{}.music_volume);
 
     EXPECT_FALSE(hui::decode_settings(data.substr(0, data.size() - 1), &read)); // cut short

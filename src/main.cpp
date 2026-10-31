@@ -462,6 +462,7 @@ int main()
             if (status == ps5::Scanner::Status::done)
             {
                 adopt(found);
+                services.scan_found = static_cast<int>(services.library.size());
                 services.scanning = false;
                 services.scan_note.clear();
             }

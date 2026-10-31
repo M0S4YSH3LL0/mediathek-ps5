@@ -45,6 +45,7 @@ HUI_TEXT(settings_ui_sounds, "UI sounds", "Men\xC3\xBCt\xC3\xB6ne")
 HUI_TEXT(settings_ui_sounds_hint, "Clicks and chimes when you move around the app",
          "Klicks und T\xC3\xB6ne beim Navigieren in der App")
 HUI_TEXT(settings_home, "Home", "Startseite")
+HUI_TEXT(settings_built, "built", "gebaut")
 HUI_TEXT(settings_pin_billboard, "Fixed billboard", "Feste Titelanzeige")
 HUI_TEXT(settings_pin_billboard_hint, "The billboard stays in place while you scroll the shelves",
          "Die Titelanzeige bleibt beim Bl\xC3\xA4ttern durch die Regale stehen")
@@ -70,6 +71,7 @@ HUI_TEXT(hint_change, "Change", "\xC3\x84ndern")
 
 // ---- nothing found yet
 HUI_TEXT(looking_for_movies, "Looking for movies\xE2\x80\xA6", "Suche nach Filmen\xE2\x80\xA6")
+HUI_TEXT(scan_found, "Found {}", "{} gefunden")
 HUI_TEXT(no_movies_found, "No movies found", "Keine Filme gefunden")
 HUI_TEXT(put_files_in, "Put your files in a folder called movies:",
          "Lege deine Dateien in einen Ordner namens movies:")
@@ -86,7 +88,6 @@ HUI_TEXT(name_them,
 // ---- the billboard, the details page and its actions
 HUI_TEXT(button_resume, "Resume", "Fortsetzen")
 HUI_TEXT(button_play, "Play", "Abspielen")
-HUI_TEXT(button_details, "Details", "Details")
 HUI_TEXT(resume_from, "Resume from {}", "Fortsetzen ab {}")
 HUI_TEXT(start_over, "Start from the beginning", "Von vorn beginnen")
 HUI_TEXT(mark_watched, "Mark as watched", "Als gesehen markieren")

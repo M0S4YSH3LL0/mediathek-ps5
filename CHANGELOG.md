@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.1 (01.000.061)
+
+- *Fixed billboard* is on by default. A settings file saved by 0.6.0 keeps whatever it holds.
+- The Home billboard has only the Play (or Resume) button: the Details button next to it is gone
+  (Cross on a film still opens the details page, and the hint at the bottom says so).
+- The Settings page shows the version and the date and time of the build at the bottom left, to
+  tell which build the console runs.
+- "Found N movies" after a scan is now the app's own small message at the bottom, after
+  "Looking for movies...", instead of a console notification. The scan helper only posts a
+  notification when the scan fails.
+
 ## 0.6.0 (01.000.060)
 
 - Subtitle files get a language the same way films get their sound languages. A name that says

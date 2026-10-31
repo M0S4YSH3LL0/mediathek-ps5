@@ -42,6 +42,9 @@ struct Services
     std::function<std::string(const std::string &id)> refetch_cover;
     // What stops the covers coming ("No TMDB_API_KEY in mediathek.env"), or "".
     std::string cover_note;
+    // Set by the platform when a scan finished: how many movies it found, -1 when there is
+    // nothing to announce. The screen says it (if the viewer wants debug messages) and resets it.
+    int scan_found = -1;
     // One line about the scan for the empty screen: "Waiting for the ELF loader".
     std::string scan_note;
     // Wall-clock seconds since the epoch; resume points are stamped with it.

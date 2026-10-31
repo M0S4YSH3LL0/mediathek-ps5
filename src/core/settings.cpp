@@ -13,7 +13,7 @@ namespace hui
 
 namespace
 {
-// Version 2 appends pin_billboard; version 1 files are still read (it stays off).
+// Version 2 appends pin_billboard; version 1 files are still read (it keeps its default).
 constexpr std::uint8_t kVersion = 2;
 constexpr std::uint8_t kVersionWithoutPin = 1;
 } // namespace

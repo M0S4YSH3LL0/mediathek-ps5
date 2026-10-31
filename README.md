@@ -2,7 +2,7 @@
 
 # Mediathek
 
-[![Version 0.6.0](https://img.shields.io/badge/version-0.6.0-blue)](CHANGELOG.md)
+[![Version 0.6.1](https://img.shields.io/badge/version-0.6.1-blue)](CHANGELOG.md)
 [![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
@@ -55,13 +55,14 @@ glass behave like the console's own software.
   the previous or next film of the shelf (or the grid) you came from, without
   going back.
 - **Settings**: the gear at the top right (L1/R1 walk Home, Movies, Settings). *Fixed
-  billboard* keeps the Home billboard with Play and Details on screen while you scroll
-  down through the shelves (off: it collapses after the first shelf).
+  billboard* keeps the Home billboard with Play on screen while you scroll
+  down through the shelves (on by default; off: it collapses after the first shelf).
   *UI sounds* switch the menu sounds on or off (on by default), *Debug info* shows
   the frame rate and drawing statistics in the corner (off by default), and *Reload
   all covers and infos* asks first, then fetches cover, wallpaper and description of
   every film from TMDB again and reads every file again (pictures you put beside a
-  film stay). Changes apply at once and are saved by themselves.
+  film stay). Changes apply at once and are saved by themselves. The page's bottom left shows the
+  version and when this build was made.
 - **Player**: scrubber, seek ±10 s (hold: ±30 s, growing to ±5 min the longer you hold; L1/R1 or L2/R2: ±60 s), pause,
   audio track switching (Square) and `.srt` subtitle switching (Triangle; with
   several subtitle files it steps through them and then off), a stream info panel. It remembers
@@ -244,7 +245,7 @@ the code and the rules for changes; a release tag is the exact
 
 ## Status
 
-Version 0.6.0 (`contentVersion` 01.000.060).
+Version 0.6.1 (`contentVersion` 01.000.061).
 
 **Checked on the author's console (firmware 12.70):** the app starts, the scan
 finds the films, covers, wallpapers and descriptions download, the details page

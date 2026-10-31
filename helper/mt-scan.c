@@ -231,6 +231,6 @@ main(void) {
     notify("Mediathek: can't write " INDEX);
     return 1;
   }
-  notify("Mediathek: found %ld movies", g_videos);
+  /* The app says how many it found, when its Debug info setting is on. */
   return 0;
 }

@@ -436,10 +436,10 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
 
     send(*design, nav(Direction::down), 0.3f);
-    ASSERT_FALSE(settings_.pin_billboard);
+    ASSERT_TRUE(settings_.pin_billboard); // on unless the viewer turned it off
     context_.settings_changed = false;
     send(*design, press(Action::confirm), 0.4f); // fixed billboard
-    EXPECT_TRUE(settings_.pin_billboard);
+    EXPECT_FALSE(settings_.pin_billboard);
     EXPECT_TRUE(context_.settings_changed);
 
     send(*design, nav(Direction::down), 0.3f);
@@ -454,6 +454,7 @@ TEST_F(MediathekTest, TheBillboardCollapsesBelowTheFirstShelfUnlessItIsFixed)
 {
     fill_library();
     add_second_shelf();
+    settings_.pin_billboard = false;
     auto design = make();
     ASSERT_EQ(play_pills(*design), 1); // open on the first shelf
     send(*design, nav(Direction::down), 1.0f);
@@ -467,6 +468,31 @@ TEST_F(MediathekTest, TheBillboardCollapsesBelowTheFirstShelfUnlessItIsFixed)
     expect_drawable(*design);
     send(*design, nav(Direction::up), 1.0f);
     EXPECT_EQ(play_pills(*design), 1);
+}
+
+TEST_F(MediathekTest, TheBillboardIsFixedByDefault)
+{
+    EXPECT_TRUE(hui::Settings{}.pin_billboard);
+    fill_library();
+    add_second_shelf();
+    auto design = make();
+    send(*design, nav(Direction::down), 1.0f);
+    EXPECT_EQ(play_pills(*design), 1);
+}
+
+TEST_F(MediathekTest, ASmallMessageSaysHowManyMoviesAScanFound)
+{
+    fill_library();
+    auto design = make();
+    send(*design, idle(), 0.1f);
+    EXPECT_FALSE(played(audio::Cue::notify));
+    services_.scan_found = 4;
+    send(*design, idle(), 0.1f);
+    EXPECT_TRUE(played(audio::Cue::notify)); // whatever the Debug info setting says
+    EXPECT_EQ(services_.scan_found, -1);     // said once
+    send(*design, idle(), 0.1f);
+    EXPECT_FALSE(played(audio::Cue::notify));
+    expect_drawable(*design);
 }
 
 TEST_F(MediathekTest, TheSettingsPageShowsWhatWasSaved)
