@@ -10,7 +10,7 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 formatter=${CLANG_FORMAT:-}
 if [[ -z $formatter ]]; then
-    formatter=$(command -v clang-format-${LLVM_VERSION:-18} || command -v clang-format || true)
+    formatter=$(command -v clang-format-${LLVM_VERSION:-19} || command -v clang-format || true)
 fi
 [[ -n $formatter ]] || { echo "clang-format is required" >&2; exit 2; }
 

@@ -31,7 +31,7 @@ cache="$root/.deps/ps5-opengl"
 mkdir -p "$cache"
 ln -sfn -- "$prefix" "$cache/current"
 
-compiler=$(command -v "${PS5_CLANG:-clang-${LLVM_VERSION:-18}}")
+compiler=$(command -v "${PS5_CLANG:-clang-${LLVM_VERSION:-19}}")
 builtins="$("$compiler" --print-resource-dir)/lib/linux/libclang_rt.builtins-x86_64.a"
 for library in "$sdk/target/lib/libunwind.a" "$sdk/target/lib/libc++abi.a" \
     "$sdk/target/lib/libc++.a" "$builtins"; do

@@ -38,9 +38,9 @@ for command in wget unzip sha256sum tar make; do
         exit 2
     }
 done
-compiler=$(command -v clang-${LLVM_VERSION:-18} || command -v clang || true)
-archiver=$(command -v llvm-ar-${LLVM_VERSION:-18} || command -v llvm-ar || command -v ar || true)
-ranlib=$(command -v llvm-ranlib-${LLVM_VERSION:-18} || command -v llvm-ranlib || command -v ranlib || true)
+compiler=$(command -v clang-${LLVM_VERSION:-19} || command -v clang || true)
+archiver=$(command -v llvm-ar-${LLVM_VERSION:-19} || command -v llvm-ar || command -v ar || true)
+ranlib=$(command -v llvm-ranlib-${LLVM_VERSION:-19} || command -v llvm-ranlib || command -v ranlib || true)
 [[ -n $compiler && -n $archiver && -n $ranlib ]] || {
     echo "clang, an archive tool, and ranlib are required to build zlib" >&2
     exit 2

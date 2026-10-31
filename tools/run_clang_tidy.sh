@@ -10,7 +10,7 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 tidy=${CLANG_TIDY:-}
 if [[ -z $tidy ]]; then
-    tidy=$(command -v clang-tidy-${LLVM_VERSION:-18} || command -v clang-tidy || true)
+    tidy=$(command -v clang-tidy-${LLVM_VERSION:-19} || command -v clang-tidy || true)
 fi
 [[ -n $tidy ]] || { echo "clang-tidy is required" >&2; exit 2; }
 

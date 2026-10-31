@@ -60,12 +60,12 @@ if [[ ${USE_CCACHE:-1} != 0 ]]; then
     required ccache 'compiler result cache'
 fi
 required python3 'metadata, tests, and packaging helpers'
-required_one_of clang 'native host and target compilation' clang-${LLVM_VERSION:-18} clang
-required_one_of clang++ 'C++ host and target compilation' clang++-${LLVM_VERSION:-18} clang++
-required_one_of clang-format 'format validation' clang-format-${LLVM_VERSION:-18} clang-format
-required_one_of clang-tidy 'static analysis' clang-tidy-${LLVM_VERSION:-18} clang-tidy
-required_one_of llvm-ar 'static archive creation' llvm-ar-${LLVM_VERSION:-18} llvm-ar ar
-required_one_of llvm-ranlib 'static archive indexing' llvm-ranlib-${LLVM_VERSION:-18} llvm-ranlib ranlib
+required_one_of clang 'native host and target compilation' clang-${LLVM_VERSION:-19} clang
+required_one_of clang++ 'C++ host and target compilation' clang++-${LLVM_VERSION:-19} clang++
+required_one_of clang-format 'format validation' clang-format-${LLVM_VERSION:-19} clang-format
+required_one_of clang-tidy 'static analysis' clang-tidy-${LLVM_VERSION:-19} clang-tidy
+required_one_of llvm-ar 'static archive creation' llvm-ar-${LLVM_VERSION:-19} llvm-ar ar
+required_one_of llvm-ranlib 'static archive indexing' llvm-ranlib-${LLVM_VERSION:-19} llvm-ranlib ranlib
 required wget 'pinned dependency downloads'
 required unzip 'public SDK extraction'
 required tar 'zlib source extraction'

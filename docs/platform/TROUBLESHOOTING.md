@@ -17,19 +17,19 @@ On Windows PowerShell, run:
 On Linux or inside WSL, confirm the native toolchain:
 
 ```bash
-test -x /usr/bin/clang-18
+test -x /usr/bin/clang-19
 test -x /usr/bin/clang++
 test -x /usr/bin/curl
 test -x /usr/bin/wget
 test -x /usr/bin/unzip
 test -x /usr/bin/tar
-test -x /usr/bin/llvm-ar-18
+test -x /usr/bin/llvm-ar-19
 ```
 
 On Ubuntu, install missing host packages with:
 
 ```bash
-sudo apt install clang-18 clang-format-18 clang-tidy-18 curl lld-18 make python3 python3-pip python3-venv tar unzip wget
+sudo apt install clang-19 clang-format-19 clang-tidy-19 curl lld-19 make python3 python3-pip python3-venv tar unzip wget
 ```
 
 ## The generated `libc.prx` is missing or has the wrong hash

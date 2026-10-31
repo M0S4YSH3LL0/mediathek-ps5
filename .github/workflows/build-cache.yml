@@ -4,7 +4,7 @@
 name: Build cache
 
 # Publishes the compiler cache of a build as the snapshot that later builds start from: the file
-# ccache-clang18.tar of the build-cache release. It runs after a "Build" run that was started by
+# ccache-clang19.tar of the build-cache release. It runs after a "Build" run that was started by
 # hand on main with "snapshot" ticked (that run leaves the cache as its ccache-snapshot artifact).
 # The build workflow itself never writes to a release that already has files.
 on:
@@ -36,4 +36,4 @@ jobs:
             echo "That run kept no snapshot (the box was not ticked)."
             exit 0
           fi
-          gh release upload build-cache "snapshot/ccache-clang18.tar" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload build-cache "snapshot/ccache-clang19.tar" --clobber --repo "$GITHUB_REPOSITORY"

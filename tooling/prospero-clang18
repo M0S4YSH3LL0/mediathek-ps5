@@ -12,10 +12,10 @@ fi
 sdk_root=$PS5_PAYLOAD_SDK
 compiler=${PS5_CLANG:-}
 if [ -z "$compiler" ]; then
-    compiler=$(command -v clang-${LLVM_VERSION:-18} || true)
+    compiler=$(command -v clang-${LLVM_VERSION:-19} || true)
 fi
 if [ -z "$compiler" ]; then
-    echo "clang-${LLVM_VERSION:-18} was not found; set PS5_CLANG or LLVM_VERSION." >&2
+    echo "clang-${LLVM_VERSION:-19} was not found; set PS5_CLANG or LLVM_VERSION." >&2
     exit 2
 fi
 

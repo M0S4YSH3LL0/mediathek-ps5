@@ -35,7 +35,7 @@ TITLE_ID ?=
 APP_NAME ?=
 APP_CATEGORY ?= game
 CONTENT_SUFFIX ?=
-LLVM_VERSION ?= 18
+LLVM_VERSION ?= 19
 HOST_CXX ?= clang++
 HOST_CC ?= clang
 HOST_TEST_CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Wpedantic -Werror \

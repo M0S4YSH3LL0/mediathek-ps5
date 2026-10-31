@@ -93,7 +93,7 @@ mkdir -p "$build/host" "$build/obj" "$dist"
 bash "$root/tools/build-host-tools.sh"
 source "$root/tools/ninja-build.sh"
 ninja_begin "$build/app.ninja"
-target_compiler=$(command -v "${PS5_CLANG:-clang-${LLVM_VERSION:-18}}")
+target_compiler=$(command -v "${PS5_CLANG:-clang-${LLVM_VERSION:-19}}")
 
 mapfile -d '' -t source_paths < <(
     find "$root/src" -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) \

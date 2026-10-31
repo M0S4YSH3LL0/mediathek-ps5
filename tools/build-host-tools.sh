@@ -13,7 +13,7 @@ zlib_archive=$(find "$zlib_root" -type f -name libz.a -print -quit)
 if [[ -n ${CXX:-} ]]; then
     cxx=$(command -v "$CXX")
 else
-    cxx=$(command -v clang++-${LLVM_VERSION:-18} || command -v clang++)
+    cxx=$(command -v clang++-${LLVM_VERSION:-19} || command -v clang++)
 fi
 ninja_begin "$build/build.ninja"
 objects=()
