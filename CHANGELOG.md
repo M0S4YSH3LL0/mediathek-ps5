@@ -2,6 +2,13 @@
 
 ## 0.6.2 (01.000.062)
 
+- While the film is paused, the Cross hint in the player reads "Resume" ("Fortsetzen") instead of
+  "Pause".
+- A new setting, *Wallpaper on the details page* (Settings, under Appearance; on by default).
+  Off, the details page shows only the film's colour with its glow and fades, as it does for a
+  film without a wallpaper. The Home heading of the settings is now called Appearance, and *Reload all covers and infos*
+  now sits above *Debug info*. The
+  settings file gains one byte (format version 4); earlier files load with the wallpaper on.
 - A new setting, *App language* (Settings, under Language): Automatic (the console's language,
   or UI_LANGUAGE in mediathek.env), English or Deutsch. It changes every text at once, shelves
   and Settings page included. A choice made there wins over UI_LANGUAGE. Descriptions fetched

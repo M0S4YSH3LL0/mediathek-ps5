@@ -442,7 +442,13 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     EXPECT_FALSE(settings_.pin_billboard);
     EXPECT_TRUE(context_.settings_changed);
 
+    send(*design, nav(Direction::down), 0.3f);
+    context_.settings_changed = false;
+    send(*design, press(Action::confirm), 0.4f); // the wallpaper of the details page
+    EXPECT_FALSE(settings_.details_wallpaper);
+    EXPECT_TRUE(context_.settings_changed);
     send(*design, nav(Direction::down), 0.3f); // the language row
+    send(*design, nav(Direction::down), 0.3f); // reload all covers and infos
     send(*design, nav(Direction::down), 0.3f);
     context_.settings_changed = false;
     send(*design, press(Action::confirm), 0.4f); // debug info
@@ -505,6 +511,7 @@ TEST_F(MediathekTest, TheLanguageRowSwitchesTheAppAtOnce)
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
     send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f); // the language row
     ASSERT_EQ(settings_.ui_language, 0);
 
@@ -543,7 +550,9 @@ TEST_F(MediathekTest, TheSettingsPageShowsWhatWasSaved)
     send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.4f);
     EXPECT_FALSE(settings_.pin_billboard);
+    send(*design, nav(Direction::down), 0.3f); // the wallpaper
     send(*design, nav(Direction::down), 0.3f); // the language row
+    send(*design, nav(Direction::down), 0.3f); // reload all covers and infos
     send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.4f);
     EXPECT_FALSE(settings_.show_fps);

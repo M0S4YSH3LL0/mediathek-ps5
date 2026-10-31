@@ -107,6 +107,7 @@ TEST(Settings, RoundTripsEveryField)
 TEST(Settings, AFileFromBeforeTheFixedBillboardStillLoadsWithItsDefault)
 {
     std::string data = hui::encode_settings(hui::Settings{});
+    data.pop_back(); // the wallpaper
     data.pop_back(); // the language
     data.pop_back(); // the billboard
     data[0] = 1;
@@ -123,6 +124,23 @@ TEST(Settings, AFileFromBeforeTheFixedBillboardStillLoadsWithItsDefault)
     EXPECT_FALSE(hui::decode_settings(data, &read));
 }
 
+TEST(Settings, TheWallpaperChoiceIsSavedAndAnOlderFileKeepsTheWallpaper)
+{
+    hui::Settings settings;
+    ASSERT_TRUE(settings.details_wallpaper);
+    settings.details_wallpaper = false;
+    hui::Settings read;
+    ASSERT_TRUE(hui::decode_settings(hui::encode_settings(settings), &read));
+    EXPECT_FALSE(read.details_wallpaper);
+
+    std::string data = hui::encode_settings(settings);
+    data.pop_back();
+    data[0] = 3; // saved by the build with the language setting only
+    read.details_wallpaper = false;
+    ASSERT_TRUE(hui::decode_settings(data, &read));
+    EXPECT_TRUE(read.details_wallpaper);
+}
+
 TEST(Settings, TheLanguageChoiceIsSavedAndAFileWithoutItMeansAutomatic)
 {
     hui::Settings settings;
@@ -132,14 +150,15 @@ TEST(Settings, TheLanguageChoiceIsSavedAndAFileWithoutItMeansAutomatic)
     EXPECT_EQ(read.ui_language, 2);
 
     std::string data = hui::encode_settings(settings);
-    data.pop_back();
-    data[0] = 2; // saved by 0.6.x, before the language setting
+    data.pop_back(); // the wallpaper
+    data.pop_back(); // the language
+    data[0] = 2;     // saved by 0.6.0 and 0.6.1, before the language setting
     read.ui_language = 1;
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.ui_language, 0);
 
     data = hui::encode_settings(settings);
-    data.back() = 9; // not a language
+    data[data.size() - 2] = 9; // not a language
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.ui_language, 2);
 }

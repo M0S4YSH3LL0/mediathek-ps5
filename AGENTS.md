@@ -182,8 +182,9 @@ none), what a file contains in `info/<id>.info`, resume points beside them. Sett
 **The settings page.** The gear tab (`Tab::settings`, a `ui::Form` in `mediathek.cpp`)
 edits the kit's `Settings`: *UI sounds* is `ui_volume` (0 off, else the default), *Debug
 info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` (on by default; keeps
-`hero_` open on every shelf, `animate()`; the settings file is format version 3, older ones still
-load with the defaults; *App language* is `ui_language`). The page's bottom left shows the version and `build_time()`
+`hero_` open on every shelf, `animate()`; the settings file is format version 4, older ones still
+load with the defaults; *App language* is `ui_language`, *Wallpaper on the details page* is
+`details_wallpaper`, read by `draw_details_art`). The page's bottom left shows the version and `build_time()`
 (`core/build_info.cpp`, `__DATE__`/`__TIME__`; `tools/build.sh` touches the file so every build
 stamps it). A change sets `context_.settings_changed`;
 the shell saves `/download0/hui/settings.bin` 0.75 s after the last one, and `main.cpp`

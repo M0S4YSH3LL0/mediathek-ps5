@@ -69,9 +69,10 @@ enum SettingsRow : int
 {
     kRowUiSounds = 1,
     kRowPinBillboard,
+    kRowDetailsWallpaper,
     kRowLanguage,
-    kRowDebug,
     kRowReload,
+    kRowDebug,
 };
 constexpr float kCardW = 176.0f; // poster at rest on a shelf
 constexpr float kCardH = 264.0f;
@@ -159,8 +160,10 @@ constexpr app::TourStep kTour[] = {
     {0.3f, 0, Direction::down},
     {0.3f, 0, Direction::down},
     {0.3f, 0, Direction::down},
-    {0.2f, action_bit(Action::confirm)},
     {0.3f, 0, Direction::down},
+    {0.3f, 0, Direction::down},
+    {0.2f, action_bit(Action::confirm)},
+    {0.3f, 0, Direction::up},
     {0.9f, 0, Direction::none, "settings-changed"},
     {0.2f, action_bit(Action::confirm)},
     {0.9f, 0, Direction::none, "reload"},
@@ -735,19 +738,23 @@ class Mediathek final : public app::Concept
         settings_form_.add_header(tr(Text::settings_sound));
         settings_form_.add_toggle(kRowUiSounds, tr(Text::settings_ui_sounds), true).description =
             tr(Text::settings_ui_sounds_hint);
-        settings_form_.add_header(tr(Text::settings_home));
+        settings_form_.add_header(tr(Text::settings_appearance));
         settings_form_.add_toggle(kRowPinBillboard, tr(Text::settings_pin_billboard), true)
             .description = tr(Text::settings_pin_billboard_hint);
+        settings_form_
+            .add_toggle(kRowDetailsWallpaper, tr(Text::settings_details_wallpaper),
+                        context_.settings.details_wallpaper)
+            .description = tr(Text::settings_details_wallpaper_hint);
         settings_form_.add_header(tr(Text::settings_language));
         settings_form_.add_choice(kRowLanguage, tr(Text::settings_ui_language),
                                   {tr(Text::settings_language_auto), "English", "Deutsch"},
                                   context_.settings.ui_language);
-        settings_form_.add_header(tr(Text::settings_developer));
-        settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug), false).description =
-            tr(Text::settings_debug_hint);
         settings_form_.add_header(tr(Text::settings_library));
         settings_form_.add_action(kRowReload, tr(Text::settings_reload)).description =
             tr(Text::settings_reload_hint);
+        settings_form_.add_header(tr(Text::settings_developer));
+        settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug), false).description =
+            tr(Text::settings_debug_hint);
         settings_form_.set_bounds({kMargin, 236.0f, 1020.0f, 720.0f});
         sync_settings_form();
 
@@ -761,6 +768,7 @@ class Mediathek final : public app::Concept
     {
         settings_form_.set_toggle(kRowUiSounds, context_.settings.ui_volume > 0);
         settings_form_.set_toggle(kRowPinBillboard, context_.settings.pin_billboard);
+        settings_form_.set_toggle(kRowDetailsWallpaper, context_.settings.details_wallpaper);
         settings_form_.set_toggle(kRowDebug, context_.settings.show_fps);
         settings_form_.set_choice(kRowLanguage, context_.settings.ui_language);
     }
@@ -813,6 +821,10 @@ class Mediathek final : public app::Concept
         else if (row == kRowPinBillboard)
         {
             settings.pin_billboard = settings_form_.toggle_value(row);
+        }
+        else if (row == kRowDetailsWallpaper)
+        {
+            settings.details_wallpaper = settings_form_.toggle_value(row);
         }
         else if (row == kRowLanguage)
         {
@@ -2006,13 +2018,13 @@ class Mediathek final : public app::Concept
     }
 
     // The wallpaper of the page behind the details, over the whole screen. A
-    // film without one leaves the tinted page colour, with a glow.
+    // film without one (or with the setting off) leaves the tinted page colour, with a glow.
     void draw_details_art(gfx::DrawList &list, int index, float t) const
     {
         const media::Movie &m = movie(index);
         const Color tone = tone_.value();
         const media::Art *wide = nullptr;
-        if (svc_->posters != nullptr && !m.backdrop.empty())
+        if (svc_->posters != nullptr && !m.backdrop.empty() && context_.settings.details_wallpaper)
             wide = svc_->posters->get(m.backdrop, media::ArtKind::backdrop);
         // It drifts out to its full size as the page opens, like the hero.
         const float grow = 28.0f * (1.0f - t);
@@ -2450,11 +2462,12 @@ class Mediathek final : public app::Concept
                 list.rounded_rect({cx - 24, 540 - 28, 16, 56}, 4, kInk);
                 list.rounded_rect({cx + 8, 540 - 28, 16, 56}, 4, kInk);
             }
-            const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_pause)},
-                                      {ui::Button::dpad, tr(Text::hint_seek)},
-                                      {ui::Button::square, tr(Text::hint_audio)},
-                                      {ui::Button::triangle, tr(Text::hint_subtitles)},
-                                      {ui::Button::circle, tr(Text::hint_stop)}};
+            const ui::Hint hints[] = {
+                {ui::Button::cross, tr(paused_ ? Text::button_resume : Text::hint_pause)},
+                {ui::Button::dpad, tr(Text::hint_seek)},
+                {ui::Button::square, tr(Text::hint_audio)},
+                {ui::Button::triangle, tr(Text::hint_subtitles)},
+                {ui::Button::circle, tr(Text::hint_stop)}};
             ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, 5, 1824, true);
             list.pop_opacity();
         }

@@ -44,11 +44,15 @@ HUI_TEXT(settings_sound, "Sound", "Ton")
 HUI_TEXT(settings_ui_sounds, "UI sounds", "Men\xC3\xBCt\xC3\xB6ne")
 HUI_TEXT(settings_ui_sounds_hint, "Clicks and chimes when you move around the app",
          "Klicks und T\xC3\xB6ne beim Navigieren in der App")
-HUI_TEXT(settings_home, "Home", "Startseite")
+HUI_TEXT(settings_appearance, "Appearance", "Darstellung")
 HUI_TEXT(settings_built, "built", "gebaut")
 HUI_TEXT(settings_pin_billboard, "Fixed billboard", "Feste Titelanzeige")
 HUI_TEXT(settings_pin_billboard_hint, "The billboard stays in place while you scroll the shelves",
          "Die Titelanzeige bleibt beim Bl\xC3\xA4ttern durch die Regale stehen")
+HUI_TEXT(settings_details_wallpaper, "Wallpaper on the details page",
+         "Hintergrundbild auf der Detailseite")
+HUI_TEXT(settings_details_wallpaper_hint, "Off: only the film's colour fills the page",
+         "Aus: nur die Farbe des Films f\xC3\xBCllt die Seite")
 HUI_TEXT(settings_language, "Language", "Sprache")
 HUI_TEXT(settings_ui_language, "App language", "Sprache der App")
 HUI_TEXT(settings_language_auto, "Automatic", "Automatisch")

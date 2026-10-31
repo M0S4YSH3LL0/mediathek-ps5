@@ -13,11 +13,12 @@ namespace hui
 
 namespace
 {
-// Version 2 appends pin_billboard and version 3 ui_language; older files are still read (the
-// settings they lack keep their defaults).
-constexpr std::uint8_t kVersion = 3;
+// Version 2 appends pin_billboard, version 3 ui_language and version 4 details_wallpaper; older
+// files are still read (the settings they lack keep their defaults).
+constexpr std::uint8_t kVersion = 4;
 constexpr std::uint8_t kVersionWithoutPin = 1;
 constexpr std::uint8_t kVersionWithoutLanguage = 2;
+constexpr std::uint8_t kVersionWithoutWallpaper = 3;
 } // namespace
 
 std::string encode_settings(const Settings &settings)
@@ -37,6 +38,7 @@ std::string encode_settings(const Settings &settings)
     w.put(static_cast<std::uint8_t>(settings.concept_index));
     w.put_bool(settings.pin_billboard);
     w.put(static_cast<std::uint8_t>(settings.ui_language));
+    w.put_bool(settings.details_wallpaper);
     return w.data();
 }
 
@@ -44,7 +46,7 @@ bool decode_settings(std::string_view data, Settings *settings)
 {
     bytes::Reader r(data);
     const std::uint8_t version = r.get<std::uint8_t>();
-    if (version != kVersion && version != kVersionWithoutPin && version != kVersionWithoutLanguage)
+    if (version < kVersionWithoutPin || version > kVersion)
         return false;
     Settings s;
     s.music_volume = std::clamp<int>(r.get<std::uint8_t>(), 0, 10);
@@ -60,8 +62,10 @@ bool decode_settings(std::string_view data, Settings *settings)
     s.concept_index = r.get<std::uint8_t>();
     if (version != kVersionWithoutPin)
         s.pin_billboard = r.get_bool();
-    if (version == kVersion)
+    if (version > kVersionWithoutLanguage)
         s.ui_language = std::clamp<int>(r.get<std::uint8_t>(), 0, 2);
+    if (version > kVersionWithoutWallpaper)
+        s.details_wallpaper = r.get_bool();
     if (!r.finished())
         return false;
     *settings = s;

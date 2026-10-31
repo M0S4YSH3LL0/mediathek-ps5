@@ -54,15 +54,16 @@ glass behave like the console's own software.
   watched and Refresh cover and info on the right. L1/R1 or left/right step to
   the previous or next film of the shelf (or the grid) you came from, without
   going back.
-- **Settings**: the gear at the top right (L1/R1 walk Home, Movies, Settings). *Fixed
-  billboard* keeps the Home billboard with Play on screen while you scroll
-  down through the shelves (on by default; off: it collapses after the first shelf).
-  *App language* picks Automatic (the console's), English or Deutsch. *UI sounds* switch the menu sounds on or off (on by default), *Debug info* shows
-  the frame rate and drawing statistics in the corner (off by default), and *Reload
-  all covers and infos* asks first, then fetches cover, wallpaper and description of
-  every film from TMDB again and reads every file again (pictures you put beside a
-  film stay). Changes apply at once and are saved by themselves. The page's bottom left shows the
-  version and when this build was made.
+- **Settings**: the gear at the top right (L1/R1 walk Home, Movies, Settings). *UI sounds*
+  switch the menu sounds on or off (on by default). *Fixed billboard* keeps the Home billboard
+  with Play on screen while you scroll down through the shelves (on by default; off: it
+  collapses after the first shelf). *Wallpaper on the details page* can be switched off (the
+  page then keeps only the film's colour). *App language* picks Automatic (the console's),
+  English or Deutsch. *Reload all covers and infos* asks first, then fetches cover, wallpaper
+  and description of every film from TMDB again and reads every file again (pictures you put
+  beside a film stay). *Debug info* shows the frame rate and drawing statistics in the corner
+  (off by default). Changes apply at once and are saved by themselves. The page's bottom left
+  shows the version and when this build was made.
 - **Player**: scrubber, seek ±10 s (hold: ±30 s, growing to ±5 min the longer you hold; L1/R1 or L2/R2: ±60 s), pause,
   audio track switching (Square) and `.srt` subtitle switching (Triangle; with
   several subtitle files it steps through them and then off), a stream info panel. It remembers
