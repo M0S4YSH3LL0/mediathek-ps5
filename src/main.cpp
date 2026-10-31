@@ -364,6 +364,16 @@ int main()
     scan();
 
     app::Shell shell(fonts, catalog, kDataRoot, renderer.glass_texture(), &services);
+    // The only sound setting is the switch on the settings page: menu sounds on or off. The
+    // levels stay as they were tuned (the music bus is not touched), and the saved choice
+    // has to be applied at start-up too, not only when it changes.
+    const auto apply_ui_sounds = [&mixer](const Settings &settings)
+    {
+        const float level = settings.ui_volume > 0 ? 1.0f : 0.0f;
+        mixer.set_bus_gain(audio::Bus::ui, level);
+        mixer.set_bus_gain(audio::Bus::sfx, level);
+    };
+    apply_ui_sounds(shell.settings());
     const std::string version = read_content_version("/app0/sce_sys/param.json");
     shell.set_version(version);
     sys::log("[HUI] version %s designs=%zu", version.empty() ? "unknown" : version.c_str(),
@@ -492,9 +502,7 @@ int main()
         if (shell.take_settings_changed())
         {
             const Settings &settings = shell.settings();
-            mixer.set_bus_gain(audio::Bus::music, Settings::gain(settings.music_volume));
-            mixer.set_bus_gain(audio::Bus::sfx, Settings::gain(settings.sfx_volume));
-            mixer.set_bus_gain(audio::Bus::ui, Settings::gain(settings.ui_volume));
+            apply_ui_sounds(settings);
             InputSettings input_settings = tracker.settings();
             input_settings.swap_confirm = settings.swap_confirm;
             tracker.set_settings(input_settings);

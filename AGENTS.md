@@ -65,7 +65,7 @@ HUI_LANG=de tools/host-snapshots.sh build/snapshots-de mediathek   # the same in
 make test-unit                                       # GoogleTest, sanitizers on
 make format-check                                    # clang-format (make format fixes)
 make                                                 # the PS5 app folder in dist/PPSA66120
-make lint                                            # needs a git index, see below
+make lint                                            # lists files with git, takes minutes
 ```
 
 1. Change code.
@@ -83,14 +83,8 @@ is taken *before* its own step's input acts. To photograph a state that has none
 change the tour temporarily and restore it. The preview has no sound, no video
 (a simulated player draws a moving test picture) and no network.
 
-`make lint` runs `git ls-files`, and this folder is not a git repository. Give it
-a throwaway index (takes more than two minutes; use a long timeout):
-
-```bash
-rm -rf /tmp/lintgit
-export GIT_DIR=/tmp/lintgit GIT_WORK_TREE=$PWD
-git init -q && git add -A && make lint
-```
+`make lint` lists its files with `git ls-files` (tracked and new ones), so it needs this
+folder's git repository and takes more than two minutes; use a long timeout.
 
 ## Rules
 
@@ -153,10 +147,11 @@ git init -q && git add -A && make lint
 
 **Git**
 
-- This folder is not a git repository. Do not `git init`, commit, tag or push
-  unless the owner asks. When asked: small commits, one-line imperative subject.
+- Do not commit, tag or push unless the owner asks. A release is the owner's call: the
+  commit, the tag, the push and the GitHub release (zip and `.sha256` from `dist/release`).
+  When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.040` is the app's 0.4.0); the app shows the short form (`v0.4.0` in
+  (`01.000.050` is the app's 0.5.0); the app shows the short form (`v0.5.0` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -175,6 +170,14 @@ one is stored as `"\n"` so TMDB is not asked again, because `CoverStore::exists`
 needs size > 0; likewise `<id>.rating` is `"0"` and `<id>.genres` is `"-"` when TMDB has
 none), what a file contains in `info/<id>.info`, resume points beside them. Settings are read from
 `/app0/mediathek.env`.
+
+**The settings page.** The gear tab (`Tab::settings`, a `ui::Form` in `mediathek.cpp`)
+edits the kit's `Settings`: *UI sounds* is `ui_volume` (0 off, else the default), *Debug
+info* is `show_fps` (the shell's overlay). A change sets `context_.settings_changed`;
+the shell saves `/download0/hui/settings.bin` 0.75 s after the last one, and `main.cpp`
+(`apply_ui_sounds`, also at start-up) mutes the `ui` and `sfx` mixer buses. The music bus
+is deliberately left at its tuned gain; do not route the kit's volume curve through it.
+*Reload all* calls `refetch_cover` for every film, as the details page does for one.
 
 **Memory.** FFmpeg needs far more than the kit's original 128 MiB heap; a 1080p
 H.264 MKV ran it out ("failures=260" in the log) and showed as blocks and frame
@@ -246,6 +249,6 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   FFmpeg playback speed and the network are *not verified* until someone has
   checked them on hardware; a PC picture never counts as a console result. The
   owner has checked language detection, subtitle and audio switching, Back/exit,
-  menu sounds, controller feedback, stepping between films, genre shelves, search
-  and internal and external drives on firmware 12.70; 4K and HEVC playback are
+  menu sounds, controller feedback, stepping between films, genre shelves, search,
+  the settings page (UI sounds, debug info, reload all) and internal and external drives on firmware 12.70; 4K and HEVC playback are
   still unchecked.

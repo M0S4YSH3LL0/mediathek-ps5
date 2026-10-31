@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 (01.000.050)
+
+- A Settings page: the gear at the top right, a third tab after Home and Movies (L1/R1).
+  *UI sounds* (on by default) switch the menu sounds off, *Debug info* (off by default)
+  shows the frame rate and drawing statistics, and *Reload all covers and infos* asks,
+  then fetches cover, wallpaper and description of every film again and re-reads every
+  file; pictures beside a film are left alone. Changes apply at once and are saved by
+  themselves. The saved choice now also applies at start-up.
+- `tools/prepare-assets.sh` works on Debian: without PowerShell it converts the icon and
+  backgrounds with Python (Pillow, NumPy), see `docs/platform/PRESENTATION_ASSETS.md`.
+- New icon, and a new selection and launch background (`sce_sys/background-source.png`,
+  which is also the README's header picture).
+
 ## 0.4.0 (01.000.040)
 
 - On the details page L1/R1 and left/right step to the previous or next film of the

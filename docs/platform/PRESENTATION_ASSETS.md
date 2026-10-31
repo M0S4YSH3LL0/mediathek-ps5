@@ -39,10 +39,17 @@ Open a new PowerShell window after installation. Alternatively, pass the full
 executable path with `-Texconv`.
 
 WSL users can run `tools/prepare-assets.sh`; it translates POSIX paths and
-invokes the same PowerShell converter through Windows interop. Native Linux can
-validate prepared files with `tools/validate-assets.sh`, but conversion still
-requires Windows `texconv` (or an equivalent command supplied through a
-Windows-compatible environment).
+invokes the same PowerShell converter through Windows interop.
+
+On native Linux (Debian) there is no PowerShell and no `texconv`;
+`tools/prepare-assets.sh` then converts with `tools/prepare-assets.py` instead.
+It needs Pillow and NumPy (`sudo apt install python3-pil python3-numpy`), takes the
+same options, and validates the result. `--native` forces this path on WSL too. Its
+BC7 encoder writes mode 6 only, which suits smooth launcher backgrounds, so the
+bytes differ from a `texconv` run (same format, same checks). With `--background`
+only `background-source.png` is kept, not an identical second copy. Audio that is
+not already `.at9` needs FFmpeg and your own `ps4_at9tool.exe` (`--at9-tool`, run
+through wine); that route is untested.
 
 ## Prepare the icon and backgrounds
 

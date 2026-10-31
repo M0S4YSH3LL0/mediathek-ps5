@@ -1,6 +1,8 @@
+<p align="center"><img src="sce_sys/background-source.png" alt="Mediathek: a dark cinema with red seats and a film projector" width="100%"></p>
+
 # Mediathek
 
-[![Version 0.4.0](https://img.shields.io/badge/version-0.4.0-blue)](CHANGELOG.md)
+[![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-blue)](CHANGELOG.md)
 [![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
@@ -21,6 +23,7 @@ speaks English and German.
 | ![All movies](docs/screenshots/movies.jpg) | ![Details](docs/screenshots/details.jpg) |
 | ![Genre shelves on Home](docs/screenshots/genres.jpg) | ![Search on the Movies page](docs/screenshots/search.jpg) |
 | ![Start, in German](docs/screenshots/home-de.jpg) | ![Details, in German](docs/screenshots/details-de.jpg) |
+| ![Settings](docs/screenshots/settings.jpg) | ![Settings, in German](docs/screenshots/settings-de.jpg) |
 
 *The pictures come from the PC preview with invented films; the covers and
 wallpapers on a console are the real ones, fetched by the app. The last row
@@ -51,6 +54,12 @@ glass behave like the console's own software.
   watched and Refresh cover and info on the right. L1/R1 or left/right step to
   the previous or next film of the shelf (or the grid) you came from, without
   going back.
+- **Settings**: the gear at the top right (L1/R1 walk Home, Movies, Settings).
+  *UI sounds* switch the menu sounds on or off (on by default), *Debug info* shows
+  the frame rate and drawing statistics in the corner (off by default), and *Reload
+  all covers and infos* asks first, then fetches cover, wallpaper and description of
+  every film from TMDB again and reads every file again (pictures you put beside a
+  film stay). Changes apply at once and are saved by themselves.
 - **Player**: scrubber, seek ±10 s (hold: ±30 s, L1/R1 or L2/R2: ±60 s), pause,
   audio track switching (Square) and `.srt` subtitle switching (Triangle; with
   several subtitle files it steps through them and then off), a stream info panel. It remembers
@@ -138,12 +147,12 @@ Put films anywhere below a `movies` folder, up to six levels deep:
 | | Browse | Details | Player |
 | --- | --- | --- | --- |
 | D-pad / stick | move | up/down: action; left/right: previous / next film | left/right: seek |
-| Cross | details | choose | pause / play |
+| Cross | details (Settings: change) | choose | pause / play |
 | Square | play (resumes) | | next audio track |
 | Triangle | watched (Home) / search (Movies) | | next subtitles, then off |
 | R3 (press the right stick) | sort (Movies) | | |
 | Options | scan again | | stream info |
-| L1 / R1 | Home / Movies | previous / next film | seek -60 s / +60 s |
+| L1 / R1 | Home / Movies / Settings | previous / next film | seek -60 s / +60 s |
 | Circle | back: Movies to Home, to the first film, then press twice to exit | back | stop |
 
 ## Covers, wallpapers and descriptions
@@ -230,7 +239,7 @@ the code and the rules for changes; a release tag is the exact
 
 ## Status
 
-Version 0.4.0 (`contentVersion` 01.000.040).
+Version 0.5.0 (`contentVersion` 01.000.050).
 
 **Checked on the author's console (firmware 12.70):** the app starts, the scan
 finds the films, covers, wallpapers and descriptions download, the details page
@@ -238,7 +247,8 @@ shows them with the film's length, formats, score, genres and the audio and
 subtitle languages, and a large 1080p H.264 MKV plays with sound without
 glitches. Stepping between films on the details page, the red shelf line,
 stepping through several subtitle files, the genre shelves on Home, the search
-on the Movies page and sorting with R3 work too. The console's language detection (German console, German texts), the
+on the Movies page, sorting with R3 and the settings page (UI sounds, debug info,
+reload all covers and infos) work too. The console's language detection (German console, German texts), the
 load time of the larger fonts, subtitle and audio-track switching, the staged
 Back/exit, sound in the menus and the controller feedback all work, with films
 on the internal drive and on an external drive. The loader version was not

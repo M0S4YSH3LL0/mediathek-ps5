@@ -4,13 +4,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Provides Linux/WSL-style arguments for the Windows DirectXTex and ATRAC9
-# conversion workflow while keeping validation available on native Linux.
+# conversion workflow. Without Windows PowerShell (native Linux, Debian) the pictures are
+# converted by tools/prepare-assets.py with Pillow and NumPy instead of texconv.
 
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 output_directory="$root/sce_sys"
 validate_only=0
+native=0
 conversion_inputs=0
 declare -a forwarded=()
 
@@ -25,15 +27,18 @@ usage: tools/prepare-assets.sh [options]
   --audio PATH                 Copy ready AT9 or prepare supported source audio
   --audio-start SECONDS        Start of the audio excerpt (default: 0)
   --audio-duration SECONDS     Excerpt duration (default: 15; maximum: 87.3)
-  --texconv COMMAND            texconv.exe name or path
+  --native                     Convert with Python (Pillow, NumPy), not Windows PowerShell
+  --texconv COMMAND            texconv.exe name or path (Windows path only)
   --ffmpeg COMMAND             Windows FFmpeg name or path
   --at9-tool COMMAND           Legally obtained compatible ATRAC9 encoder
   --output-directory PATH      Destination (default: sce_sys)
   --validate-only              Validate current files on Linux or WSL
   -h, --help                   Show this help
 
-Conversion runs through Windows PowerShell and therefore requires WSL or a
-Windows Bash environment. Validation is portable and requires only Python 3.
+Conversion runs through Windows PowerShell when it is there (WSL, Windows Bash) and
+otherwise natively with Python 3, Pillow and NumPy (Debian: sudo apt install
+python3-pil python3-numpy); FFmpeg is needed for audio that is not already .at9.
+Validation is portable and requires only Python 3.
 EOF
 }
 
@@ -61,6 +66,10 @@ while (($#)); do
             need_value "$@"
             output_directory=$2
             shift 2
+            ;;
+        --native)
+            native=1
+            shift
             ;;
         --validate-only)
             validate_only=1
@@ -90,13 +99,33 @@ fi
     exit 2
 }
 
-if command -v powershell.exe >/dev/null 2>&1; then
-    powershell_command=$(command -v powershell.exe)
-elif command -v powershell >/dev/null 2>&1; then
-    powershell_command=$(command -v powershell)
-else
-    echo "conversion requires Windows PowerShell through WSL or Windows Bash" >&2
-    exit 2
+powershell_command=
+if ((!native)); then
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell_command=$(command -v powershell.exe)
+    elif command -v powershell >/dev/null 2>&1; then
+        powershell_command=$(command -v powershell)
+    fi
+fi
+
+if [[ -z $powershell_command ]]; then
+    python3 -c 'import PIL, numpy' >/dev/null 2>&1 || {
+        echo "native conversion needs Pillow and NumPy: sudo apt install python3-pil python3-numpy" >&2
+        exit 2
+    }
+    declare -a python_args=()
+    for ((index = 0; index < ${#forwarded[@]}; index += 2)); do
+        case "${forwarded[index]}" in
+            --texconv)
+                echo "--texconv is only used with Windows PowerShell; ignoring it" >&2
+                ;;
+            *)
+                python_args+=("${forwarded[index]}" "${forwarded[index + 1]}")
+                ;;
+        esac
+    done
+    python3 "$root/tools/prepare-assets.py" "${python_args[@]}" --output-directory "$output_directory"
+    exec bash "$root/tools/validate-assets.sh" "$output_directory"
 fi
 
 to_windows_path() {

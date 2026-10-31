@@ -28,6 +28,8 @@
 #include "media/mediainfo.hpp"
 #include "media/services.hpp"
 #include "media/subtitles.hpp"
+#include "ui/components/dialog.hpp"
+#include "ui/components/form.hpp"
 #include "ui/components/input_prompt.hpp"
 #include "ui/glyphs.hpp"
 #include "ui/motion.hpp"
@@ -56,8 +58,18 @@ const Color kBlack = Color::rgb(0x07070b);
 const Color kAccent = Color::rgb(0xff4d5e);
 
 constexpr float kMargin = 96.0f;
+constexpr float kGearRadius = 17.0f;
+constexpr int kTabCount = 3; // Tab::home .. Tab::settings
 constexpr float kExitConfirmSeconds = 2.5f;
 constexpr int kSearchLength = 40;
+
+// The rows of the settings page; the form hands these back when one changes.
+enum SettingsRow : int
+{
+    kRowUiSounds = 1,
+    kRowDebug,
+    kRowReload,
+};
 constexpr float kCardW = 176.0f; // poster at rest on a shelf
 constexpr float kCardH = 264.0f;
 constexpr float kCardGap = 20.0f;
@@ -128,6 +140,17 @@ constexpr app::TourStep kTour[] = {
     {0.2f, action_bit(Action::confirm)},
     {0.8f, 0, Direction::none, "paused"},
     {0.4f, action_bit(Action::back)},
+    {0.4f, action_bit(Action::page_next)},
+    {1.0f, 0, Direction::none, "settings"},
+    {0.2f, action_bit(Action::confirm)},
+    {0.3f, 0, Direction::down},
+    {0.2f, action_bit(Action::confirm)},
+    {0.3f, 0, Direction::down},
+    {0.9f, 0, Direction::none, "settings-changed"},
+    {0.2f, action_bit(Action::confirm)},
+    {0.9f, 0, Direction::none, "reload"},
+    {0.3f, action_bit(Action::back)},
+    {0.4f, action_bit(Action::page_prev)},
     {0.8f, action_bit(Action::page_prev)},
 };
 
@@ -142,6 +165,7 @@ enum class Tab : std::uint8_t
 {
     home,
     movies,
+    settings, // the gear at the top right
 };
 
 enum class Sort : std::uint8_t
@@ -268,6 +292,7 @@ class Mediathek final : public app::Concept
         rebuild();
         snap_layout();
         setup_search();
+        setup_settings();
     }
 
     const app::ConceptInfo &info() const override
@@ -365,6 +390,8 @@ class Mediathek final : public app::Concept
 
     int focused_movie() const
     {
+        if (tab_ == Tab::settings)
+            return -1;
         if (tab_ == Tab::home)
         {
             if (shelves_.empty())
@@ -514,14 +541,23 @@ class Mediathek final : public app::Concept
             update_search(input, feedback);
             return;
         }
+        if (reload_dialog_.is_open())
+        {
+            update_settings(input, feedback);
+            return;
+        }
         if (input.is_pressed(Action::page_next) || input.is_pressed(Action::page_prev))
         {
-            const Tab next = input.is_pressed(Action::page_next) ? Tab::movies : Tab::home;
-            if (next != tab_)
+            // Home, Movies, Settings: L1 and R1 walk along them and stop at the ends.
+            const int step = input.is_pressed(Action::page_next) ? 1 : -1;
+            const int to = std::clamp(static_cast<int>(tab_) + step, 0, kTabCount - 1);
+            if (to != static_cast<int>(tab_))
             {
-                tab_ = next;
+                tab_ = static_cast<Tab>(to);
                 tab_age_ = 0.0f;
-                feedback.play(audio::Cue::tab, next == Tab::movies ? 1.08f : 0.94f);
+                if (tab_ == Tab::settings)
+                    open_settings();
+                feedback.play(audio::Cue::tab, tab_ == Tab::home ? 0.94f : 1.08f);
             }
         }
         if (input.is_pressed(Action::back) && handle_back(feedback))
@@ -530,6 +566,12 @@ class Mediathek final : public app::Concept
         {
             svc_->rescan();
             notify(feedback, tr(Text::looking_for_movies), audio::Cue::notify);
+        }
+
+        if (tab_ == Tab::settings)
+        {
+            update_settings(input, feedback);
+            return;
         }
 
         // Search and sort also work on an empty result: that is how it is changed.
@@ -584,7 +626,7 @@ class Mediathek final : public app::Concept
             feedback.play(audio::Cue::back);
             return true;
         }
-        if (tab_ == Tab::movies)
+        if (tab_ != Tab::home)
         {
             tab_ = Tab::home;
             tab_age_ = 0.0f;
@@ -621,7 +663,8 @@ class Mediathek final : public app::Concept
         rebuild_grid("");
     }
 
-    void setup_search()
+    // The kit's components in the screen's own colours.
+    static ui::Theme app_theme()
     {
         ui::Theme theme = ui::themes()[0];
         theme.page = Color::rgb(0x0e0f16);
@@ -631,7 +674,12 @@ class Mediathek final : public app::Concept
         theme.accent = kAccent;
         theme.on_primary = kInk;
         theme.focus = kInk;
-        search_prompt_.style.theme = theme;
+        return theme;
+    }
+
+    void setup_search()
+    {
+        search_prompt_.style.theme = app_theme();
         search_prompt_.style.max_length = kSearchLength;
         search_prompt_.style.allow_empty = true;
         search_prompt_.style.frosted = false;
@@ -645,6 +693,123 @@ class Mediathek final : public app::Concept
         search_prompt_.keyboard.style.bindings.done = Action::menu;
         search_prompt_.keyboard.style.space_label = tr(Text::search_space);
         search_prompt_.keyboard.style.done_label = tr(Text::search_do);
+    }
+
+    // The settings page is a ui::Form: every row is a setting that is applied and saved
+    // the moment it changes (the shell stores it a moment after the last change).
+    void setup_settings()
+    {
+        const bool calm = context_.settings.reduced_motion;
+        settings_form_.style.theme = app_theme();
+        settings_form_.style.reduced_motion = calm;
+        settings_form_.style.control_width = 360.0f;
+        settings_form_.style.on_text = tr(Text::settings_on);
+        settings_form_.style.off_text = tr(Text::settings_off);
+        settings_form_.add_header(tr(Text::settings_sound));
+        settings_form_.add_toggle(kRowUiSounds, tr(Text::settings_ui_sounds), true).description =
+            tr(Text::settings_ui_sounds_hint);
+        settings_form_.add_header(tr(Text::settings_developer));
+        settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug), false).description =
+            tr(Text::settings_debug_hint);
+        settings_form_.add_header(tr(Text::settings_library));
+        settings_form_.add_action(kRowReload, tr(Text::settings_reload)).description =
+            tr(Text::settings_reload_hint);
+        settings_form_.set_bounds({kMargin, 236.0f, 1020.0f, 640.0f});
+        sync_settings_form();
+
+        reload_dialog_.style.theme = app_theme();
+        reload_dialog_.style.frosted = false;
+        reload_dialog_.style.reduced_motion = calm;
+    }
+
+    // The form shows what the settings hold now (they may have been loaded after it was built).
+    void sync_settings_form()
+    {
+        settings_form_.set_toggle(kRowUiSounds, context_.settings.ui_volume > 0);
+        settings_form_.set_toggle(kRowDebug, context_.settings.show_fps);
+    }
+
+    void open_settings()
+    {
+        sync_settings_form();
+        settings_form_.set_focus(1, true); // the first row, under its header
+        settings_form_.enter();
+    }
+
+    void update_settings(const InputFrame &input, app::Feedback &feedback)
+    {
+        if (reload_dialog_.is_open())
+        {
+            if (reload_dialog_.handle(input, feedback) == ui::Event::activated &&
+                reload_dialog_.choice() == 1)
+                reload_everything(feedback);
+            return;
+        }
+        const ui::Event event = settings_form_.handle(input, feedback);
+        if (event == ui::Event::changed)
+            apply_setting(settings_form_.changed_id());
+        else if (event == ui::Event::activated && settings_form_.changed_id() == kRowReload)
+            ask_reload(feedback);
+    }
+
+    void apply_setting(int row)
+    {
+        Settings &settings = context_.settings;
+        if (row == kRowUiSounds)
+        {
+            // Off is volume 0; on is the volume the app starts with.
+            settings.ui_volume = settings_form_.toggle_value(row) ? Settings{}.ui_volume : 0;
+        }
+        else if (row == kRowDebug)
+        {
+            settings.show_fps = settings_form_.toggle_value(row);
+        }
+        else
+        {
+            return;
+        }
+        context_.settings_changed = true; // the app applies it, the shell saves it
+    }
+
+    void ask_reload(app::Feedback &feedback)
+    {
+        if (library().size() == 0)
+        {
+            notify(feedback, tr(Text::reload_nothing), audio::Cue::error);
+            return;
+        }
+        ui::DialogContent content;
+        content.icon = ui::StatusKind::question;
+        content.title = tr(Text::reload_title);
+        content.body = i18n::format(Text::reload_body, std::to_string(library().size()));
+        content.buttons = {{tr(Text::reload_cancel)},
+                           {tr(Text::reload_do), ui::ButtonKind::primary}};
+        content.default_button = 0;
+        reload_dialog_.open(content, feedback);
+    }
+
+    // Every film as if "Refresh cover and info" had been chosen on its own page. The first one
+    // that is refused (no key, no cover service) says why and the rest are not tried.
+    void reload_everything(app::Feedback &feedback)
+    {
+        if (!svc_->refetch_cover)
+        {
+            notify(feedback, tr(Text::tmdb_no_key), audio::Cue::error);
+            return;
+        }
+        std::size_t started = 0;
+        for (std::size_t i = 0; i < library().size(); ++i)
+        {
+            const std::string refused = svc_->refetch_cover(movie(static_cast<int>(i)).id);
+            if (!refused.empty())
+            {
+                notify(feedback, refused, audio::Cue::error);
+                return;
+            }
+            ++started;
+        }
+        notify(feedback, i18n::format(Text::reloading, i18n::movie_count(started)),
+               audio::Cue::notify);
     }
 
     const char *sort_name() const
@@ -1081,6 +1246,8 @@ class Mediathek final : public app::Concept
         hero_fade_.update(dt);
         details_swap_.update(dt);
         search_prompt_.update(dt);
+        settings_form_.update(dt);
+        reload_dialog_.update(dt);
 
         hero_.target = tab_ == Tab::home && row_ == 0 ? 1.0f : 0.0f;
         hero_.update(dt, calm ? 30.0f : 9.0f);
@@ -1256,7 +1423,12 @@ class Mediathek final : public app::Concept
         if (back < 0.999f)
         {
             list.push_transform(1.0f + 0.04f * back, 960, 540, 0, 0);
-            if (library().size() == 0)
+            if (tab_ == Tab::settings)
+            {
+                draw_settings(list);
+                draw_top_bar(list);
+            }
+            else if (library().size() == 0)
             {
                 draw_top_bar(list);
                 draw_empty(list);
@@ -1283,6 +1455,41 @@ class Mediathek final : public app::Concept
             ui::Canvas canvas{frame.overlay, context_.fonts, 0, clock_};
             search_prompt_.draw(canvas);
         }
+        if (reload_dialog_.visible())
+        {
+            ui::Canvas canvas{frame.overlay, context_.fonts, 0, clock_};
+            reload_dialog_.draw(canvas);
+        }
+    }
+
+    void draw_settings(gfx::DrawList &list) const
+    {
+        const ui::Fonts &fonts = context_.fonts;
+        const float in = tween::stagger(tab_age_, 0, 0.0f, 0.35f);
+        list.push_opacity(in);
+        ui::text(list, fonts.display, tr(Text::settings_title), kMargin, 214.0f, 52, kInk);
+        ui::text(list, fonts.regular, tr(Text::settings_saved), kMargin + 1020.0f, 214.0f, 22,
+                 kInk.with_alpha(0.5f), gfx::Align::right);
+        ui::Canvas canvas{list, fonts, 0, clock_};
+        settings_form_.draw(canvas);
+        list.pop_opacity();
+    }
+
+    // A gear drawn from shapes: eight teeth round a ring.
+    static void draw_gear(gfx::DrawList &list, float cx, float cy, float radius, Color color)
+    {
+        constexpr int kTeeth = 8;
+        constexpr float kTurn = 6.2831853f;
+        for (int i = 0; i < kTeeth; ++i)
+        {
+            const float a = kTurn * static_cast<float>(i) / static_cast<float>(kTeeth);
+            const float x = cx + std::sin(a) * radius * 0.86f;
+            const float y = cy - std::cos(a) * radius * 0.86f;
+            const float w = radius * 0.36f;
+            const float h = radius * 0.42f;
+            list.rotated_rect({x - w * 0.5f, y - h * 0.5f, w, h}, w * 0.2f, a, color);
+        }
+        list.ring(cx, cy, radius * 0.74f, radius * 0.3f, color);
     }
 
     void draw_top_bar(gfx::DrawList &list) const
@@ -1297,7 +1504,7 @@ class Mediathek final : public app::Concept
         float x = ui::text(list, fonts.display, "MEDIATHEK", kMargin, y, 30, kAccent,
                            gfx::Align::left, 5.0f);
         // Version and author, small, under the logo.
-        ui::text(list, fonts.regular, "v0.4.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
+        ui::text(list, fonts.regular, "v0.5.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
                  kInk.with_alpha(0.5f), gfx::Align::left, 1.0f);
         x = kMargin + x + 64.0f;
         const char *tabs[] = {tr(Text::tab_home), tr(Text::tab_movies)};
@@ -1313,18 +1520,27 @@ class Mediathek final : public app::Concept
             }
             x += w + 44.0f;
         }
+        // The gear is the Settings tab, at the far right; the film count sits left of it.
+        const bool gear_active = tab_ == Tab::settings;
+        const float gear_x = gfx::kVirtualWidth - kMargin - kGearRadius;
+        const float right = gear_x - kGearRadius - 36.0f;
+        draw_gear(list, gear_x, y - 9.0f, kGearRadius, kInk.with_alpha(gear_active ? 1.0f : 0.55f));
+        if (gear_active)
+        {
+            const float slide = tween::clamp01(tab_age_ / 0.3f);
+            const float w = kGearRadius * 2.0f * tween::cubic_out(slide);
+            list.rounded_rect({gear_x - kGearRadius, y + 14, w, 4}, 2, kAccent);
+        }
         if (!svc_->library.movies().empty() || svc_->scanning)
         {
             ui::text(list, fonts.regular,
                      svc_->scanning && library().size() == 0 ? tr(Text::scanning)
                                                              : i18n::movie_count(library().size()),
-                     gfx::kVirtualWidth - kMargin, y - 2, 22, kInk.with_alpha(0.6f),
-                     gfx::Align::right);
+                     right, y - 2, 22, kInk.with_alpha(0.6f), gfx::Align::right);
         }
         if (svc_->scanning)
         {
-            const float cx = gfx::kVirtualWidth - kMargin - 150.0f -
-                             fonts.regular.measure(i18n::movie_count(9999), 22);
+            const float cx = right - 150.0f - fonts.regular.measure(i18n::movie_count(9999), 22);
             list.arc(cx, y - 9, 11, 3, clock_ * 5.0f, 4.2f, kInk.with_alpha(0.8f));
         }
         list.pop_opacity();
@@ -1990,6 +2206,13 @@ class Mediathek final : public app::Concept
                                       {ui::Button::circle, tr(Text::hint_back)}};
             ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true);
         }
+        else if (tab_ == Tab::settings)
+        {
+            const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_change)},
+                                      {ui::Button::circle, tr(Text::hint_back)},
+                                      {ui::Button::l1, tr(Text::hint_tab), ui::Button::r1}};
+            ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true);
+        }
         else if (library().size() == 0)
         {
             const ui::Hint hints[] = {{ui::Button::options, tr(Text::hint_look_again)}};
@@ -2188,6 +2411,8 @@ class Mediathek final : public app::Concept
     std::vector<int> grid_;
     std::string search_; // what the Movies page is filtered by; empty: everything
     ui::InputPrompt search_prompt_;
+    ui::Form settings_form_;
+    ui::Dialog reload_dialog_;
     int grid_focus_ = 0;
     ui::Scroller grid_scroll_;
 

@@ -34,6 +34,36 @@ HUI_TEXT(search_none_hint, "Change the search or press Back to see all movies",
          "\xC3\x84ndere die Suche oder dr\xC3\xBC" "cke Zur\xC3\xBC" "ck f\xC3\xBCr alle Filme")
 HUI_TEXT(hint_search, "Search", "Suchen")
 
+// ---- the settings page
+HUI_TEXT(settings_title, "Settings", "Einstellungen")
+HUI_TEXT(settings_saved, "Changes are saved automatically",
+         "\xC3\x84nderungen werden automatisch gespeichert")
+HUI_TEXT(settings_on, "On", "An")
+HUI_TEXT(settings_off, "Off", "Aus")
+HUI_TEXT(settings_sound, "Sound", "Ton")
+HUI_TEXT(settings_ui_sounds, "UI sounds", "Men\xC3\xBCt\xC3\xB6ne")
+HUI_TEXT(settings_ui_sounds_hint, "Clicks and chimes when you move around the app",
+         "Klicks und T\xC3\xB6ne beim Navigieren in der App")
+HUI_TEXT(settings_developer, "Developer", "Entwickler")
+HUI_TEXT(settings_debug, "Debug info", "Debug-Infos")
+HUI_TEXT(settings_debug_hint, "Frame rate and drawing statistics in the corner of the screen",
+         "Bildrate und Zeichenstatistik in der Bildschirmecke")
+HUI_TEXT(settings_library, "Library", "Mediathek")
+HUI_TEXT(settings_reload, "Reload all covers and infos", "Alle Cover und Infos neu laden")
+HUI_TEXT(settings_reload_hint, "Fetches cover, wallpaper and description of every film from TMDB again",
+         "Holt Cover, Hintergrund und Beschreibung aller Filme erneut von TMDB")
+HUI_TEXT(reload_title, "Reload everything?", "Alles neu laden?")
+HUI_TEXT(reload_body,
+         "Covers, wallpapers and descriptions of all {} movies are fetched again and every file "
+         "is read again. This can take a while. Pictures you put beside a film stay.",
+         "Cover, Hintergr\xC3\xBCnde und Beschreibungen aller {} Filme werden erneut geholt und jede "
+         "Datei wird neu gelesen. Das kann dauern. Bilder, die du neben einen Film legst, bleiben.")
+HUI_TEXT(reload_do, "Reload", "Neu laden")
+HUI_TEXT(reload_cancel, "Cancel", "Abbrechen")
+HUI_TEXT(reloading, "Reloading {}\xE2\x80\xA6", "Lade {} neu\xE2\x80\xA6")
+HUI_TEXT(reload_nothing, "No movies to reload", "Keine Filme zum Neuladen")
+HUI_TEXT(hint_change, "Change", "\xC3\x84ndern")
+
 // ---- nothing found yet
 HUI_TEXT(looking_for_movies, "Looking for movies\xE2\x80\xA6", "Suche nach Filmen\xE2\x80\xA6")
 HUI_TEXT(no_movies_found, "No movies found", "Keine Filme gefunden")

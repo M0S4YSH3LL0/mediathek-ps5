@@ -348,4 +348,147 @@ TEST_F(MediathekTest, AnyInputInAnyStateStaysDrawable)
     expect_drawable(*design);
 }
 
+// The gear: Home, Movies, Settings are one row of tabs for L1 and R1.
+TEST_F(MediathekTest, TheSettingsTabIsReachedWithTheTabKeysAndLeftWithBack)
+{
+    fill_library();
+    auto design = make();
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::page_next), 0.5f);
+    expect_drawable(*design);
+    send(*design, press(Action::page_next), 0.3f); // the end of the row: nothing happens
+    EXPECT_FALSE(played(audio::Cue::tab));
+    send(*design, press(Action::back), 0.5f);
+    EXPECT_TRUE(played(audio::Cue::back));
+    send(*design, press(Action::page_next), 0.5f); // Back went to Home, so this is Movies
+    EXPECT_TRUE(played(audio::Cue::tab));
+}
+
+TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
+{
+    auto design = make(); // works without a single film
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::page_next), 0.5f);
+    ASSERT_GT(settings_.ui_volume, 0);
+    ASSERT_FALSE(settings_.show_fps);
+
+    context_.settings_changed = false;
+    send(*design, press(Action::confirm), 0.4f); // UI sounds
+    EXPECT_EQ(settings_.ui_volume, 0);
+    EXPECT_TRUE(context_.settings_changed);
+    send(*design, press(Action::confirm), 0.4f);
+    EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
+
+    send(*design, nav(Direction::down), 0.3f);
+    context_.settings_changed = false;
+    send(*design, press(Action::confirm), 0.4f); // debug info
+    EXPECT_TRUE(settings_.show_fps);
+    EXPECT_TRUE(context_.settings_changed);
+    expect_drawable(*design);
+}
+
+TEST_F(MediathekTest, TheSettingsPageShowsWhatWasSaved)
+{
+    settings_.ui_volume = 0;
+    settings_.show_fps = true;
+    auto design = make();
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::confirm), 0.4f); // flips "off" to on, not on to off
+    EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, press(Action::confirm), 0.4f);
+    EXPECT_FALSE(settings_.show_fps);
+}
+
+TEST_F(MediathekTest, ReloadingEverythingAsksFirstThenFetchesEveryFilmAgain)
+{
+    fill_library();
+    int fetched = 0;
+    services_.refetch_cover = [&fetched](const std::string &)
+    {
+        ++fetched;
+        return std::string();
+    };
+    auto design = make();
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, press(Action::confirm), 0.6f);
+    EXPECT_TRUE(played(audio::Cue::modal_open));
+    expect_drawable(*design);
+    EXPECT_EQ(fetched, 0);
+
+    send(*design, press(Action::confirm), 0.6f); // "Cancel" has the focus
+    EXPECT_EQ(fetched, 0);
+
+    send(*design, press(Action::confirm), 0.6f);
+    send(*design, nav(Direction::right), 0.3f);
+    send(*design, press(Action::confirm), 0.6f);
+    EXPECT_EQ(fetched, 4);
+    expect_drawable(*design);
+}
+
+TEST_F(MediathekTest, BackClosesTheReloadQuestionBeforeItLeavesTheSettings)
+{
+    fill_library();
+    int fetched = 0;
+    services_.refetch_cover = [&fetched](const std::string &)
+    {
+        ++fetched;
+        return std::string();
+    };
+    auto design = make();
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, press(Action::confirm), 0.6f);
+    send(*design, press(Action::back), 0.6f);
+    EXPECT_TRUE(played(audio::Cue::modal_close));
+    EXPECT_EQ(fetched, 0);
+    send(*design, press(Action::back), 0.5f); // now the page itself
+    EXPECT_TRUE(played(audio::Cue::back));
+}
+
+TEST_F(MediathekTest, AReloadThatIsRefusedStopsAtTheFirstFilm)
+{
+    fill_library();
+    int asked = 0;
+    services_.refetch_cover = [&asked](const std::string &)
+    {
+        ++asked;
+        return std::string("No TMDB_API_KEY in mediathek.env");
+    };
+    auto design = make();
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, press(Action::confirm), 0.6f);
+    send(*design, nav(Direction::right), 0.3f);
+    send(*design, press(Action::confirm), 0.6f);
+    EXPECT_EQ(asked, 1);
+    EXPECT_TRUE(played(audio::Cue::error));
+}
+
+TEST_F(MediathekTest, ReloadingAnEmptyLibraryJustSaysThereIsNothing)
+{
+    int asked = 0;
+    services_.refetch_cover = [&asked](const std::string &)
+    {
+        ++asked;
+        return std::string();
+    };
+    auto design = make();
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, press(Action::confirm), 0.6f);
+    EXPECT_TRUE(played(audio::Cue::error));
+    EXPECT_EQ(asked, 0);
+}
+
 } // namespace
