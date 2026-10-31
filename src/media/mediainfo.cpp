@@ -4,6 +4,8 @@
 
 #include "media/mediainfo.hpp"
 
+#include "media/title.hpp"
+
 #include "core/i18n.hpp"
 
 #include <algorithm>
@@ -59,14 +61,6 @@ constexpr Language kLanguages[] = {
     {"vie", "", "vi", "vietnamese", "", Text::lang_vie},
     {"ind", "", "id", "indonesian", "", Text::lang_ind},
 };
-
-std::string lower(std::string_view text)
-{
-    std::string out(text);
-    for (char &c : out)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return out;
-}
 
 const Language *find_language(const std::string &word)
 {
@@ -135,7 +129,166 @@ std::string language_from_filename(std::string_view file_name)
     for (std::size_t at = words.size(); at > 1 && words.size() - at < 3; --at)
         if (const Language *known = find_language(words[at - 1]); known != nullptr)
             return known->canonical;
+    // A short name that starts with the language ("English.srt", "Deutsch.forced.srt", "ger.srt")
+    // is a subtitle file from a "Subs" folder. Spelled out only: "it.srt" stays a film called It.
+    if (!words.empty() && words.size() <= 3 && words.front().size() > 2)
+        if (const Language *known = find_language(words.front()); known != nullptr)
+            return known->canonical;
     return std::string();
+}
+
+namespace
+{
+
+// The words that tell the languages apart, the ones a subtitle says in every other line, each
+// list as " word word " so a lookup is one find. Words two languages share ("die", "was", "que",
+// "una", "para") are left out.
+struct Telltales
+{
+    const char *canonical;
+    std::string_view words;
+};
+
+constexpr Telltales kTelltales[] = {
+    {"eng", " the and you that with have this what are not your but they will just from there "
+            "would know going "},
+    {"ger", " und der das nicht ich ist ein eine du sie mit auf wir auch sich dass noch wie bin "
+            "habe "},
+    {"fre", " les des est pas vous une nous je pour dans qui avec sont mais tout oui suis ici "
+            "elle tu "},
+    {"spa", " los las como usted muy bien yo nada tengo todo pero esto esta estoy eres quiero "
+            "porque hay "},
+    {"ita", " che non sono per della questo ho cosa gli anche tutto niente ciao essere voglio "
+            "perche mio lei siamo "},
+    {"por", " voce uma com mais isso ele eu tenho obrigado nao estou muito tudo ela sim vamos ser "
+            "foi "},
+    {"dut", " het een niet ik je dat van wat maar zijn ook hebt jij geen mijn hij wij naar gewoon "
+            "dus "},
+};
+
+} // namespace
+
+std::string language_from_text(std::string_view text)
+{
+    constexpr std::size_t kLanguageCount = sizeof(kTelltales) / sizeof(kTelltales[0]);
+    constexpr std::size_t kSample = 60000; // the first minutes say it all
+    int hits[kLanguageCount] = {};
+    std::string word;
+    const std::size_t end = std::min(text.size(), kSample);
+    for (std::size_t i = 0; i <= end; ++i)
+    {
+        const unsigned char c = i < end ? static_cast<unsigned char>(text[i]) : ' ';
+        if (c < 0x80 && std::isalpha(c) != 0)
+        {
+            word.push_back(static_cast<char>(std::tolower(c)));
+            continue;
+        }
+        if (word.size() >= 2 && word.size() <= 8)
+        {
+            const std::string padded = " " + word + " ";
+            for (std::size_t language = 0; language < kLanguageCount; ++language)
+                if (kTelltales[language].words.find(padded) != std::string_view::npos)
+                    ++hits[language];
+        }
+        word.clear();
+    }
+    std::size_t best = 0;
+    for (std::size_t language = 1; language < kLanguageCount; ++language)
+        if (hits[language] > hits[best])
+            best = language;
+    int runner_up = 0;
+    for (std::size_t language = 0; language < kLanguageCount; ++language)
+        if (language != best && hits[language] > runner_up)
+            runner_up = hits[language];
+    // Sure only with plenty of words and a clear lead: a wrong name is worse than none.
+    return hits[best] >= 20 && hits[best] >= 2 * runner_up ? kTelltales[best].canonical
+                                                           : std::string();
+}
+
+namespace
+{
+
+// A language a film's name may say outright: its English or own name, or the codes release
+// names use. The two-letter codes are left out: "it", "no" and "de" are words in titles.
+const Language *named_language(const std::string &piece)
+{
+    const Language *known = find_language(piece);
+    if (known == nullptr)
+        return nullptr;
+    const bool spelled = piece == known->word || piece == known->native;
+    return spelled || piece == "ger" || piece == "deu" || piece == "eng" ? known : nullptr;
+}
+
+// Lower-case letters and digits, one piece at a time: "German-GRP" is "german" and "grp".
+void add_pieces(std::string_view text, std::vector<std::string> *pieces)
+{
+    std::string current;
+    for (const char c : text)
+    {
+        if (std::isalnum(static_cast<unsigned char>(c)) != 0)
+        {
+            current.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+            continue;
+        }
+        if (!current.empty())
+            pieces->push_back(std::move(current));
+        current.clear();
+    }
+    if (!current.empty())
+        pieces->push_back(std::move(current));
+}
+
+bool says_subtitles(const std::string &piece)
+{
+    return piece.compare(0, 3, "sub") == 0 || piece == "untertitel";
+}
+
+} // namespace
+
+std::vector<std::string> audio_languages_from_name(std::string_view file_name)
+{
+    const ParsedName parsed = parse_file_name(file_name);
+    std::vector<std::string> pieces;
+    if (parsed.year == 0)
+    {
+        // "Film German 1080p.mkv": with no year nothing marks where the title ends, so a
+        // language right at its end ("Film German", "Film German DL") is taken as well.
+        std::vector<std::string> title;
+        add_pieces(parsed.title, &title);
+        std::size_t from = title.size();
+        while (from > 1 && (named_language(title[from - 1]) != nullptr || title[from - 1] == "dl"))
+            --from;
+        pieces.assign(title.begin() + static_cast<std::ptrdiff_t>(from), title.end());
+    }
+    for (const std::string &word : parsed.tail)
+        add_pieces(word, &pieces);
+
+    std::vector<std::string> found;
+    for (std::size_t i = 0; i < pieces.size(); ++i)
+    {
+        const Language *known = named_language(pieces[i]);
+        if (known == nullptr)
+            continue;
+        if ((i > 0 && says_subtitles(pieces[i - 1])) ||
+            (i + 1 < pieces.size() && says_subtitles(pieces[i + 1])))
+            continue;
+        add_language(&found, known->canonical);
+    }
+    return found;
+}
+
+std::vector<std::string> audio_languages_to_show(const MediaInfo *info, bool read,
+                                                 std::string_view file_name)
+{
+    std::vector<std::string> listed;
+    if (info != nullptr)
+        listed = info->audio_languages;
+    const bool tagged = std::any_of(listed.begin(), listed.end(),
+                                    [](const std::string &code) { return code != "und"; });
+    if (tagged || !read)
+        return listed;
+    std::vector<std::string> named = audio_languages_from_name(file_name);
+    return named.empty() ? listed : named;
 }
 
 std::string genre_name(int tmdb_id)

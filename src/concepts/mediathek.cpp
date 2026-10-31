@@ -67,6 +67,7 @@ constexpr int kSearchLength = 40;
 enum SettingsRow : int
 {
     kRowUiSounds = 1,
+    kRowPinBillboard,
     kRowDebug,
     kRowReload,
 };
@@ -88,6 +89,15 @@ constexpr float kGridTop = 232.0f;
 constexpr float kGridFadeTop = kGridTop - 34.0f;
 
 constexpr float kOsdSeconds = 4.0f;
+constexpr float kSeekHoldGap = 0.5f;   // a pause this long in the repeats ends a hold
+constexpr double kSeekHeldStep = 30.0; // first held step, and what each held second adds
+constexpr double kSeekHeldMax = 300.0; // the longest step, 5 minutes
+
+// Seconds to jump for a direction held `held` seconds: 30, 60, 90 ... up to 5 minutes.
+double held_seek_step(float held)
+{
+    return std::min(kSeekHeldMax, kSeekHeldStep * (1.0 + std::floor(static_cast<double>(held))));
+}
 constexpr float kSaveEvery = 5.0f;
 
 constexpr const char *kTechniques[] = {
@@ -143,6 +153,7 @@ constexpr app::TourStep kTour[] = {
     {0.4f, action_bit(Action::page_next)},
     {1.0f, 0, Direction::none, "settings"},
     {0.2f, action_bit(Action::confirm)},
+    {0.3f, 0, Direction::down},
     {0.3f, 0, Direction::down},
     {0.2f, action_bit(Action::confirm)},
     {0.3f, 0, Direction::down},
@@ -708,6 +719,9 @@ class Mediathek final : public app::Concept
         settings_form_.add_header(tr(Text::settings_sound));
         settings_form_.add_toggle(kRowUiSounds, tr(Text::settings_ui_sounds), true).description =
             tr(Text::settings_ui_sounds_hint);
+        settings_form_.add_header(tr(Text::settings_home));
+        settings_form_.add_toggle(kRowPinBillboard, tr(Text::settings_pin_billboard), false)
+            .description = tr(Text::settings_pin_billboard_hint);
         settings_form_.add_header(tr(Text::settings_developer));
         settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug), false).description =
             tr(Text::settings_debug_hint);
@@ -726,6 +740,7 @@ class Mediathek final : public app::Concept
     void sync_settings_form()
     {
         settings_form_.set_toggle(kRowUiSounds, context_.settings.ui_volume > 0);
+        settings_form_.set_toggle(kRowPinBillboard, context_.settings.pin_billboard);
         settings_form_.set_toggle(kRowDebug, context_.settings.show_fps);
     }
 
@@ -759,6 +774,10 @@ class Mediathek final : public app::Concept
         {
             // Off is volume 0; on is the volume the app starts with.
             settings.ui_volume = settings_form_.toggle_value(row) ? Settings{}.ui_volume : 0;
+        }
+        else if (row == kRowPinBillboard)
+        {
+            settings.pin_billboard = settings_form_.toggle_value(row);
         }
         else if (row == kRowDebug)
         {
@@ -913,8 +932,12 @@ class Mediathek final : public app::Concept
         action_position_.snap(0.0f);
         // The page shows what the file contains; reading it takes a moment on a
         // drive that has to spin up, so the page opens first and fills in.
-        if (const int index = focused_movie(); index >= 0 && svc_->info != nullptr)
-            svc_->info->request(movie(index).id, movie(index).path);
+        if (const int index = focused_movie(); index >= 0)
+        {
+            if (svc_->info != nullptr)
+                svc_->info->request(movie(index).id, movie(index).path);
+            sniff_subtitle_languages(movie(index));
+        }
         feedback.play(audio::Cue::open);
     }
 
@@ -938,8 +961,12 @@ class Mediathek final : public app::Concept
         action_ = 0;
         action_position_.snap(0.0f);
         details_swap_.start(context_.settings.reduced_motion ? 0.1f : 0.32f);
-        if (const int index = focused_movie(); index >= 0 && svc_->info != nullptr)
-            svc_->info->request(movie(index).id, movie(index).path);
+        if (const int index = focused_movie(); index >= 0)
+        {
+            if (svc_->info != nullptr)
+                svc_->info->request(movie(index).id, movie(index).path);
+            sniff_subtitle_languages(movie(index));
+        }
         feedback.play(audio::Cue::focus, step > 0 ? 1.1f : 0.9f, step > 0 ? 0.3f : -0.3f);
     }
 
@@ -1048,6 +1075,7 @@ class Mediathek final : public app::Concept
         last_save_ = 0.0f;
         seek_flash_ = 0.0f;
         subtitle_track_ = -1;
+        sniff_subtitle_languages(m);
         select_subtitle(m, 0);
         feedback.play(audio::Cue::launch);
         feedback.rumble(0.6f, 0.15f);
@@ -1077,6 +1105,12 @@ class Mediathek final : public app::Concept
         player.update(dt);
         osd_ = std::max(0.0f, osd_ - dt);
         seek_flash_ = std::max(0.0f, seek_flash_ - dt);
+        // A held direction arrives as repeats ~0.11 s apart; a longer gap means it was let go.
+        seek_gap_ += dt;
+        if (seek_gap_ > kSeekHoldGap)
+            seek_hold_ = 0.0f;
+        else
+            seek_hold_ += dt;
         last_save_ += dt;
         const media::PlayerState state = player.state();
 
@@ -1120,8 +1154,12 @@ class Mediathek final : public app::Concept
         double jump = 0.0;
         if (input.nav == Direction::left || input.nav == Direction::right)
         {
-            // Holding the direction speeds up: 10 s, then 30 s steps.
-            const double step = input.nav_repeat ? 30.0 : 10.0;
+            // A tap jumps 10 s; holding adds 30 s per second held, up to 5 min.
+            if (!input.nav_repeat || input.nav != seek_direction_)
+                seek_hold_ = 0.0f;
+            seek_direction_ = input.nav;
+            seek_gap_ = 0.0f;
+            const double step = input.nav_repeat ? held_seek_step(seek_hold_) : 10.0;
             jump = input.nav == Direction::right ? step : -step;
         }
         if (input.is_pressed(Action::jump_next) || input.is_pressed(Action::page_next))
@@ -1158,6 +1196,33 @@ class Mediathek final : public app::Concept
 
     // Shows the film's subtitle file number `track`, or none for -1. A file that cannot be
     // read leaves the track selected but empty, so the pad still steps past it.
+    // The language of a subtitle file: what its name says, and for a name that says nothing what
+    // the words in the file say (looked at when the film's page opens, see below).
+    std::string subtitle_language(const media::SubtitleFile &sub) const
+    {
+        if (sub.language != "und")
+            return sub.language;
+        const auto found = sniffed_subtitles_.find(sub.file);
+        return found != sniffed_subtitles_.end() && !found->second.empty() ? found->second
+                                                                           : sub.language;
+    }
+
+    // Reads each subtitle file of a film whose name does not give its language, once, and
+    // guesses the language from its text. A file is a few hundred kilobytes at most, so the
+    // page can wait for it.
+    void sniff_subtitle_languages(const media::Movie &m)
+    {
+        for (const media::SubtitleFile &sub : m.subtitles)
+        {
+            if (sub.language != "und" || sniffed_subtitles_.count(sub.file) != 0)
+                continue;
+            std::string text;
+            sniffed_subtitles_[sub.file] = save::read_file(sub.file, &text, 4u << 20)
+                                               ? media::language_from_text(text)
+                                               : std::string();
+        }
+    }
+
     void select_subtitle(const media::Movie &m, int track)
     {
         subtitle_track_ = track;
@@ -1183,7 +1248,8 @@ class Mediathek final : public app::Concept
             return;
         }
         std::string label =
-            media::language_names({m.subtitles[static_cast<std::size_t>(next)].language}).front();
+            media::language_names({subtitle_language(m.subtitles[static_cast<std::size_t>(next)])})
+                .front();
         if (count > 1)
             label += " (" + std::to_string(next + 1) + "/" + std::to_string(count) + ")";
         notify(feedback, i18n::format(Text::subtitles_track, label), audio::Cue::toggle);
@@ -1249,7 +1315,9 @@ class Mediathek final : public app::Concept
         settings_form_.update(dt);
         reload_dialog_.update(dt);
 
-        hero_.target = tab_ == Tab::home && row_ == 0 ? 1.0f : 0.0f;
+        // The billboard is open on the first shelf, or on every one when it is pinned.
+        hero_.target =
+            tab_ == Tab::home && (row_ == 0 || context_.settings.pin_billboard) ? 1.0f : 0.0f;
         hero_.update(dt, calm ? 30.0f : 9.0f);
         row_position_.target = static_cast<float>(row_);
         row_position_.update(dt, 11.0f);
@@ -1504,7 +1572,7 @@ class Mediathek final : public app::Concept
         float x = ui::text(list, fonts.display, "MEDIATHEK", kMargin, y, 30, kAccent,
                            gfx::Align::left, 5.0f);
         // Version and author, small, under the logo.
-        ui::text(list, fonts.regular, "v0.5.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
+        ui::text(list, fonts.regular, "v0.6.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
                  kInk.with_alpha(0.5f), gfx::Align::left, 1.0f);
         x = kMargin + x + 64.0f;
         const char *tabs[] = {tr(Text::tab_home), tr(Text::tab_movies)};
@@ -2120,13 +2188,15 @@ class Mediathek final : public app::Concept
                      kInk.with_alpha(known ? 0.92f : 0.5f));
         };
         caption(tr(Text::label_audio), kColumn, facts_y - 100);
-        languages(media::language_names(content != nullptr ? content->audio_languages
-                                                           : std::vector<std::string>()),
+        // The file's own tags first; a film whose file says nothing (or could not be read) is
+        // as its name says, "German" in "Film (2011) German DL.mkv".
+        const bool probed = content != nullptr || lookup.state == media::InfoService::State::failed;
+        languages(media::language_names(media::audio_languages_to_show(content, probed, file)),
                   kColumn, 400.0f, true);
         caption(tr(Text::label_subtitles), kSecond, facts_y - 100);
         std::vector<std::string> subtitle_languages;
         for (const media::SubtitleFile &sub : m.subtitles)
-            media::add_language(&subtitle_languages, sub.language);
+            media::add_language(&subtitle_languages, subtitle_language(sub));
         languages(media::language_names(subtitle_languages), kSecond, 1360.0f - kSecond, false);
         caption(m.size > 0
                     ? std::string(tr(Text::label_file)) + "  \xC2\xB7  " + format_size(m.size)
@@ -2438,12 +2508,16 @@ class Mediathek final : public app::Concept
     int playing_ = -1;
     bool paused_ = false;
     bool info_ = false;
+    std::map<std::string, std::string> sniffed_subtitles_; // file -> language its text says, or ""
     int subtitle_track_ = -1; // index into the playing film's subtitles, -1 = off
     float osd_ = 0.0f;
     tween::Spring osd_show_;
     float last_save_ = 0.0f;
     float seek_flash_ = 0.0f;
     float seek_amount_ = 0.0f;
+    float seek_hold_ = 0.0f; // seconds the seek direction has been held
+    float seek_gap_ = 0.0f;  // seconds since the last seek step
+    Direction seek_direction_ = Direction::none;
     media::Subtitles subtitles_;
 
     std::string toast_;

@@ -12,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <string>
+#include <vector>
 #include <thread>
 
 namespace
@@ -90,6 +91,58 @@ TEST_F(MediaInfoTexts, ListsShowUnknownOnlyWhenNothingElseIsKnown)
               (std::vector<std::string>{"English", "German"}));
 }
 
+TEST(MediaInfo, TheSoundLanguageIsReadFromTheTailOfAFilmName)
+{
+    using Codes = std::vector<std::string>;
+    EXPECT_EQ(audio_languages_from_name("Blue Harbor (2011) German DL 1080p BluRay x264-GRP.mkv"),
+              Codes{"ger"});
+    EXPECT_EQ(audio_languages_from_name("Blue.Harbor.2011.GERMAN.DL.1080p.mkv"), Codes{"ger"});
+    EXPECT_EQ(audio_languages_from_name("Blue Harbor (2011) [English].mkv"), Codes{"eng"});
+    EXPECT_EQ(audio_languages_from_name("Blue Harbor (2011) Deutsch.mkv"), Codes{"ger"});
+    EXPECT_EQ(audio_languages_from_name("Blue Harbor (2011) GER.mkv"), Codes{"ger"});
+    EXPECT_EQ(audio_languages_from_name("Blue.Harbor.2011.German-GRP.mkv"), Codes{"ger"});
+    EXPECT_EQ(audio_languages_from_name("Blue.Harbor.2011.German.English.DL.mkv"),
+              (Codes{"ger", "eng"}));
+    // No year to end the title: a language at its end still counts.
+    EXPECT_EQ(audio_languages_from_name("Blue.Harbor.German.1080p.BluRay.x264-GRP.mkv"),
+              Codes{"ger"});
+    EXPECT_EQ(audio_languages_from_name("Blue Harbor German.mkv"), Codes{"ger"});
+}
+
+TEST(MediaInfo, ANameThatOnlyHasALanguageInItsTitleOrForSubtitlesSaysNothing)
+{
+    EXPECT_TRUE(audio_languages_from_name("The English Patient (1996).mkv").empty());
+    EXPECT_TRUE(audio_languages_from_name("The German Doctor (2013) 1080p.mkv").empty());
+    EXPECT_TRUE(audio_languages_from_name("Deutschland 83 (2015).mkv").empty());
+    EXPECT_TRUE(audio_languages_from_name("It (2017).mkv").empty());
+    EXPECT_TRUE(audio_languages_from_name("No (2012) DE.mkv").empty()); // two letters: too vague
+    EXPECT_TRUE(audio_languages_from_name("Blue Harbor (2011) Eng.Sub.mkv").empty());
+    EXPECT_TRUE(audio_languages_from_name("Blue Harbor (2011) German Subbed.mkv").empty());
+    EXPECT_TRUE(audio_languages_from_name("Blue Harbor (2011).mkv").empty());
+}
+
+TEST(MediaInfo, TheFileNameStandsInOnlyWhereTheFileSaysNothing)
+{
+    const std::string name = "Blue Harbor (2011) German DL.mkv";
+    MediaInfo untagged;
+    untagged.audio_languages = {"und"};
+    MediaInfo tagged;
+    tagged.audio_languages = {"eng"};
+    MediaInfo none;
+    using Codes = std::vector<std::string>;
+    // The file's tags win, even against the name.
+    EXPECT_EQ(audio_languages_to_show(&tagged, true, name), Codes{"eng"});
+    // Untagged, or without a sound track we could list, or unreadable: the name.
+    EXPECT_EQ(audio_languages_to_show(&untagged, true, name), Codes{"ger"});
+    EXPECT_EQ(audio_languages_to_show(&none, true, name), Codes{"ger"});
+    EXPECT_EQ(audio_languages_to_show(nullptr, true, name), Codes{"ger"});
+    // The name has nothing to add: what the file said stays.
+    EXPECT_EQ(audio_languages_to_show(&untagged, true, "Blue Harbor (2011).mkv"), Codes{"und"});
+    EXPECT_TRUE(audio_languages_to_show(nullptr, true, "Blue Harbor (2011).mkv").empty());
+    // Not looked at yet: no guess that the reading would replace a moment later.
+    EXPECT_TRUE(audio_languages_to_show(nullptr, false, name).empty());
+}
+
 TEST(MediaInfo, ALanguageComesFromTheTailOfASubtitleFileName)
 {
     EXPECT_EQ(language_from_filename("Blue Harbor (2011).en.srt"), "eng");
@@ -101,6 +154,62 @@ TEST(MediaInfo, ALanguageComesFromTheTailOfASubtitleFileName)
     EXPECT_EQ(language_from_filename("It (2017).srt"), "");
     EXPECT_EQ(language_from_filename("It.srt"), "");
     EXPECT_EQ(language_from_filename("No (2012).srt"), "");
+    // A "Subs" folder names its files after the language alone.
+    EXPECT_EQ(language_from_filename("English.srt"), "eng");
+    EXPECT_EQ(language_from_filename("Deutsch.forced.srt"), "ger");
+    EXPECT_EQ(language_from_filename("ger.srt"), "ger");
+    EXPECT_EQ(language_from_filename("it.srt"), "");
+}
+
+namespace
+{
+
+// A few dozen lines of subtitle, the way an .srt has them, from a handful of sentences.
+std::string srt_of(const std::vector<std::string> &lines)
+{
+    std::string text;
+    int number = 1;
+    for (int round = 0; round < 6; ++round)
+        for (const std::string &line : lines)
+        {
+            text += std::to_string(number++) + "\n00:00:01,000 --> 00:00:03,000\n" + line + "\n\n";
+        }
+    return text;
+}
+
+} // namespace
+
+TEST(MediaInfo, ASubtitleFileIsRecognisedByItsWords)
+{
+    EXPECT_EQ(language_from_text(srt_of({"I do not know what you are saying.",
+                                         "But they will come with the others.",
+                                         "This is just what you would have said."})),
+              "eng");
+    EXPECT_EQ(language_from_text(srt_of({"Ich habe das nicht gewusst, und du auch nicht.",
+                                         "Wir sind mit der Zeit noch nicht fertig.",
+                                         "Das ist ein Haus auf dem Berg, wie sie sagte."})),
+              "ger");
+    EXPECT_EQ(language_from_text(srt_of({"Je ne suis pas ici pour vous, mais pour elle.",
+                                         "Nous sommes dans une maison avec des amis.",
+                                         "Tu es tout ce qui est important, oui."})),
+              "fre");
+    EXPECT_EQ(language_from_text(srt_of({"Ik weet niet wat je bedoelt, maar het is mijn huis.",
+                                         "Hij is gewoon een man van het dorp.",
+                                         "Wij gaan naar een plek, dus kom."})),
+              "dut");
+}
+
+TEST(MediaInfo, ASubtitleWithTooLittleToGoOnHasNoLanguage)
+{
+    EXPECT_EQ(language_from_text(""), "");
+    EXPECT_EQ(language_from_text("1\n00:00:01,000 --> 00:00:03,000\nThe end.\n"), "");
+    EXPECT_EQ(language_from_text(
+                  srt_of({"\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF"})),
+              "");
+    // A mix with no clear winner is not guessed.
+    EXPECT_EQ(language_from_text(srt_of({"the and you that with have this what",
+                                         "und der das nicht ich ist ein eine du sie"})),
+              "");
 }
 
 TEST(MediaInfo, TheRuntimeIsRoundedToTheMinute)

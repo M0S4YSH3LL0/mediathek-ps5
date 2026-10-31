@@ -44,6 +44,10 @@ HUI_TEXT(settings_sound, "Sound", "Ton")
 HUI_TEXT(settings_ui_sounds, "UI sounds", "Men\xC3\xBCt\xC3\xB6ne")
 HUI_TEXT(settings_ui_sounds_hint, "Clicks and chimes when you move around the app",
          "Klicks und T\xC3\xB6ne beim Navigieren in der App")
+HUI_TEXT(settings_home, "Home", "Startseite")
+HUI_TEXT(settings_pin_billboard, "Fixed billboard", "Feste Titelanzeige")
+HUI_TEXT(settings_pin_billboard_hint, "The billboard stays in place while you scroll the shelves",
+         "Die Titelanzeige bleibt beim Bl\xC3\xA4ttern durch die Regale stehen")
 HUI_TEXT(settings_developer, "Developer", "Entwickler")
 HUI_TEXT(settings_debug, "Debug info", "Debug-Infos")
 HUI_TEXT(settings_debug_hint, "Frame rate and drawing statistics in the corner of the screen",

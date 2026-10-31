@@ -24,6 +24,9 @@ struct Settings
     bool show_fps = false;
     bool haptics = true;   // controller rumble on errors and big moments
     bool light_bar = true; // the controller's light follows the design's accent
+    // Mediathek: the Home billboard (art, title, Play and Details) stays while the
+    // shelves under it scroll, instead of collapsing once the first shelf is left.
+    bool pin_billboard = false;
     // Display resolution, an index into kResolutions; applies at the next start.
     int resolution = 2;
     // How large on-screen controller hints are: 0 small, 1 medium, 2 large.

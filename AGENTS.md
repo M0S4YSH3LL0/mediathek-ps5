@@ -24,7 +24,9 @@ kit's OpenGL renderer.
 src/concepts/mediathek.cpp   the whole UI: home, grid, details page, player screen
 src/main.cpp                 start-up: env file, language, library, services, cover jobs
 src/media/                   the movie side, no platform code (mediainfo: languages,
-                               runtime and the cache text of what a file contains;
+                               runtime, the cache text of what a file contains, and the
+                               audio language a film's name says when its file does not, and the
+                               language of a subtitle file from its name or, failing that, its text;
                                info_service: reads files in the background):
                                library (scan index -> Movie list, a film's subtitle
                                files, genre shelves, search matching), title (file
@@ -58,7 +60,7 @@ The kit's guides still apply when you touch the UI: [docs/CRAFT.md](docs/CRAFT.m
 Work on a PC first. A console is only for the final check.
 
 ```bash
-export LLVM_VERSION=19 HOST_CXX=clang++-19 HOST_CC=clang-19 USE_CCACHE=0   # this machine's toolchain
+export HOST_CXX=clang++-19 HOST_CC=clang-19 USE_CCACHE=0   # LLVM 19 is the default, in CI too
 
 tools/host-snapshots.sh build/snapshots mediathek    # PC preview: PNG frames of every screen
 HUI_LANG=de tools/host-snapshots.sh build/snapshots-de mediathek   # the same in German
@@ -151,7 +153,7 @@ folder's git repository and takes more than two minutes; use a long timeout.
   commit, the tag, the push and the GitHub release (zip and `.sha256` from `dist/release`).
   When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.050` is the app's 0.5.0); the app shows the short form (`v0.5.0` in
+  (`01.000.060` is the app's 0.6.0); the app shows the short form (`v0.6.0` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -173,7 +175,9 @@ none), what a file contains in `info/<id>.info`, resume points beside them. Sett
 
 **The settings page.** The gear tab (`Tab::settings`, a `ui::Form` in `mediathek.cpp`)
 edits the kit's `Settings`: *UI sounds* is `ui_volume` (0 off, else the default), *Debug
-info* is `show_fps` (the shell's overlay). A change sets `context_.settings_changed`;
+info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` (keeps
+`hero_` open on every shelf, `animate()`; the settings file is format version 2, version 1 still
+loads). A change sets `context_.settings_changed`;
 the shell saves `/download0/hui/settings.bin` 0.75 s after the last one, and `main.cpp`
 (`apply_ui_sounds`, also at start-up) mutes the `ui` and `sfx` mixer buses. The music bus
 is deliberately left at its tuned gain; do not route the kit's volume curve through it.
@@ -184,6 +188,13 @@ H.264 MKV ran it out ("failures=260" in the log) and showed as blocks and frame
 jumps. `src/runtime/app_heap.c` tries 384, 256, 192 then 128 MiB, and
 `hui_heap_capacity()` lets the player scale its queues to what it got. The log
 lines `[HUI] heap ...` and `[HUI] playing/stall` are the evidence to ask for.
+
+**Seeking.** The demux thread seeks with `av_seek_frame`. A file with no index (an MKV without
+Cues; FFmpeg's matroska demuxer cannot seek by byte either, tested) is read from the last known
+point up to the target, so the wait grows with the jump and with a slow drive. A seek that took
+over 0.3 s or read over 16 MiB logs `[HUI] seek to ... took ... and read ... MB (container, N seek
+points)`: few seek points and many MB mean such a file. Remuxing it (`ffmpeg -i in.mkv -c copy
+out.mkv`) writes the index.
 
 **Playback.** Software decode with 3 threads, an audio-clock-driven `StreamRing`,
 a 4 MB AVIO read buffer. Pausing and resuming re-seeks. 4K, 10-bit HEVC and HDR

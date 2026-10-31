@@ -544,10 +544,14 @@ class Session
             if (do_seek)
             {
                 const auto stamp = static_cast<std::int64_t>(target * AV_TIME_BASE);
+                const std::int64_t began = sys::monotonic_us();
+                const std::int64_t read_before = source_.bytes.load(std::memory_order_relaxed);
                 // Backward: the nearest key frame before the target, so the
                 // decoder can run forward to it without grey pictures.
                 if (av_seek_frame(format_, -1, stamp, AVSEEK_FLAG_BACKWARD) < 0)
                     av_seek_frame(format_, -1, stamp, 0);
+                log_slow_seek(target - start_time_, sys::monotonic_us() - began,
+                              source_.bytes.load(std::memory_order_relaxed) - read_before);
             }
             AVPacket *packet = av_packet_alloc();
             const int code = av_read_frame(format_, packet);
@@ -591,6 +595,25 @@ class Session
             }
             pthread_cond_broadcast(&wake_);
         }
+    }
+
+    // A seek that read a lot or took long names its container and how many seek points the
+    // file gave: a file with no index (an MKV without Cues, mostly) is read from where the last
+    // known point is up to the target, so the farther the jump the longer the wait, and that
+    // is the log line which tells it from a slow drive.
+    void log_slow_seek(double to, std::int64_t micros, std::int64_t bytes) const
+    {
+        constexpr std::int64_t kSlowUs = 300 * 1000;
+        constexpr std::int64_t kBigRead = std::int64_t{16} << 20;
+        if (micros < kSlowUs && bytes < kBigRead)
+            return;
+        const int stream = video_stream_ >= 0 ? video_stream_ : 0;
+        sys::log("[HUI] seek to %.1fs took %.2fs and read %lld MB (%s, %d seek points)", to,
+                 static_cast<double>(micros) / 1e6, static_cast<long long>(bytes >> 20),
+                 format_->iformat != nullptr ? format_->iformat->name : "?",
+                 format_->nb_streams > 0
+                     ? avformat_index_get_entries_count(format_->streams[stream])
+                     : 0);
     }
 
     // ----------------------------------------------------------- pictures

@@ -190,6 +190,7 @@ ParsedName parse_file_name(std::string_view file_name)
     // "1917.2019.mkv": only a year, and it is the title. Take the first word.
     if (end == 0 && !words.empty())
         end = 1;
+    parsed.tail.assign(words.begin() + static_cast<std::ptrdiff_t>(end), words.end());
 
     for (std::size_t i = 0; i < end; ++i)
     {

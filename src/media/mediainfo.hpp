@@ -44,6 +44,25 @@ std::string language_name(std::string_view canonical);
 // "2_English.srt" are German and English; "" when it says nothing.
 std::string language_from_filename(std::string_view file_name);
 
+// The language a subtitle file's text is in, guessed from the words it uses; "" when it has too
+// few lines or none of the languages the app knows by their common words stands out. For the
+// subtitle files whose name says nothing.
+std::string language_from_text(std::string_view subtitle_text);
+
+// The languages a film file's name says its sound is in: "Film (2011) German DL 1080p.mkv" is
+// {"ger"}, "Film.2011.German.English.mkv" {"ger", "eng"}. Only what comes after the title counts
+// (a film called "The English Patient" is not in English for that), only a language's name or
+// "ger"/"deu"/"eng" is taken (a film called "It" or "No" is not Italian or Norwegian), and a
+// language the name calls subtitles ("Eng.Sub") is none. Empty when the name says nothing.
+std::vector<std::string> audio_languages_from_name(std::string_view file_name);
+
+// The sound languages to list for a film: what the file's headers say; and when they say
+// nothing (no tag at all, or "und" on every track) or the file could not be read, what its
+// name says, if anything. `read` is false while the file has not been looked at yet, when a
+// name guess would only be replaced a moment later. `info` is null when nothing was read.
+std::vector<std::string> audio_languages_to_show(const MediaInfo *info, bool read,
+                                                 std::string_view file_name);
+
 // The name of a TMDB genre number in the app's language ("Comedy", "Komödie");
 // "" for a number the table lacks.
 std::string genre_name(int tmdb_id);

@@ -67,6 +67,26 @@ class MediathekTest : public hui::testing::ConceptFixture
         return design;
     }
 
+    // The first shelf is Continue Watching, so the page has a second shelf to go down to.
+    void add_second_shelf()
+    {
+        services_.progress.update(services_.library[0].id, 100.0, 7200.0, clock_seconds_);
+    }
+
+    // The white Play pill of the billboard, as drawn: 64 high, 214 or 250 wide, solid.
+    int play_pills(const app::Concept &design)
+    {
+        frame_.reset();
+        design.draw(frame_);
+        int pills = 0;
+        for (const hui::gfx::Instance &instance : frame_.scene.instances())
+        {
+            const bool size = instance.rect[3] == 64.0f &&
+                              (instance.rect[2] == 214.0f || instance.rect[2] == 250.0f);
+            pills += size && instance.color_top[3] > 0.95f ? 1 : 0;
+        }
+        return pills;
+    }
     media::Services services_;
     std::unique_ptr<media::Player> player_;
     std::int64_t clock_seconds_ = 1700001000;
@@ -318,6 +338,42 @@ TEST_F(MediathekTest, CrossPausesAndSeekingMovesThePosition)
     expect_drawable(*design);
 }
 
+TEST_F(MediathekTest, HoldingASeekDirectionGrowsTheStepToFiveMinutes)
+{
+    fill_library();
+    media::VideoSurface surface;
+    surface.create = [](int, int, const std::uint8_t *) { return std::uint32_t{7}; };
+    surface.update = [](std::uint32_t, int, int, const std::uint8_t *) {};
+    surface.release = [](std::uint32_t) {};
+    player_ = media::make_simulated_player(surface, 100000.0); // long enough not to clamp the jumps
+    services_.player = player_.get();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    send(*design, press(Action::confirm), 0.3f); // paused: the position only moves by seeks
+    double last = player_->position();
+    send(*design, nav(Direction::right), 0.35f);
+    EXPECT_NEAR(player_->position() - last, 10.0, 0.01); // a tap
+    InputFrame held = nav(Direction::right);
+    held.nav_repeat = true;
+    double biggest = 0.0;
+    double previous_step = 0.0;
+    for (int i = 0; i < 120; ++i) // 13 s of repeats at the console's 0.11 s rate
+    {
+        last = player_->position();
+        send(*design, held, 0.11f);
+        const double step = player_->position() - last;
+        EXPECT_GE(step, previous_step); // never shrinks while held
+        previous_step = step;
+        biggest = std::max(biggest, step);
+    }
+    EXPECT_NEAR(biggest, 300.0, 0.01);
+    send(*design, InputFrame{}, 1.0f); // let go ...
+    last = player_->position();
+    send(*design, nav(Direction::right), 0.3f);
+    EXPECT_NEAR(player_->position() - last, 10.0, 0.01); // ... and a tap is 10 s again
+    expect_drawable(*design);
+}
+
 TEST_F(MediathekTest, AnyInputInAnyStateStaysDrawable)
 {
     fill_library();
@@ -380,6 +436,13 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
 
     send(*design, nav(Direction::down), 0.3f);
+    ASSERT_FALSE(settings_.pin_billboard);
+    context_.settings_changed = false;
+    send(*design, press(Action::confirm), 0.4f); // fixed billboard
+    EXPECT_TRUE(settings_.pin_billboard);
+    EXPECT_TRUE(context_.settings_changed);
+
+    send(*design, nav(Direction::down), 0.3f);
     context_.settings_changed = false;
     send(*design, press(Action::confirm), 0.4f); // debug info
     EXPECT_TRUE(settings_.show_fps);
@@ -387,15 +450,38 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     expect_drawable(*design);
 }
 
+TEST_F(MediathekTest, TheBillboardCollapsesBelowTheFirstShelfUnlessItIsFixed)
+{
+    fill_library();
+    add_second_shelf();
+    auto design = make();
+    ASSERT_EQ(play_pills(*design), 1); // open on the first shelf
+    send(*design, nav(Direction::down), 1.0f);
+    EXPECT_EQ(play_pills(*design), 0);
+    send(*design, nav(Direction::up), 1.0f);
+    EXPECT_EQ(play_pills(*design), 1);
+
+    settings_.pin_billboard = true;
+    send(*design, nav(Direction::down), 1.0f);
+    EXPECT_EQ(play_pills(*design), 1); // stays while the shelves scroll
+    expect_drawable(*design);
+    send(*design, nav(Direction::up), 1.0f);
+    EXPECT_EQ(play_pills(*design), 1);
+}
+
 TEST_F(MediathekTest, TheSettingsPageShowsWhatWasSaved)
 {
     settings_.ui_volume = 0;
     settings_.show_fps = true;
+    settings_.pin_billboard = true;
     auto design = make();
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::confirm), 0.4f); // flips "off" to on, not on to off
     EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, press(Action::confirm), 0.4f);
+    EXPECT_FALSE(settings_.pin_billboard);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.4f);
     EXPECT_FALSE(settings_.show_fps);
@@ -413,6 +499,7 @@ TEST_F(MediathekTest, ReloadingEverythingAsksFirstThenFetchesEveryFilmAgain)
     auto design = make();
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
+    send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.6f);
@@ -444,6 +531,7 @@ TEST_F(MediathekTest, BackClosesTheReloadQuestionBeforeItLeavesTheSettings)
     send(*design, press(Action::page_next), 0.5f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.6f);
     send(*design, press(Action::back), 0.6f);
     EXPECT_TRUE(played(audio::Cue::modal_close));
@@ -466,6 +554,7 @@ TEST_F(MediathekTest, AReloadThatIsRefusedStopsAtTheFirstFilm)
     send(*design, press(Action::page_next), 0.5f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.6f);
     send(*design, nav(Direction::right), 0.3f);
     send(*design, press(Action::confirm), 0.6f);
@@ -484,6 +573,7 @@ TEST_F(MediathekTest, ReloadingAnEmptyLibraryJustSaysThereIsNothing)
     auto design = make();
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
+    send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.6f);

@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.0 (01.000.060)
+
+- Subtitle files get a language the same way films get their sound languages. A name that says
+  it ("Film.de.srt", "2_English.srt") still wins, and now so does a short name that starts with
+  the language ("English.srt", "Deutsch.forced.srt", "ger.srt") as found in "Subs" folders. A
+  file whose name says nothing ("Film (2011).srt") was listed as "Unknown language"; its text is
+  now read once, when the film's page opens or the film starts, and the language is guessed from
+  its common words (English, German, French, Spanish, Italian, Portuguese, Dutch) when the
+  result is clear. The details page and the Triangle toast use it.
+- Holding left or right in the player now seeks faster the longer you hold: a tap is 10 s, a
+  hold starts at 30 s and adds 30 s per second held, up to 5 minutes per step.
+- A seek that takes long (over 0.3 s) or reads a lot of the file (over 16 MB) is now named in
+  the klog with its container and how many seek points the file has. Films whose file has no
+  index (an MKV without Cues, say) make FFmpeg read through the file up to the point you jump
+  to, so the farther the jump the longer the wait; the line tells those from a slow drive.
+- A film whose file does not say what language its sound is in (no tag, or "unknown"), or that
+  could not be read, is now listed in the language its file name names: "Film (2011) German
+  DL.mkv" shows German instead of "Unknown language" (or "Not available"). The file's own tags
+  still win, only the words after the title count ("The English Patient" is not English), and a
+  language named as subtitles ("Eng.Sub") is none. It applies to the details page at once,
+  without a refresh. A rescan of the folders does not read the files again; "Refresh cover and
+  info" and "Reload all covers and infos" do.
+- A new setting, *Fixed billboard* (Settings, under Home; off by default): the Home billboard
+  with the art, title, Play and Details stays in place while you scroll down through the
+  shelves, and shows whichever film is focused. Off, it collapses once you leave the first
+  shelf, as before. The settings file gains one byte (format version 2); a file from an
+  earlier version still loads, with the setting off.
+- The toolchain is LLVM 19 (Makefile, scripts, docs and the GitHub workflow). CI had used
+  clang-format 18, which lays out a few constructs differently from 19, so the Build workflow
+  failed at "Lint source and metadata" for every release since 0.3.0 while `make lint` passed
+  on a machine with 19.
+
 ## 0.5.0 (01.000.050)
 
 - A Settings page: the gear at the top right, a third tab after Home and Movies (L1/R1).

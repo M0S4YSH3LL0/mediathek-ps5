@@ -6,6 +6,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace hui::media
 {
@@ -15,6 +16,8 @@ struct ParsedName
     std::string title;   // "The Long Walk Home"
     int year = 0;        // 0 when the name carries none
     std::string quality; // "4K", "1080p", "720p" or ""
+    // The words after the title, as the name has them: {"German", "DL", "1080p", "x264-GRP"}.
+    std::vector<std::string> tail;
 };
 
 // Understands the usual naming of movie collections:
