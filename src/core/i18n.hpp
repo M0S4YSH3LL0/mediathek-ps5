@@ -35,6 +35,10 @@ void set_language(Language language);
 // says German, English for everything else, including a value that is not one.
 Language from_console_language(int code);
 
+// The language a Settings::ui_language choice means: 1 English, 2 German, anything else
+// (0, "automatic") the language the console or UI_LANGUAGE gave, `automatic`.
+Language choose_language(int setting, Language automatic);
+
 // "en", "en-US", "english", "de", "de-DE", "deutsch" ...; false for anything
 // else (including "auto", which means: ask the console).
 bool parse_language(std::string_view name, Language *out);

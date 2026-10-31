@@ -49,6 +49,9 @@ HUI_TEXT(settings_built, "built", "gebaut")
 HUI_TEXT(settings_pin_billboard, "Fixed billboard", "Feste Titelanzeige")
 HUI_TEXT(settings_pin_billboard_hint, "The billboard stays in place while you scroll the shelves",
          "Die Titelanzeige bleibt beim Bl\xC3\xA4ttern durch die Regale stehen")
+HUI_TEXT(settings_language, "Language", "Sprache")
+HUI_TEXT(settings_ui_language, "App language", "Sprache der App")
+HUI_TEXT(settings_language_auto, "Automatic", "Automatisch")
 HUI_TEXT(settings_developer, "Developer", "Entwickler")
 HUI_TEXT(settings_debug, "Debug info", "Debug-Infos")
 HUI_TEXT(settings_debug_hint, "Frame rate and drawing statistics in the corner of the screen",

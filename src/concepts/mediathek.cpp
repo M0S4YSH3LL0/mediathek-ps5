@@ -69,6 +69,7 @@ enum SettingsRow : int
 {
     kRowUiSounds = 1,
     kRowPinBillboard,
+    kRowLanguage,
     kRowDebug,
     kRowReload,
 };
@@ -89,7 +90,7 @@ constexpr float kGridTop = 232.0f;
 // Cards scrolling up under the "All Movies" header fade out above this line.
 constexpr float kGridFadeTop = kGridTop - 34.0f;
 
-constexpr const char *kAppVersion = "0.6.1"; // equals contentVersion 01.000.061 in param.json
+constexpr const char *kAppVersion = "0.6.2"; // equals contentVersion 01.000.062 in param.json
 constexpr float kOsdSeconds = 4.0f;
 constexpr float kSeekHoldGap = 0.5f;   // a pause this long in the repeats ends a hold
 constexpr double kSeekHeldStep = 30.0; // first held step, and what each held second adds
@@ -155,6 +156,7 @@ constexpr app::TourStep kTour[] = {
     {0.4f, action_bit(Action::page_next)},
     {1.0f, 0, Direction::none, "settings"},
     {0.2f, action_bit(Action::confirm)},
+    {0.3f, 0, Direction::down},
     {0.3f, 0, Direction::down},
     {0.3f, 0, Direction::down},
     {0.2f, action_bit(Action::confirm)},
@@ -736,13 +738,17 @@ class Mediathek final : public app::Concept
         settings_form_.add_header(tr(Text::settings_home));
         settings_form_.add_toggle(kRowPinBillboard, tr(Text::settings_pin_billboard), true)
             .description = tr(Text::settings_pin_billboard_hint);
+        settings_form_.add_header(tr(Text::settings_language));
+        settings_form_.add_choice(kRowLanguage, tr(Text::settings_ui_language),
+                                  {tr(Text::settings_language_auto), "English", "Deutsch"},
+                                  context_.settings.ui_language);
         settings_form_.add_header(tr(Text::settings_developer));
         settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug), false).description =
             tr(Text::settings_debug_hint);
         settings_form_.add_header(tr(Text::settings_library));
         settings_form_.add_action(kRowReload, tr(Text::settings_reload)).description =
             tr(Text::settings_reload_hint);
-        settings_form_.set_bounds({kMargin, 236.0f, 1020.0f, 640.0f});
+        settings_form_.set_bounds({kMargin, 236.0f, 1020.0f, 720.0f});
         sync_settings_form();
 
         reload_dialog_.style.theme = app_theme();
@@ -756,6 +762,7 @@ class Mediathek final : public app::Concept
         settings_form_.set_toggle(kRowUiSounds, context_.settings.ui_volume > 0);
         settings_form_.set_toggle(kRowPinBillboard, context_.settings.pin_billboard);
         settings_form_.set_toggle(kRowDebug, context_.settings.show_fps);
+        settings_form_.set_choice(kRowLanguage, context_.settings.ui_language);
     }
 
     void open_settings()
@@ -781,6 +788,20 @@ class Mediathek final : public app::Concept
             ask_reload(feedback);
     }
 
+    // The texts are looked up as they are drawn, but some were put into components and shelves
+    // when those were built: build them again in the new language, and stay on the same row.
+    void change_language()
+    {
+        i18n::set_language(
+            i18n::choose_language(context_.settings.ui_language, svc_->automatic_language));
+        rebuild();
+        setup_search();
+        settings_form_.clear();
+        setup_settings();
+        settings_form_.focus_row(kRowLanguage, true);
+        settings_form_.enter();
+    }
+
     void apply_setting(int row)
     {
         Settings &settings = context_.settings;
@@ -792,6 +813,11 @@ class Mediathek final : public app::Concept
         else if (row == kRowPinBillboard)
         {
             settings.pin_billboard = settings_form_.toggle_value(row);
+        }
+        else if (row == kRowLanguage)
+        {
+            settings.ui_language = settings_form_.choice_index(row);
+            change_language();
         }
         else if (row == kRowDebug)
         {

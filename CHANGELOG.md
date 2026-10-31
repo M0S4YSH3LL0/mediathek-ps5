@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.2 (01.000.062)
+
+- A new setting, *App language* (Settings, under Language): Automatic (the console's language,
+  or UI_LANGUAGE in mediathek.env), English or Deutsch. It changes every text at once, shelves
+  and Settings page included. A choice made there wins over UI_LANGUAGE. Descriptions fetched
+  from TMDB follow the new language after the next start. The settings file gains one byte
+  (format version 3); earlier files load as Automatic.
+
 ## 0.6.1 (01.000.061)
 
 - *Fixed billboard* is on by default. A settings file saved by 0.6.0 keeps whatever it holds.

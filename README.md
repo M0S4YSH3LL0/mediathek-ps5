@@ -2,7 +2,7 @@
 
 # Mediathek
 
-[![Version 0.6.1](https://img.shields.io/badge/version-0.6.1-blue)](CHANGELOG.md)
+[![Version 0.6.2](https://img.shields.io/badge/version-0.6.2-blue)](CHANGELOG.md)
 [![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
@@ -57,7 +57,7 @@ glass behave like the console's own software.
 - **Settings**: the gear at the top right (L1/R1 walk Home, Movies, Settings). *Fixed
   billboard* keeps the Home billboard with Play on screen while you scroll
   down through the shelves (on by default; off: it collapses after the first shelf).
-  *UI sounds* switch the menu sounds on or off (on by default), *Debug info* shows
+  *App language* picks Automatic (the console's), English or Deutsch. *UI sounds* switch the menu sounds on or off (on by default), *Debug info* shows
   the frame rate and drawing statistics in the corner (off by default), and *Reload
   all covers and infos* asks first, then fetches cover, wallpaper and description of
   every film from TMDB again and reads every file again (pictures you put beside a
@@ -112,7 +112,9 @@ and `/user/appmeta/PPSA66120`) and copy it again.
 
 The app is in English or German. It reads the console's language setting
 (German on a German console, English for everything else) and uses it. To pick
-one yourself, add a line to `mediathek.env` in the install folder:
+one yourself, use *App language* on the Settings page (Automatic, English or Deutsch; it
+changes the texts at once), or add a line to `mediathek.env` in the install folder, which is
+what *Automatic* then means:
 
 ```
 UI_LANGUAGE=de
@@ -245,7 +247,7 @@ the code and the rules for changes; a release tag is the exact
 
 ## Status
 
-Version 0.6.1 (`contentVersion` 01.000.061).
+Version 0.6.2 (`contentVersion` 01.000.062).
 
 **Checked on the author's console (firmware 12.70):** the app starts, the scan
 finds the films, covers, wallpapers and descriptions download, the details page

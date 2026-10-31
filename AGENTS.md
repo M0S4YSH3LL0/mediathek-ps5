@@ -112,8 +112,11 @@ folder's git repository and takes more than two minutes; use a long timeout.
   a-f swallows it as a hex digit, so split the literal: `"Zur\xC3\xBC" "ck"`.
 - The language comes from the console (`sys::console_language()`: the system
   parameter `1`, German = value `4`), English otherwise; `UI_LANGUAGE=en|de` in
-  `mediathek.env` overrides it. The log line `[HUI] language console=... ui=...`
-  says what happened. Parameter id `2` is the date format, not the language.
+  `mediathek.env` overrides it ("Automatic"); *App language* on the Settings page
+  (`Settings::ui_language`: 0 automatic, 1 English, 2 German) wins over both and switches
+  at once (`change_language()` rebuilds the shelves, the search prompt and the form; TMDB
+  descriptions follow the language at the next start). The log line
+  `[HUI] language console=... env=... settings=... ui=...` says what happened. Parameter id `2` is the date format, not the language.
 - The fonts are baked with a Latin / Greek / Cyrillic glyph set
   (`tools/bake-fonts.sh`, `make fonts`) so umlauts and accented film titles draw.
   Check a new text fits its button or column in German before calling it done.
@@ -153,7 +156,7 @@ folder's git repository and takes more than two minutes; use a long timeout.
   commit, the tag, the push and the GitHub release (zip and `.sha256` from `dist/release`).
   When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.061` is the app's 0.6.1); the app shows the short form (`kAppVersion` in
+  (`01.000.062` is the app's 0.6.2); the app shows the short form (`kAppVersion` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -179,8 +182,8 @@ none), what a file contains in `info/<id>.info`, resume points beside them. Sett
 **The settings page.** The gear tab (`Tab::settings`, a `ui::Form` in `mediathek.cpp`)
 edits the kit's `Settings`: *UI sounds* is `ui_volume` (0 off, else the default), *Debug
 info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` (on by default; keeps
-`hero_` open on every shelf, `animate()`; the settings file is format version 2, version 1 still
-loads with the default). The page's bottom left shows the version and `build_time()`
+`hero_` open on every shelf, `animate()`; the settings file is format version 3, older ones still
+load with the defaults; *App language* is `ui_language`). The page's bottom left shows the version and `build_time()`
 (`core/build_info.cpp`, `__DATE__`/`__TIME__`; `tools/build.sh` touches the file so every build
 stamps it). A change sets `context_.settings_changed`;
 the shell saves `/download0/hui/settings.bin` 0.75 s after the last one, and `main.cpp`

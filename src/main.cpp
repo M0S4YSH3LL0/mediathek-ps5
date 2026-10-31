@@ -188,24 +188,28 @@ int main()
 
     // The owner's settings (mediathek.env, beside the app) and the language,
     // before anything that shows or fetches text: the console's own language
-    // unless UI_LANGUAGE in that file says otherwise; English where unknown.
+    // unless UI_LANGUAGE in that file says otherwise; English where unknown. A language chosen
+    // on the Settings page wins over both.
     std::string env_text;
     save::read_file(kEnvPath, &env_text, 16u << 10);
     const media::Env env = media::parse_env(env_text);
+    const Settings saved = app::Shell::load_settings(kDataRoot);
+    const i18n::Language automatic_language = [&]
     {
         const int console = sys::console_language();
         i18n::Language chosen = i18n::from_console_language(console);
         const std::string wanted = env.get("UI_LANGUAGE");
         if (!wanted.empty())
             i18n::parse_language(wanted, &chosen); // "auto" and typos keep the console's
-        i18n::set_language(chosen);
-        sys::log("[HUI] language console=%d setting=%s ui=%s", console,
-                 wanted.empty() ? "auto" : wanted.c_str(),
-                 chosen == i18n::Language::german ? "de" : "en");
-    }
+        const i18n::Language ui = i18n::choose_language(saved.ui_language, chosen);
+        i18n::set_language(ui);
+        sys::log("[HUI] language console=%d env=%s settings=%d ui=%s", console,
+                 wanted.empty() ? "auto" : wanted.c_str(), saved.ui_language,
+                 ui == i18n::Language::german ? "de" : "en");
+        return chosen;
+    }();
 
     // The display opens at the saved resolution (1080p if that fails).
-    const Settings saved = app::Shell::load_settings(kDataRoot);
     int resolution = ps5::Display::supports_display_modes() ? saved.resolution : 0;
     ps5::Display display;
     if (!open_display(display, &resolution))
@@ -263,6 +267,7 @@ int main()
 
     // The movie side: library, artwork, resume points, player.
     media::Services services;
+    services.automatic_language = automatic_language;
     services.clock = [] { return static_cast<std::int64_t>(std::time(nullptr)); };
     {
         std::string data;

@@ -107,7 +107,8 @@ TEST(Settings, RoundTripsEveryField)
 TEST(Settings, AFileFromBeforeTheFixedBillboardStillLoadsWithItsDefault)
 {
     std::string data = hui::encode_settings(hui::Settings{});
-    data.pop_back();
+    data.pop_back(); // the language
+    data.pop_back(); // the billboard
     data[0] = 1;
     hui::Settings read;
     read.pin_billboard = false;
@@ -118,8 +119,29 @@ TEST(Settings, AFileFromBeforeTheFixedBillboardStillLoadsWithItsDefault)
     EXPECT_EQ(read.music_volume, hui::Settings{}.music_volume);
 
     EXPECT_FALSE(hui::decode_settings(data.substr(0, data.size() - 1), &read)); // cut short
-    data[0] = 2; // claims the new version but lacks its byte
+    data[0] = 2; // claims a newer version but lacks its byte
     EXPECT_FALSE(hui::decode_settings(data, &read));
+}
+
+TEST(Settings, TheLanguageChoiceIsSavedAndAFileWithoutItMeansAutomatic)
+{
+    hui::Settings settings;
+    settings.ui_language = 2;
+    hui::Settings read;
+    ASSERT_TRUE(hui::decode_settings(hui::encode_settings(settings), &read));
+    EXPECT_EQ(read.ui_language, 2);
+
+    std::string data = hui::encode_settings(settings);
+    data.pop_back();
+    data[0] = 2; // saved by 0.6.x, before the language setting
+    read.ui_language = 1;
+    ASSERT_TRUE(hui::decode_settings(data, &read));
+    EXPECT_EQ(read.ui_language, 0);
+
+    data = hui::encode_settings(settings);
+    data.back() = 9; // not a language
+    ASSERT_TRUE(hui::decode_settings(data, &read));
+    EXPECT_EQ(read.ui_language, 2);
 }
 
 TEST(Settings, ClampsOutOfRangeValuesAndRejectsGarbage)

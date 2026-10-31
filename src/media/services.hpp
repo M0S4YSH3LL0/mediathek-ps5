@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "core/i18n.hpp"
 #include "media/info_service.hpp"
 #include "media/library.hpp"
 #include "media/player.hpp"
@@ -42,6 +43,8 @@ struct Services
     std::function<std::string(const std::string &id)> refetch_cover;
     // What stops the covers coming ("No TMDB_API_KEY in mediathek.env"), or "".
     std::string cover_note;
+    // The language "automatic" means in Settings: the console's, or UI_LANGUAGE's.
+    i18n::Language automatic_language = i18n::Language::english;
     // Set by the platform when a scan finished: how many movies it found, -1 when there is
     // nothing to announce. The screen says it (if the viewer wants debug messages) and resets it.
     int scan_found = -1;

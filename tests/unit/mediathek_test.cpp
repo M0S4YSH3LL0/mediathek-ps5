@@ -442,6 +442,7 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     EXPECT_FALSE(settings_.pin_billboard);
     EXPECT_TRUE(context_.settings_changed);
 
+    send(*design, nav(Direction::down), 0.3f); // the language row
     send(*design, nav(Direction::down), 0.3f);
     context_.settings_changed = false;
     send(*design, press(Action::confirm), 0.4f); // debug info
@@ -495,6 +496,40 @@ TEST_F(MediathekTest, ASmallMessageSaysHowManyMoviesAScanFound)
     expect_drawable(*design);
 }
 
+TEST_F(MediathekTest, TheLanguageRowSwitchesTheAppAtOnce)
+{
+    namespace i18n = hui::i18n;
+    services_.automatic_language = i18n::Language::german; // a German console
+    i18n::set_language(i18n::Language::german);
+    auto design = make();
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::page_next), 0.5f);
+    send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f); // the language row
+    ASSERT_EQ(settings_.ui_language, 0);
+
+    context_.settings_changed = false;
+    send(*design, nav(Direction::right), 0.4f); // Automatic -> English
+    EXPECT_EQ(settings_.ui_language, 1);
+    EXPECT_EQ(i18n::language(), i18n::Language::english);
+    EXPECT_TRUE(context_.settings_changed);
+    expect_drawable(*design);
+
+    send(*design, nav(Direction::right), 0.4f); // -> Deutsch
+    EXPECT_EQ(settings_.ui_language, 2);
+    EXPECT_EQ(i18n::language(), i18n::Language::german);
+
+    send(*design, nav(Direction::left), 0.4f);
+    send(*design, nav(Direction::left), 0.4f); // back to Automatic: the console's language
+    EXPECT_EQ(settings_.ui_language, 0);
+    EXPECT_EQ(i18n::language(), i18n::Language::german);
+    // The page still has its focus on the row after the texts were rebuilt.
+    send(*design, nav(Direction::right), 0.4f);
+    EXPECT_EQ(settings_.ui_language, 1);
+    expect_drawable(*design);
+    i18n::set_language(i18n::Language::english);
+}
+
 TEST_F(MediathekTest, TheSettingsPageShowsWhatWasSaved)
 {
     settings_.ui_volume = 0;
@@ -508,6 +543,7 @@ TEST_F(MediathekTest, TheSettingsPageShowsWhatWasSaved)
     send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.4f);
     EXPECT_FALSE(settings_.pin_billboard);
+    send(*design, nav(Direction::down), 0.3f); // the language row
     send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.4f);
     EXPECT_FALSE(settings_.show_fps);
@@ -525,6 +561,7 @@ TEST_F(MediathekTest, ReloadingEverythingAsksFirstThenFetchesEveryFilmAgain)
     auto design = make();
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
+    send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
@@ -558,6 +595,7 @@ TEST_F(MediathekTest, BackClosesTheReloadQuestionBeforeItLeavesTheSettings)
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.6f);
     send(*design, press(Action::back), 0.6f);
     EXPECT_TRUE(played(audio::Cue::modal_close));
@@ -581,6 +619,7 @@ TEST_F(MediathekTest, AReloadThatIsRefusedStopsAtTheFirstFilm)
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);
     send(*design, press(Action::confirm), 0.6f);
     send(*design, nav(Direction::right), 0.3f);
     send(*design, press(Action::confirm), 0.6f);
@@ -599,6 +638,7 @@ TEST_F(MediathekTest, ReloadingAnEmptyLibraryJustSaysThereIsNothing)
     auto design = make();
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
+    send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);

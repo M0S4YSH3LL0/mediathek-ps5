@@ -59,6 +59,11 @@ Language from_console_language(int code)
     return code == kConsoleGerman ? Language::german : Language::english;
 }
 
+Language choose_language(int setting, Language automatic)
+{
+    return setting == 1 ? Language::english : setting == 2 ? Language::german : automatic;
+}
+
 bool parse_language(std::string_view name, Language *out)
 {
     const std::string value = lowered(name);

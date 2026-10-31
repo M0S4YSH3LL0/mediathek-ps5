@@ -27,6 +27,9 @@ struct Settings
     // Mediathek: the Home billboard (art, title and Play) stays while the shelves under it
     // scroll, instead of collapsing once the first shelf is left.
     bool pin_billboard = true;
+    // Mediathek: the language of the app's texts. 0 follows the console (or UI_LANGUAGE in
+    // mediathek.env), 1 is English, 2 is German.
+    int ui_language = 0;
     // Display resolution, an index into kResolutions; applies at the next start.
     int resolution = 2;
     // How large on-screen controller hints are: 0 small, 1 medium, 2 large.
