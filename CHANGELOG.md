@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0 (01.000.040)
+
+- On the details page L1/R1 and left/right step to the previous or next film of the
+  shelf or grid the page was opened from; the page fades the new film in. At either
+  end the pad refuses. Back returns to the film that was last shown.
+- The red line naming the shelf is back above the billboard title for every shelf,
+  also *Your Movies* and *All Movies*.
+- Home gets a shelf per TMDB genre, between the collections and the decades (which stay).
+  A film is on the shelves of the two genres its details page names, and only those, so
+  every genre named there has a shelf, even with one film; the fullest shelves come
+  first. Genres come with the TMDB answer, so a library without a key or without fetched
+  info has none.
+- The Movies page has a search: Triangle opens an on-screen keyboard (Triangle is a
+  space, Square deletes, Options is Done). Every word must be in the title,
+  ignoring case and accents; Done with an empty line clears it.
+  Back clears an active search before it leaves the page. Sorting moved to R3.
+- A film can have several subtitle files (up to eight; English first, then in the
+  order found). In the player Triangle steps through them and then off, and says
+  which one is on ("Subtitles: Deutsch (2/3)"); with one file it is the old on/off
+  switch. The details page lists the languages of all of them. Square still steps
+  through the audio tracks.
+- The home screen gets a proper selection and launch background (`sce_sys/pic0.dds`,
+  `pic1.dds`: the same picture, 3840x2160 BC7), made from `sce_sys/background-source.png`.
+- Moving between shelves plays the same sound on every row; it used to drop in pitch
+  the further down you went.
+
 ## 0.3.0 (01.000.030)
 
 - The details page shows more: genres next to the collection above the title, chips

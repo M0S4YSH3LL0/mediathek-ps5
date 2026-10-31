@@ -28,6 +28,7 @@
 #include "media/mediainfo.hpp"
 #include "media/services.hpp"
 #include "media/subtitles.hpp"
+#include "ui/components/input_prompt.hpp"
 #include "ui/glyphs.hpp"
 #include "ui/motion.hpp"
 
@@ -56,6 +57,7 @@ const Color kAccent = Color::rgb(0xff4d5e);
 
 constexpr float kMargin = 96.0f;
 constexpr float kExitConfirmSeconds = 2.5f;
+constexpr int kSearchLength = 40;
 constexpr float kCardW = 176.0f; // poster at rest on a shelf
 constexpr float kCardH = 264.0f;
 constexpr float kCardGap = 20.0f;
@@ -95,8 +97,16 @@ constexpr app::TourStep kTour[] = {
     {0.2f, 0, Direction::right},
     {1.0f, 0, Direction::down},
     {1.0f, 0, Direction::none, "shelves"},
+    {0.3f, 0, Direction::down},
+    {0.3f, 0, Direction::down},
+    {1.2f, 0, Direction::none, "genres"},
+    {0.3f, 0, Direction::up},
+    {0.3f, 0, Direction::up},
+    {0.8f, 0, Direction::none},
     {0.2f, action_bit(Action::confirm), Direction::none},
     {0.8f, 0, Direction::none, "details"},
+    {0.2f, action_bit(Action::page_next)},
+    {0.8f, 0, Direction::none, "details-next"},
     {0.2f, action_bit(Action::back)},
     {0.4f, action_bit(Action::page_next)},
     {1.0f, 0, Direction::none, "grid"},
@@ -105,6 +115,12 @@ constexpr app::TourStep kTour[] = {
     {0.3f, 0, Direction::right},
     {1.0f, 0, Direction::down},
     {1.0f, 0, Direction::none, "movies"},
+    {0.2f, action_bit(Action::north)},
+    {0.8f, 0, Direction::none, "search"},
+    {0.2f, action_bit(Action::confirm)},
+    {0.4f, action_bit(Action::menu)},
+    {0.8f, 0, Direction::none, "search-results"},
+    {0.2f, action_bit(Action::back)},
     {0.2f, action_bit(Action::west)},
     {1.6f, 0, Direction::none, "playing"},
     {0.2f, 0, Direction::right},
@@ -251,6 +267,7 @@ class Mediathek final : public app::Concept
     {
         rebuild();
         snap_layout();
+        setup_search();
     }
 
     const app::ConceptInfo &info() const override
@@ -410,6 +427,10 @@ class Mediathek final : public app::Concept
         for (auto &entry : collections)
             if (entry.second.size() >= 2)
                 add(entry.first, entry.second);
+        // One shelf for every genre a film has among its two main ones (the two the details
+        // page names), the fullest first.
+        for (media::GenreShelf &entry : media::genre_shelves(lib.movies()))
+            add(media::genre_name(entry.genre), std::move(entry.movies));
         if (total >= 12)
             for (auto &entry : decades)
                 if (entry.second.size() >= 3)
@@ -442,9 +463,10 @@ class Mediathek final : public app::Concept
     void rebuild_grid(const std::string &keep)
     {
         const media::Library &lib = library();
-        grid_.resize(lib.size());
-        for (std::size_t i = 0; i < grid_.size(); ++i)
-            grid_[i] = static_cast<int>(i);
+        grid_.clear();
+        for (std::size_t i = 0; i < lib.size(); ++i)
+            if (media::matches_search(lib[i], search_))
+                grid_.push_back(static_cast<int>(i));
         std::stable_sort(grid_.begin(), grid_.end(),
                          [&](int a, int b)
                          {
@@ -487,6 +509,11 @@ class Mediathek final : public app::Concept
 
     void update_browse(const InputFrame &input, app::Feedback &feedback)
     {
+        if (search_prompt_.is_open())
+        {
+            update_search(input, feedback);
+            return;
+        }
         if (input.is_pressed(Action::page_next) || input.is_pressed(Action::page_prev))
         {
             const Tab next = input.is_pressed(Action::page_next) ? Tab::movies : Tab::home;
@@ -503,6 +530,23 @@ class Mediathek final : public app::Concept
         {
             svc_->rescan();
             notify(feedback, tr(Text::looking_for_movies), audio::Cue::notify);
+        }
+
+        // Search and sort also work on an empty result: that is how it is changed.
+        if (tab_ == Tab::movies && library().size() > 0)
+        {
+            if (input.is_pressed(Action::north))
+            {
+                search_prompt_.open(feedback, search_);
+                return;
+            }
+            if (input.is_pressed(Action::r3))
+            {
+                sort_ = static_cast<Sort>((static_cast<int>(sort_) + 1) %
+                                          static_cast<int>(Sort::count));
+                rebuild_grid(focus_id_);
+                notify(feedback, i18n::format(Text::sorted_by, sort_name()), audio::Cue::tab);
+            }
         }
 
         const int focused = focused_movie();
@@ -522,27 +566,24 @@ class Mediathek final : public app::Concept
         {
             start_playback(focused, true, feedback);
         }
-        else if (input.is_pressed(Action::north))
+        else if (input.is_pressed(Action::north) && tab_ == Tab::home)
         {
-            if (tab_ == Tab::movies)
-            {
-                sort_ = static_cast<Sort>((static_cast<int>(sort_) + 1) %
-                                          static_cast<int>(Sort::count));
-                rebuild_grid(movie(focused).id);
-                notify(feedback, i18n::format(Text::sorted_by, sort_name()), audio::Cue::tab);
-            }
-            else
-            {
-                toggle_watched(focused, feedback);
-            }
+            toggle_watched(focused, feedback);
         }
     }
 
-    // Back steps out one level at a time: Movies to Home, then to the first
+    // Back steps out one level at a time: a search, Movies to Home, then to the first
     // film, then (asking twice, so a stray press does not close the app) out.
     // True when the press was used.
     bool handle_back(app::Feedback &feedback)
     {
+        if (tab_ == Tab::movies && !search_.empty())
+        {
+            search_.clear();
+            rebuild_grid(focus_id_);
+            feedback.play(audio::Cue::back);
+            return true;
+        }
         if (tab_ == Tab::movies)
         {
             tab_ = Tab::home;
@@ -568,6 +609,42 @@ class Mediathek final : public app::Concept
         notify(feedback, tr(Text::press_back_again), audio::Cue::notify);
         toast_time_ = kExitConfirmSeconds;
         return true;
+    }
+
+    // Triangle on the Movies page: the on-screen keyboard. Done with an empty line clears
+    // the search, and so does Back once.
+    void update_search(const InputFrame &input, app::Feedback &feedback)
+    {
+        if (search_prompt_.handle(input, feedback) != ui::Event::activated)
+            return;
+        search_ = search_prompt_.text();
+        rebuild_grid("");
+    }
+
+    void setup_search()
+    {
+        ui::Theme theme = ui::themes()[0];
+        theme.page = Color::rgb(0x0e0f16);
+        theme.surface = Color::rgb(0x15161f);
+        theme.surface_high = Color::rgb(0x242633);
+        theme.primary = kAccent;
+        theme.accent = kAccent;
+        theme.on_primary = kInk;
+        theme.focus = kInk;
+        search_prompt_.style.theme = theme;
+        search_prompt_.style.max_length = kSearchLength;
+        search_prompt_.style.allow_empty = true;
+        search_prompt_.style.frosted = false;
+        search_prompt_.style.reduced_motion = context_.settings.reduced_motion;
+        search_prompt_.style.done_label = tr(Text::search_do);
+        search_prompt_.style.cancel_label = tr(Text::search_cancel);
+        search_prompt_.set_title(tr(Text::search_title));
+        search_prompt_.field.set_placeholder(tr(Text::search_placeholder));
+        // Triangle is a space and Options is Done, as everywhere on the console.
+        search_prompt_.keyboard.style.bindings = ui::KeyboardBindings::standard();
+        search_prompt_.keyboard.style.bindings.done = Action::menu;
+        search_prompt_.keyboard.style.space_label = tr(Text::search_space);
+        search_prompt_.keyboard.style.done_label = tr(Text::search_do);
     }
 
     const char *sort_name() const
@@ -613,7 +690,7 @@ class Mediathek final : public app::Concept
             if (next >= 0 && next < rows)
             {
                 row_ = next;
-                feedback.play(audio::Cue::tab, 1.12f - 0.05f * static_cast<float>(row_));
+                feedback.play(audio::Cue::tab);
             }
             else
             {
@@ -676,6 +753,31 @@ class Mediathek final : public app::Concept
         feedback.play(audio::Cue::open);
     }
 
+    // Moves to the neighbouring film of the shelf (or the grid) the page was opened from, so
+    // Back lands on the film that was last shown. The ends refuse instead of wrapping.
+    void step_details_movie(int step, const InputFrame &input, app::Feedback &feedback)
+    {
+        int *column =
+            tab_ == Tab::home ? &shelves_[static_cast<std::size_t>(row_)].column : &grid_focus_;
+        const int count =
+            tab_ == Tab::home
+                ? static_cast<int>(shelves_[static_cast<std::size_t>(row_)].movies.size())
+                : static_cast<int>(grid_.size());
+        const int next = *column + step;
+        if (next < 0 || next >= count)
+        {
+            refuse(feedback, input);
+            return;
+        }
+        *column = next;
+        action_ = 0;
+        action_position_.snap(0.0f);
+        details_swap_.start(context_.settings.reduced_motion ? 0.1f : 0.32f);
+        if (const int index = focused_movie(); index >= 0 && svc_->info != nullptr)
+            svc_->info->request(movie(index).id, movie(index).path);
+        feedback.play(audio::Cue::focus, step > 0 ? 1.1f : 0.9f, step > 0 ? 0.3f : -0.3f);
+    }
+
     std::vector<SheetAction> sheet_actions() const
     {
         std::vector<SheetAction> actions = {SheetAction::play};
@@ -703,6 +805,16 @@ class Mediathek final : public app::Concept
                 action_ = next;
                 feedback.play(audio::Cue::focus, 1.0f, 0.35f);
             }
+        }
+        int step = 0;
+        if (input.nav == Direction::left || input.is_pressed(Action::page_prev))
+            step = -1;
+        else if (input.nav == Direction::right || input.is_pressed(Action::page_next))
+            step = 1;
+        if (step != 0)
+        {
+            step_details_movie(step, input, feedback);
+            return;
         }
         const int focused = focused_movie();
         if (input.is_pressed(Action::confirm) && focused >= 0)
@@ -768,16 +880,10 @@ class Mediathek final : public app::Concept
         screen_ = Screen::player;
         osd_ = kOsdSeconds;
         paused_ = false;
-        subtitles_on_ = true;
         last_save_ = 0.0f;
         seek_flash_ = 0.0f;
-        subtitles_ = media::Subtitles{};
-        if (!m.subtitle.empty())
-        {
-            std::string text;
-            if (save::read_file(m.subtitle, &text, 4u << 20))
-                subtitles_.parse(text);
-        }
+        subtitle_track_ = -1;
+        select_subtitle(m, 0);
         feedback.play(audio::Cue::launch);
         feedback.rumble(0.6f, 0.15f);
     }
@@ -876,17 +982,46 @@ class Mediathek final : public app::Concept
                                 player.audio_tracks()[static_cast<std::size_t>(next)].label),
                    audio::Cue::toggle);
         }
-        if (input.is_pressed(Action::north) && !subtitles_.empty())
-        {
-            subtitles_on_ = !subtitles_on_;
-            notify(feedback, tr(subtitles_on_ ? Text::subtitles_on : Text::subtitles_off),
-                   audio::Cue::toggle);
-        }
+        if (input.is_pressed(Action::north) && !movie(playing_).subtitles.empty())
+            cycle_subtitles(feedback);
         if (input.is_pressed(Action::menu))
         {
             info_ = !info_;
             feedback.play(audio::Cue::tick);
         }
+    }
+
+    // Shows the film's subtitle file number `track`, or none for -1. A file that cannot be
+    // read leaves the track selected but empty, so the pad still steps past it.
+    void select_subtitle(const media::Movie &m, int track)
+    {
+        subtitle_track_ = track;
+        subtitles_ = media::Subtitles{};
+        if (track < 0 || static_cast<std::size_t>(track) >= m.subtitles.size())
+            return;
+        std::string text;
+        if (save::read_file(m.subtitles[static_cast<std::size_t>(track)].file, &text, 4u << 20))
+            subtitles_.parse(text);
+    }
+
+    // Triangle steps through the subtitle files and then off: with one file that is a plain
+    // on/off switch.
+    void cycle_subtitles(app::Feedback &feedback)
+    {
+        const media::Movie &m = movie(playing_);
+        const int count = static_cast<int>(m.subtitles.size());
+        const int next = subtitle_track_ + 1 < count ? subtitle_track_ + 1 : -1;
+        select_subtitle(m, next);
+        if (next < 0)
+        {
+            notify(feedback, tr(Text::subtitles_off), audio::Cue::toggle);
+            return;
+        }
+        std::string label =
+            media::language_names({m.subtitles[static_cast<std::size_t>(next)].language}).front();
+        if (count > 1)
+            label += " (" + std::to_string(next + 1) + "/" + std::to_string(count) + ")";
+        notify(feedback, i18n::format(Text::subtitles_track, label), audio::Cue::toggle);
     }
 
     // ---------------------------------------------------------- animation
@@ -944,6 +1079,8 @@ class Mediathek final : public app::Concept
             hero_fade_.start(calm ? 0.1f : 0.42f);
         }
         hero_fade_.update(dt);
+        details_swap_.update(dt);
+        search_prompt_.update(dt);
 
         hero_.target = tab_ == Tab::home && row_ == 0 ? 1.0f : 0.0f;
         hero_.update(dt, calm ? 30.0f : 9.0f);
@@ -1141,6 +1278,11 @@ class Mediathek final : public app::Concept
             draw_details(list);
         draw_toast(back > 0.5f ? frame.overlay : list);
         draw_hints(back > 0.5f ? frame.overlay : list);
+        if (search_prompt_.visible())
+        {
+            ui::Canvas canvas{frame.overlay, context_.fonts, 0, clock_};
+            search_prompt_.draw(canvas);
+        }
     }
 
     void draw_top_bar(gfx::DrawList &list) const
@@ -1155,7 +1297,7 @@ class Mediathek final : public app::Concept
         float x = ui::text(list, fonts.display, "MEDIATHEK", kMargin, y, 30, kAccent,
                            gfx::Align::left, 5.0f);
         // Version and author, small, under the logo.
-        ui::text(list, fonts.regular, "v0.3.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
+        ui::text(list, fonts.regular, "v0.4.0 \xC2\xB7 by m0", kMargin, y + 30, 17,
                  kInk.with_alpha(0.5f), gfx::Align::left, 1.0f);
         x = kMargin + x + 64.0f;
         const char *tabs[] = {tr(Text::tab_home), tr(Text::tab_movies)};
@@ -1225,12 +1367,8 @@ class Mediathek final : public app::Concept
         const Shelf &shelf = shelves_[static_cast<std::size_t>(row_)];
         const float title_size = tween::lerp(54.0f, 86.0f, h);
         const float title_y = tween::lerp(268.0f, 338.0f, h);
-        // The red line names the shelf, which helps for "Continue Watching" or a
-        // collection; "Your Movies" and "All Movies" say nothing the shelf title below
-        // does not.
-        const bool generic =
-            shelf.title == tr(Text::shelf_yours) || shelf.title == tr(Text::shelf_all);
-        if (h > 0.02f && !generic)
+        // The red line names the shelf the film was found on.
+        if (h > 0.02f)
             ui::text(list, fonts.semibold, ui::upper(shelf.title), x, title_y - 108.0f * h - 8.0f,
                      19, kAccent.with_alpha(h), gfx::Align::left, 4.0f);
         float size = title_size;
@@ -1441,8 +1579,30 @@ class Mediathek final : public app::Concept
         list.push_opacity(in);
         // Header: what this page is, and how it is sorted.
         ui::text(list, fonts.display, tr(Text::shelf_all), kMargin, 168, 34, kInk);
-        ui::text(list, fonts.regular, i18n::format(Text::sorted_by, sort_name()),
-                 gfx::kVirtualWidth - kMargin, 164, 22, kInk.with_alpha(0.6f), gfx::Align::right);
+        std::string state = i18n::format(Text::sorted_by, sort_name());
+        if (!search_.empty())
+        {
+            // The search, in the accent colour, where the eye already is.
+            const float x = kMargin + fonts.display.measure(tr(Text::shelf_all), 34) + 36.0f;
+            const std::string count =
+                grid_.size() == 1 ? std::string(tr(Text::movies_one))
+                                  : i18n::format(Text::movies_many, std::to_string(grid_.size()));
+            ui::text(list, fonts.semibold,
+                     fit(fonts.semibold,
+                         i18n::format(Text::search_active, search_) + "  \xC2\xB7  " + count, 24,
+                         1000.0f),
+                     x, 166, 24, kAccent);
+        }
+        ui::text(list, fonts.regular, state, gfx::kVirtualWidth - kMargin, 164, 22,
+                 kInk.with_alpha(0.6f), gfx::Align::right);
+        if (grid_.empty())
+        {
+            const float cx = gfx::kVirtualWidth * 0.5f;
+            ui::text(list, fonts.display, tr(Text::search_none), cx, 480, 44, kInk,
+                     gfx::Align::center);
+            ui::text(list, fonts.regular, tr(Text::search_none_hint), cx, 540, 26,
+                     kInk.with_alpha(0.65f), gfx::Align::center);
+        }
 
         list.push_clip({0, kGridFadeTop, gfx::kVirtualWidth, gfx::kVirtualHeight - kGridFadeTop});
         const float nudge = ui::shake(nudge_.value, clock_, 14.0f, 8.0f) * nudge_direction_;
@@ -1569,7 +1729,12 @@ class Mediathek final : public app::Concept
         // itself would turn its shadows grey.
         list.rounded_rect({0, 0, gfx::kVirtualWidth, gfx::kVirtualHeight}, 0,
                           gfx::mix(tone, kBlack, 0.82f).with_alpha(t));
-        draw_details_art(list, index, t);
+        // A film change fades the new page in over the veil; opening the page does not.
+        const float swap = details_swap_.running
+                               ? 0.25f + 0.75f * tween::cubic_out(details_swap_.progress())
+                               : 1.0f;
+        draw_details_art(list, index, t * swap);
+        list.push_opacity(swap);
 
         constexpr float kCenter = gfx::kVirtualHeight * 0.5f;
         constexpr float kColumn = 600.0f;
@@ -1596,9 +1761,8 @@ class Mediathek final : public app::Concept
 
         // Where the film lives, and what kind of film it is.
         std::string label = m.collection.empty() ? m.drive : m.collection;
-        for (std::size_t i = 0; i < m.genres.size() && i < 2; ++i)
-            if (const std::string genre = media::genre_name(m.genres[i]); !genre.empty())
-                label += "  \xC2\xB7  " + genre;
+        for (const int genre : media::main_genres(m))
+            label += "  \xC2\xB7  " + media::genre_name(genre);
         ui::text(list, fonts.semibold,
                  fit(fonts.semibold, ui::upper(label), 19, kColumnWidth - 120), kColumn, top + 36,
                  19, kAccent, gfx::Align::left, 4.0f);
@@ -1744,10 +1908,10 @@ class Mediathek final : public app::Concept
                                                            : std::vector<std::string>()),
                   kColumn, 400.0f, true);
         caption(tr(Text::label_subtitles), kSecond, facts_y - 100);
-        languages(media::language_names(m.subtitle.empty()
-                                            ? std::vector<std::string>()
-                                            : std::vector<std::string>{m.subtitle_language}),
-                  kSecond, 1360.0f - kSecond, false);
+        std::vector<std::string> subtitle_languages;
+        for (const media::SubtitleFile &sub : m.subtitles)
+            media::add_language(&subtitle_languages, sub.language);
+        languages(media::language_names(subtitle_languages), kSecond, 1360.0f - kSecond, false);
         caption(m.size > 0
                     ? std::string(tr(Text::label_file)) + "  \xC2\xB7  " + format_size(m.size)
                     : std::string(tr(Text::label_file)),
@@ -1795,6 +1959,7 @@ class Mediathek final : public app::Concept
                      focused ? kBlack : kInk.with_alpha(0.9f));
         }
         list.pop_opacity();
+        list.pop_opacity(); // the film change
     }
 
     void draw_toast(gfx::DrawList &list) const
@@ -1821,8 +1986,9 @@ class Mediathek final : public app::Concept
         if (screen_ == Screen::details)
         {
             const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_choose)},
+                                      {ui::Button::l1, tr(Text::hint_movie), ui::Button::r1},
                                       {ui::Button::circle, tr(Text::hint_back)}};
-            ui::draw_hints(list, context_.fonts, style, hints, 2, 1824, true);
+            ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true);
         }
         else if (library().size() == 0)
         {
@@ -1841,9 +2007,10 @@ class Mediathek final : public app::Concept
         {
             const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_details)},
                                       {ui::Button::square, tr(Text::hint_play)},
-                                      {ui::Button::triangle, tr(Text::hint_sort)},
+                                      {ui::Button::triangle, tr(Text::hint_search)},
+                                      {ui::Button::right_stick, tr(Text::hint_sort)},
                                       {ui::Button::l1, tr(Text::hint_tab), ui::Button::r1}};
-            ui::draw_hints(list, context_.fonts, style, hints, 4, 1824, true);
+            ui::draw_hints(list, context_.fonts, style, hints, 5, 1824, true);
         }
     }
 
@@ -1906,7 +2073,7 @@ class Mediathek final : public app::Concept
         }
 
         // Subtitles sit above the controls and stay when they hide.
-        if (subtitles_on_ && !subtitles_.empty())
+        if (!subtitles_.empty())
             if (const media::Cue *cue = subtitles_.at(player->position()))
                 draw_subtitle(list, *cue);
 
@@ -2019,6 +2186,8 @@ class Mediathek final : public app::Concept
     std::vector<Shelf> shelves_;
     int row_ = 0;
     std::vector<int> grid_;
+    std::string search_; // what the Movies page is filtered by; empty: everything
+    ui::InputPrompt search_prompt_;
     int grid_focus_ = 0;
     ui::Scroller grid_scroll_;
 
@@ -2026,6 +2195,7 @@ class Mediathek final : public app::Concept
     int previous_ = -1;
     std::string focus_id_; // survives a rescan: the shelves are rebuilt around it
     tween::Timer hero_fade_;
+    tween::Timer details_swap_; // the page cross-fades when L1/R1 or left/right change the film
     tween::Spring hero_;
     tween::Spring row_position_;
     ui::SpringColor tone_;
@@ -2043,7 +2213,7 @@ class Mediathek final : public app::Concept
     int playing_ = -1;
     bool paused_ = false;
     bool info_ = false;
-    bool subtitles_on_ = true;
+    int subtitle_track_ = -1; // index into the playing film's subtitles, -1 = off
     float osd_ = 0.0f;
     tween::Spring osd_show_;
     float last_save_ = 0.0f;

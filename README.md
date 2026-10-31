@@ -1,6 +1,7 @@
 # Mediathek
 
-[![Version 0.3.0](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
+[![Version 0.4.0](https://img.shields.io/badge/version-0.4.0-blue)](CHANGELOG.md)
+[![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](#build-from-source)
@@ -18,10 +19,11 @@ speaks English and German.
 | | |
 | --- | --- |
 | ![All movies](docs/screenshots/movies.jpg) | ![Details](docs/screenshots/details.jpg) |
+| ![Genre shelves on Home](docs/screenshots/genres.jpg) | ![Search on the Movies page](docs/screenshots/search.jpg) |
 | ![Start, in German](docs/screenshots/home-de.jpg) | ![Details, in German](docs/screenshots/details-de.jpg) |
 
 *The pictures come from the PC preview with invented films; the covers and
-wallpapers on a console are the real ones, fetched by the app. The second row
+wallpapers on a console are the real ones, fetched by the app. The last row
 is the German interface.*
 
 It is a native app (C++20, OpenGL 4.6) built on the
@@ -34,16 +36,24 @@ glass behave like the console's own software.
 - **Home**: a billboard for the focused movie (its wallpaper if there is one,
   the poster otherwise) whose colour tints the whole page, then shelves:
   *Continue Watching*, *Recently Added*, one per collection (a subfolder with
-  two or more movies) and per decade, and *All Movies*.
-- **Movies**: an eight-column grid, sortable by title, newest or year.
+  two or more movies), one per TMDB genre (every film is on the shelves of the two
+  genres its details page names, and only those, so every genre you see there has a
+  shelf here, the fullest first) and per decade, and *All Movies* (*Your Movies*
+  in a small library). A red line above the title names the shelf the film is on.
+- **Movies**: an eight-column grid, sortable by title, newest or year (R3), with a
+  search (Triangle): an on-screen keyboard; every word you type must be in the
+  title, and accents and case do not matter. Back clears the search first.
 - **Details**: a full-screen page for the film: its wallpaper behind, the cover
   on the left, then title and genres, chips for the year, TMDB's user score,
   length, video format (codec, resolution, container) and sound format, a
   description (from TMDB), the languages of the sound and of the subtitles, the
   file with its size, and where you stopped; Play / Resume, Start over, Mark as
-  watched and Refresh cover and info on the right.
+  watched and Refresh cover and info on the right. L1/R1 or left/right step to
+  the previous or next film of the shelf (or the grid) you came from, without
+  going back.
 - **Player**: scrubber, seek ±10 s (hold: ±30 s, L1/R1 or L2/R2: ±60 s), pause,
-  audio track and `.srt` subtitle switching, a stream info panel. It remembers
+  audio track switching (Square) and `.srt` subtitle switching (Triangle; with
+  several subtitle files it steps through them and then off), a stream info panel. It remembers
   where you stopped and resumes there; 92% counts as watched.
 - **Covers and wallpapers by themselves**: with a free TMDB key the app fetches
   a poster and a wallpaper for every film that has none (see below).
@@ -118,21 +128,23 @@ Put films anywhere below a `movies` folder, up to six levels deep:
   you provide always win over fetched ones.
 - Subtitles are `.srt` files with the film's name, beside it or in a `subs`
   folder next to it; a film alone in its folder owns everything in `subs`.
-  English is preferred (`.en`, `english`, `eng`). Embedded subtitle tracks are
-  not shown.
+  English comes first (`.en`, `english`, `eng`), then the others in the order
+  found (up to eight); the first one shows when the film starts. Embedded
+  subtitle tracks are not shown.
 - A film without a picture gets a generated cover.
 
 ## Controls
 
-| | Browse | Player |
-| --- | --- | --- |
-| D-pad / stick | move | left/right: seek |
-| Cross | details | pause / play |
-| Square | play (resumes) | audio track |
-| Triangle | watched (Home) / sort (Movies) | subtitles |
-| Options | scan again | stream info |
-| L1 / R1 | Home / Movies | seek -60 s / +60 s |
-| Circle | back: Movies to Home, to the first film, then press twice to exit | stop |
+| | Browse | Details | Player |
+| --- | --- | --- | --- |
+| D-pad / stick | move | up/down: action; left/right: previous / next film | left/right: seek |
+| Cross | details | choose | pause / play |
+| Square | play (resumes) | | next audio track |
+| Triangle | watched (Home) / search (Movies) | | next subtitles, then off |
+| R3 (press the right stick) | sort (Movies) | | |
+| Options | scan again | | stream info |
+| L1 / R1 | Home / Movies | previous / next film | seek -60 s / +60 s |
+| Circle | back: Movies to Home, to the first film, then press twice to exit | back | stop |
 
 ## Covers, wallpapers and descriptions
 
@@ -218,24 +230,23 @@ the code and the rules for changes; a release tag is the exact
 
 ## Status
 
-Version 0.3.0 (`contentVersion` 01.000.030).
+Version 0.4.0 (`contentVersion` 01.000.040).
 
-**Checked on the author's console:** the app starts, the scan finds the films,
-covers, wallpapers and descriptions download, the details page shows them with
-the film's length, formats, score, genres and the audio and subtitle languages,
-and a large 1080p H.264 MKV plays with sound without glitches. The console's firmware and loader versions were not recorded;
-reports for others are welcome.
+**Checked on the author's console (firmware 12.70):** the app starts, the scan
+finds the films, covers, wallpapers and descriptions download, the details page
+shows them with the film's length, formats, score, genres and the audio and
+subtitle languages, and a large 1080p H.264 MKV plays with sound without
+glitches. Stepping between films on the details page, the red shelf line,
+stepping through several subtitle files, the genre shelves on Home, the search
+on the Movies page and sorting with R3 work too. The console's language detection (German console, German texts), the
+load time of the larger fonts, subtitle and audio-track switching, the staged
+Back/exit, sound in the menus and the controller feedback all work, with films
+on the internal drive and on an external drive. The loader version was not
+recorded; reports for other firmware versions are welcome.
 
-**Not checked on a console yet:** the language detection (the console's
-language setting is read through a system call; the first version asked for the
-wrong parameter and a German console came out English, which is fixed but not
-yet confirmed; the German value, 4, is from memory, not from an SDK header; the
-log line `language console=` shows what it returned, and `UI_LANGUAGE`
-overrides it), the German texts on screen, the larger fonts' load time, 4K and HEVC playback, subtitle and audio-track
-switching, the staged Back/exit, sound in the menus and controller rumble, and
-drives other than the one the author used. The unit tests, the PC preview
-pictures, the scan helper against a folder of sample files and a clean build
-and lint run on a PC.
+**Not checked on a console yet:** 4K and HEVC playback. The unit tests, the PC
+preview pictures, the scan helper against a folder of sample files and a clean
+build and lint run on a PC.
 
 ## Credits
 

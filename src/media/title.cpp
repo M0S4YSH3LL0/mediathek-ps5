@@ -235,4 +235,53 @@ std::string sort_key(std::string_view title)
     return key;
 }
 
+std::string search_fold(std::string_view text)
+{
+    // U+00C0 to U+00FF, one letter each; the signs (x, /) and the letters without a plain base
+    // (the ligature, thorn, eth) stand for themselves or their nearest.
+    static constexpr std::string_view kLatin1 = // 64 entries, the sharp s is handled apart
+
+        "aaaaaaaceeeeiiiidnooooo ouuuuytsaaaaaaaceeeeiiiidnooooo ouuuuyty";
+    std::string out;
+    bool gap = true; // no leading space
+    const auto word = [&](char c)
+    {
+        out.push_back(c);
+        gap = false;
+    };
+    const auto space = [&]
+    {
+        if (!gap)
+            out.push_back(' ');
+        gap = true;
+    };
+    for (std::size_t i = 0; i < text.size(); ++i)
+    {
+        const auto c = static_cast<unsigned char>(text[i]);
+        if (c == 0xC3 && i + 1 < text.size() &&
+            (static_cast<unsigned char>(text[i + 1]) & 0xC0) == 0x80)
+        {
+            const std::size_t at = static_cast<unsigned char>(text[++i]) - 0x80;
+            if (at == 0x1F) // the sharp s
+            {
+                word('s');
+                word('s');
+            }
+            else if (kLatin1[at] == ' ')
+                space();
+            else
+                word(kLatin1[at]);
+        }
+        else if (c >= 0x80)
+            word(static_cast<char>(c));
+        else if (std::isalnum(c))
+            word(static_cast<char>(std::tolower(c)));
+        else
+            space();
+    }
+    if (!out.empty() && out.back() == ' ')
+        out.pop_back();
+    return out;
+}
+
 } // namespace hui::media

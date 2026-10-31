@@ -138,7 +138,8 @@ TEST(MovieLibrary, PairsArtworkAndSubtitlesWithTheirMovie)
     EXPECT_EQ(movie.year, 2011);
     EXPECT_EQ(movie.poster, "/data/mediathek/art/aa.jpg");
     EXPECT_EQ(movie.backdrop, "/data/mediathek/art/bb.jpg");
-    EXPECT_EQ(movie.subtitle, "/data/mediathek/art/cc.srt");
+    ASSERT_EQ(movie.subtitles.size(), 1u);
+    EXPECT_EQ(movie.subtitles[0].file, "/data/mediathek/art/cc.srt");
     EXPECT_EQ(movie.drive, "Internal");
     EXPECT_EQ(movie.collection, "");
 }
@@ -240,23 +241,28 @@ TEST(MovieLibrary, FindsSubtitlesInASubsFolder)
         // a hash on a console) says nothing.
         if (movie.title == "Aa")
         {
-            EXPECT_EQ(movie.subtitle, "/art/en.srt"); // alone: owns the folder, English first
-            EXPECT_EQ(movie.subtitle_language, "eng");
+            // alone: owns the folder, English first, then the rest in the order found
+            ASSERT_EQ(movie.subtitles.size(), 2u);
+            EXPECT_EQ(movie.subtitles[0].file, "/art/en.srt");
+            EXPECT_EQ(movie.subtitles[0].language, "eng");
+            EXPECT_EQ(movie.subtitles[1].file, "/art/fr.srt");
+            EXPECT_EQ(movie.subtitles[1].language, "fre");
         }
         else if (movie.title == "Bb")
         {
-            EXPECT_EQ(movie.subtitle, "/art/de.srt");
-            EXPECT_EQ(movie.subtitle_language, "ger");
+            ASSERT_EQ(movie.subtitles.size(), 1u);
+            EXPECT_EQ(movie.subtitles[0].file, "/art/de.srt");
+            EXPECT_EQ(movie.subtitles[0].language, "ger");
         }
         else if (movie.title == "One")
         {
-            EXPECT_EQ(movie.subtitle, "/art/one.srt"); // shared: only its own name
-            EXPECT_EQ(movie.subtitle_language, "und"); // "One.srt" names no language
+            ASSERT_EQ(movie.subtitles.size(), 1u); // shared: only its own name
+            EXPECT_EQ(movie.subtitles[0].file, "/art/one.srt");
+            EXPECT_EQ(movie.subtitles[0].language, "und"); // "One.srt" names no language
         }
         else
         {
-            EXPECT_TRUE(movie.subtitle.empty()); // "Two" has none
-            EXPECT_TRUE(movie.subtitle_language.empty());
+            EXPECT_TRUE(movie.subtitles.empty()); // "Two" has none
         }
     }
 }
@@ -327,3 +333,64 @@ TEST(MovieProgress, MarkingWatchedClearsTheResumePoint)
 }
 
 } // namespace
+
+TEST(MediaSearch, FoldsCaseAccentsAndPunctuation)
+{
+    EXPECT_EQ(search_fold("Am\xC3\xA9lie"), "amelie");
+    EXPECT_EQ(search_fold("\xC3\x9C"
+                          "ber den D\xC3\xA4"
+                          "chern"),
+              "uber den dachern");
+    EXPECT_EQ(search_fold("Stra\xC3\x9F"
+                          "e"),
+              "strasse");
+    EXPECT_EQ(search_fold("  Spider-Man: Home!  "), "spider man home");
+    EXPECT_EQ(search_fold(""), "");
+}
+
+TEST(MediaSearch, EveryWordMustMatchTheTitleAndNothingElse)
+{
+    Movie movie;
+    movie.title = "Blue Harbor";
+    movie.year = 2011;
+    movie.collection = "Sea Stories";
+    movie.genres = {35}; // Comedy
+    EXPECT_TRUE(matches_search(movie, ""));
+    EXPECT_TRUE(matches_search(movie, "harb"));
+    EXPECT_TRUE(matches_search(movie, "BLUE harbor"));
+    EXPECT_TRUE(matches_search(movie, "harbor blue"));
+    EXPECT_FALSE(matches_search(movie, "blue red"));
+    EXPECT_FALSE(matches_search(movie, "harbour"));
+    // The year, the folder and the genres are not searched: a title does not turn up for them.
+    EXPECT_FALSE(matches_search(movie, "2011"));
+    EXPECT_FALSE(matches_search(movie, "sea"));
+    EXPECT_FALSE(matches_search(movie, "comedy"));
+}
+
+TEST(MediaGenreShelves, AFilmIsOnTheShelvesOfItsFirstTwoGenresAndNoOther)
+{
+    // Genre numbers: 18 Drama, 35 Comedy, 878 Science Fiction, 27 Horror, 28 Action.
+    const std::vector<std::vector<int>> genres = {{18, 878, 28}, {878, 18}, {35, 18},
+                                                  {27},          {},        {999999, 35, 27, 18}};
+    std::vector<Movie> movies(genres.size());
+    for (std::size_t i = 0; i < movies.size(); ++i)
+        movies[i].genres = genres[i];
+
+    EXPECT_EQ(main_genres(movies[0]), (std::vector<int>{18, 878}));
+    EXPECT_TRUE(main_genres(movies[4]).empty());
+    EXPECT_EQ(main_genres(movies[5]), (std::vector<int>{35, 27})); // the unnamed one is skipped
+
+    const std::vector<GenreShelf> shelves = genre_shelves(movies);
+    // Every genre that is a main one of some film has a shelf, even with a single film; Action
+    // is only a third genre and has none.
+    ASSERT_EQ(shelves.size(), 4u);
+    EXPECT_EQ(shelves[0].genre, 18);
+    EXPECT_EQ(shelves[0].movies, (std::vector<int>{0, 1, 2}));
+    EXPECT_EQ(shelves[1].genre, 27); // Horror and Comedy and Sci-Fi: two films each ...
+    EXPECT_EQ(shelves[1].movies, (std::vector<int>{3, 5}));
+    EXPECT_EQ(shelves[2].genre, 35); // ... the lower genre number first
+    EXPECT_EQ(shelves[2].movies, (std::vector<int>{2, 5}));
+    EXPECT_EQ(shelves[3].genre, 878);
+    EXPECT_EQ(shelves[3].movies, (std::vector<int>{0, 1}));
+    EXPECT_TRUE(genre_shelves({}).empty());
+}

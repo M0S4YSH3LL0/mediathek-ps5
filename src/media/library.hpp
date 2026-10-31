@@ -14,6 +14,15 @@
 namespace hui::media
 {
 
+// A subtitle file beside a film. `language` is what the original file's name says ("ger" for
+// "Film.de.srt"), "und" when the name says none; the copy the app reads has a hashed name, so
+// it is taken from the original path when the files are paired.
+struct SubtitleFile
+{
+    std::string file; // the readable copy
+    std::string language;
+};
+
 struct Movie
 {
     std::string id;      // stable across drive letters: name and size, hashed
@@ -25,17 +34,36 @@ struct Movie
     std::int64_t added = 0; // modification time, seconds since the epoch
     std::string poster;     // image file, or ""
     std::string backdrop;   // wide image file, or ""
-    std::string subtitle;   // sidecar .srt / .vtt (the readable copy), or ""
-    // Its language as the original file's name says ("ger" for "Film.de.srt"), "und" when the
-    // name says none, "" without a subtitle file. The copy's name is a hash, so this is read
-    // from the original path when the files are paired.
-    std::string subtitle_language;
+    // Sidecar .srt / .vtt files, English first, then in the order they were found; the first is
+    // the one that shows when the film starts. Empty without a subtitle file.
+    std::vector<SubtitleFile> subtitles;
     std::string overview;    // the description (fetched from TMDB), or ""
     float rating = 0.0f;     // TMDB's user score, 0 to 10; 0 = none
     std::vector<int> genres; // TMDB genre ids, most telling first; see genre_name()
     std::string drive;       // "Internal", "USB 1", "Drive 2"
     std::string collection;  // folder name when the movie sits in a subfolder of movies/
 };
+
+// Whether a movie answers a search. `query` is what the viewer typed; every word of it must
+// appear in the title, ignoring case and accents. An empty query matches everything.
+bool matches_search(const Movie &movie, std::string_view query);
+
+// A film's genres as the app shows them: the first two TMDB lists for it that the app has a
+// name for. The details page names them and the Home shelves are made from them, so what the
+// page says is what the shelves do. (TMDB lists up to four, in no order of importance; a
+// film is not put on every one of them.)
+std::vector<int> main_genres(const Movie &movie);
+
+// The films of one genre shelf (indices into the movie list).
+struct GenreShelf
+{
+    int genre = 0; // TMDB's number
+    std::vector<int> movies;
+};
+
+// The genre shelves of a library: one for every genre some film has among its main_genres(),
+// fullest first (a tie: the lower genre number), each holding exactly the films that have it.
+std::vector<GenreShelf> genre_shelves(const std::vector<Movie> &movies);
 
 // A file the scan saw, before names and artwork are paired up.
 struct FoundFile

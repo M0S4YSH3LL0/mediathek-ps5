@@ -22,6 +22,18 @@ HUI_TEXT(sort_title, "title", "Titel")
 HUI_TEXT(sort_newest, "newest", "Neueste")
 HUI_TEXT(sort_year, "year", "Jahr")
 
+// ---- search on the Movies page
+HUI_TEXT(search_title, "Search movies", "Filme suchen")
+HUI_TEXT(search_placeholder, "Type a title", "Titel eingeben")
+HUI_TEXT(search_do, "Search", "Suchen")
+HUI_TEXT(search_cancel, "Cancel", "Abbrechen")
+HUI_TEXT(search_space, "Space", "Leerzeichen")
+HUI_TEXT(search_active, "Search: {}", "Suche: {}")
+HUI_TEXT(search_none, "No movie matches your search", "Kein Film passt zu deiner Suche")
+HUI_TEXT(search_none_hint, "Change the search or press Back to see all movies",
+         "\xC3\x84ndere die Suche oder dr\xC3\xBC" "cke Zur\xC3\xBC" "ck f\xC3\xBCr alle Filme")
+HUI_TEXT(hint_search, "Search", "Suchen")
+
 // ---- nothing found yet
 HUI_TEXT(looking_for_movies, "Looking for movies\xE2\x80\xA6", "Suche nach Filmen\xE2\x80\xA6")
 HUI_TEXT(no_movies_found, "No movies found", "Keine Filme gefunden")
@@ -67,7 +79,7 @@ HUI_TEXT(marked_unwatched, "Marked as not watched", "Als nicht gesehen markiert"
 HUI_TEXT(playback_unavailable, "Playback is not available", "Wiedergabe nicht verf\xC3\xBC" "gbar")
 HUI_TEXT(finished, "Finished", "Beendet")
 HUI_TEXT(audio_track, "Audio: {}", "Ton: {}")
-HUI_TEXT(subtitles_on, "Subtitles on", "Untertitel an")
+HUI_TEXT(subtitles_track, "Subtitles: {}", "Untertitel: {}")
 HUI_TEXT(subtitles_off, "Subtitles off", "Untertitel aus")
 HUI_TEXT(unknown_movie, "Unknown movie", "Unbekannter Film")
 
@@ -79,6 +91,7 @@ HUI_TEXT(hint_details, "Details", "Details")
 HUI_TEXT(hint_play, "Play", "Abspielen")
 HUI_TEXT(hint_watched, "Watched", "Gesehen")
 HUI_TEXT(hint_tab, "Tab", "Reiter")
+HUI_TEXT(hint_movie, "Movie", "Film")
 HUI_TEXT(hint_sort, "Sort", "Sortieren")
 HUI_TEXT(hint_pause, "Pause", "Pause")
 HUI_TEXT(hint_seek, "Seek", "Spulen")

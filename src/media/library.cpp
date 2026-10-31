@@ -28,6 +28,7 @@ namespace
 {
 
 constexpr int kMaxDepth = 5;
+constexpr std::size_t kMaxSubtitles = 8; // a film with more is a pack; the pad cycles through them
 
 std::vector<std::string_view> split(std::string_view line, char separator)
 {
@@ -248,6 +249,42 @@ std::string drive_label(std::string_view path)
     return i18n::tr(i18n::Text::drive_library);
 }
 
+std::vector<int> main_genres(const Movie &movie)
+{
+    std::vector<int> out;
+    for (const int genre : movie.genres)
+        if (out.size() < 2 && !genre_name(genre).empty() &&
+            std::find(out.begin(), out.end(), genre) == out.end())
+            out.push_back(genre);
+    return out;
+}
+
+std::vector<GenreShelf> genre_shelves(const std::vector<Movie> &movies)
+{
+    std::map<int, std::vector<int>> shelves;
+    for (std::size_t i = 0; i < movies.size(); ++i)
+        for (const int genre : main_genres(movies[i]))
+            shelves[genre].push_back(static_cast<int>(i));
+    std::vector<GenreShelf> out;
+    for (auto &entry : shelves)
+        out.push_back({entry.first, std::move(entry.second)});
+    std::stable_sort(out.begin(), out.end(), [](const GenreShelf &a, const GenreShelf &b)
+                     { return a.movies.size() > b.movies.size(); });
+    return out;
+}
+
+bool matches_search(const Movie &movie, std::string_view query)
+{
+    const std::string wanted = search_fold(query);
+    if (wanted.empty())
+        return true;
+    const std::string haystack = search_fold(movie.title);
+    for (const std::string_view word : split(wanted, ' '))
+        if (!word.empty() && haystack.find(word) == std::string::npos)
+            return false;
+    return true;
+}
+
 Library Library::from_scan(const ScanResult &scan)
 {
     Library library;
@@ -312,7 +349,7 @@ Library Library::from_scan(const ScanResult &scan)
         // the film they must carry its name; in "subs" a film that is alone in
         // its folder owns everything there ("2_English.srt").
         const std::string key = lower(base);
-        bool have_english = false;
+        std::size_t english_found = 0; // English tracks sit first, in the order they were found
         for (const char *where : {"", "/subs", "/sub", "/subtitles"})
         {
             const auto it = subtitles.find(lower(folder) + where);
@@ -324,19 +361,20 @@ Library Library::from_scan(const ScanResult &scan)
                 const std::string sub = lower(base_name(subtitle->path));
                 if (sub.compare(0, key.size(), key) != 0 && (own_folder || !alone))
                     continue;
+                if (movie.subtitles.size() >= kMaxSubtitles)
+                    break;
                 const bool english = sub.find(".en") != std::string::npos ||
                                      sub.find("english") != std::string::npos ||
                                      sub.find("eng") != std::string::npos;
-                if (movie.subtitle.empty() || (english && !have_english))
-                {
-                    movie.subtitle = subtitle->readable;
-                    const std::size_t slash = subtitle->path.rfind('/');
-                    const std::string code = language_from_filename(
-                        slash == std::string::npos ? subtitle->path
-                                                   : subtitle->path.substr(slash + 1));
-                    movie.subtitle_language = code.empty() ? "und" : code;
-                    have_english = english;
-                }
+                const std::size_t slash = subtitle->path.rfind('/');
+                const std::string code = language_from_filename(
+                    slash == std::string::npos ? subtitle->path : subtitle->path.substr(slash + 1));
+                SubtitleFile track{subtitle->readable, code.empty() ? "und" : code};
+                const auto at =
+                    movie.subtitles.begin() +
+                    static_cast<std::ptrdiff_t>(english ? english_found : movie.subtitles.size());
+                movie.subtitles.insert(at, std::move(track));
+                english_found += english ? 1 : 0;
             }
         }
 

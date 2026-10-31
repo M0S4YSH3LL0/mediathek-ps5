@@ -26,8 +26,9 @@ src/main.cpp                 start-up: env file, language, library, services, co
 src/media/                   the movie side, no platform code (mediainfo: languages,
                                runtime and the cache text of what a file contains;
                                info_service: reads files in the background):
-                               library (scan index -> Movie list, shelves' data), title
-                               (file name -> title, year, quality), progress (resume
+                               library (scan index -> Movie list, a film's subtitle
+                               files, genre shelves, search matching), title (file
+                               name -> title, year, quality; search_fold), progress (resume
                                points, watched), subtitles (.srt), tmdb + cover_service
                                (poster, wallpaper, description), poster_cache,
                                player.hpp (the interface), simulated_player (PC preview)
@@ -155,7 +156,7 @@ git init -q && git add -A && make lint
 - This folder is not a git repository. Do not `git init`, commit, tag or push
   unless the owner asks. When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.030` is the app's 0.3.0); the app shows the short form (`v0.3.0` in
+  (`01.000.040` is the app's 0.4.0); the app shows the short form (`v0.4.0` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -191,7 +192,9 @@ wallpaper and the description (`overview`), and only for a film with no cover:
 `missing_covers` skips every film that has a poster, its own or a fetched one
 (fetched art is kept in `/download0/hui/covers` and filled back in at start-up),
 so a rescan or restart asks TMDB about new films only; "Refresh cover and info"
-is the way to fetch the rest. Fetched pictures never replace
+is the way to fetch the rest. A film's genres are TMDB's list, up to four, in no
+order of importance; the details page and the Home shelves use the first two
+(`main_genres`). Fetched pictures never replace
 pictures the user put beside the film. The language follows the app unless
 `TMDB_LANGUAGE` says otherwise. The app has its own DNS client and a CA bundle
 in `assets/certs`; `DNS_SERVER` helps behind a router that blocks public DNS.
@@ -240,6 +243,9 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
 - Docs that mention what you changed are updated (`README.md`, `CHANGELOG.md`,
   `.env.example`, this file).
 - You say plainly what you did not verify. Frame rate, sound, controller feel,
-  FFmpeg playback speed, the network and the console's language detection are
-  *not verified* until someone has checked them on hardware; a PC picture never
-  counts as a console result.
+  FFmpeg playback speed and the network are *not verified* until someone has
+  checked them on hardware; a PC picture never counts as a console result. The
+  owner has checked language detection, subtitle and audio switching, Back/exit,
+  menu sounds, controller feedback, stepping between films, genre shelves, search
+  and internal and external drives on firmware 12.70; 4K and HEVC playback are
+  still unchecked.

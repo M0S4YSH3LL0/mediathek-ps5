@@ -118,6 +118,54 @@ TEST_F(MediathekTest, CrossOpensTheDetailsSheetAndCircleClosesIt)
     EXPECT_TRUE(played(audio::Cue::open));
 }
 
+TEST_F(MediathekTest, TheDetailsPageStepsToTheNeighbouringFilmAndRefusesAtTheEnds)
+{
+    fill_library();
+    auto design = make();
+    send(*design, press(Action::confirm));
+    send(*design, press(Action::page_next), 0.5f);
+    EXPECT_TRUE(played(audio::Cue::focus));
+    expect_drawable(*design);
+    send(*design, nav(Direction::left), 0.5f);
+    EXPECT_TRUE(played(audio::Cue::focus));
+    send(*design, nav(Direction::left), 0.5f); // already on the first film
+    EXPECT_TRUE(played(audio::Cue::error));
+    EXPECT_FALSE(played(audio::Cue::focus));
+    expect_drawable(*design);
+    // Still on the page: Circle closes it, a second Circle is the staged exit.
+    send(*design, press(Action::back));
+    EXPECT_TRUE(played(audio::Cue::back));
+}
+
+TEST_F(MediathekTest, TriangleCyclesThroughSubtitleFilesAndThenOff)
+{
+    media::ScanResult scan;
+    scan.roots = {"/data/movies"};
+    media::FoundFile video;
+    video.path = "/data/movies/Blue Harbor (2011).mkv";
+    video.readable = video.path;
+    video.size = 1ull << 30;
+    scan.videos.push_back(video);
+    for (const char *name : {"Blue Harbor (2011).en.srt", "Blue Harbor (2011).de.srt"})
+    {
+        media::FoundFile sub;
+        sub.path = std::string("/data/movies/") + name;
+        sub.readable = sub.path;
+        scan.subtitles.push_back(sub);
+    }
+    services_.library = media::Library::from_scan(scan);
+    ++services_.revision;
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    for (int i = 0; i < 4; ++i) // English, German, off, English again
+    {
+        send(*design, press(Action::north), 0.3f);
+        EXPECT_TRUE(played(audio::Cue::toggle));
+        expect_drawable(*design);
+    }
+}
+
 TEST_F(MediathekTest, TheTabKeysSwitchBetweenHomeAndTheMovieGrid)
 {
     fill_library();
@@ -130,6 +178,46 @@ TEST_F(MediathekTest, TheTabKeysSwitchBetweenHomeAndTheMovieGrid)
     expect_drawable(*design);
     send(*design, press(Action::page_prev), 0.8f);
     expect_drawable(*design);
+}
+
+TEST_F(MediathekTest, R3SortsTheMovieGridAndTriangleOpensTheSearch)
+{
+    fill_library();
+    auto design = make();
+    send(*design, press(Action::page_next), 0.8f);
+    send(*design, press(Action::r3), 0.4f);
+    EXPECT_TRUE(played(audio::Cue::tab));
+    send(*design, press(Action::north), 0.4f);
+    EXPECT_TRUE(played(audio::Cue::modal_open)); // the keyboard, not a sort
+    expect_drawable(*design);
+    // While it is open, the tab keys and R3 belong to the keyboard.
+    send(*design, press(Action::r3), 0.2f);
+    EXPECT_FALSE(played(audio::Cue::tab));
+    send(*design, press(Action::back), 0.5f); // closes the keyboard only
+    EXPECT_TRUE(played(audio::Cue::modal_close));
+    expect_drawable(*design);
+}
+
+TEST_F(MediathekTest, ASearchFiltersTheGridAndBackClearsItBeforeLeavingThePage)
+{
+    fill_library();
+    auto design = make();
+    send(*design, press(Action::page_next), 0.8f);
+    send(*design, press(Action::north), 0.4f);
+    // The keyboard opens on "g" (capital: the field starts a text): "Gu" matches nothing here.
+    send(*design, press(Action::confirm), 0.2f);
+    send(*design, press(Action::confirm), 0.2f);
+    send(*design, press(Action::menu), 0.5f); // Done
+    expect_drawable(*design);
+    EXPECT_FALSE(played(audio::Cue::error));
+    // Nothing is on the grid now, yet the page still answers: Back clears the search ...
+    send(*design, press(Action::back), 0.4f);
+    EXPECT_TRUE(played(audio::Cue::back));
+    // ... and the next Back leaves the page for Home (no exit warning yet).
+    send(*design, press(Action::back), 0.4f);
+    EXPECT_TRUE(played(audio::Cue::back));
+    send(*design, press(Action::confirm), 0.3f);
+    EXPECT_TRUE(played(audio::Cue::open)); // Home again: its films open the details
 }
 
 TEST_F(MediathekTest, BackLeavesTheAppOnlyOnASecondPressAtTheTop)

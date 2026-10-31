@@ -175,6 +175,9 @@ def main():
     with open(os.path.join(root, "Blue Harbor (2011).en.srt"), "w") as handle:
         handle.write("1\n00:00:01,000 --> 00:00:05,000\nThe tide always comes back.\n\n"
                      "2\n00:00:06,000 --> 00:00:10,000\n<i>It just never brings\nthe same water.</i>\n")
+    with open(os.path.join(root, "Blue Harbor (2011).de.srt"), "w") as handle:
+        handle.write("1\n00:00:01,000 --> 00:00:05,000\nDie Flut kommt immer wieder.\n\n"
+                     "2\n00:00:06,000 --> 00:00:10,000\n<i>Nur nie mit demselben\nWasser.</i>\n")
     print(f"wrote {len(MOVIES)} movies to {root}")
 
 

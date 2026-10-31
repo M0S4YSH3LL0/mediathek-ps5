@@ -42,4 +42,9 @@ std::string file_name_of(std::string_view path);
 // "The Matrix" sits among the Ms.
 std::string sort_key(std::string_view title);
 
+// What a search compares: lower case, accents and umlauts dropped ("Amélie" -> "amelie",
+// "Über" -> "uber", "straße" -> "strasse"), anything that is not a letter or digit a single
+// space ("Spider-Man: Home" -> "spider man home"). UTF-8 outside Latin-1 passes through.
+std::string search_fold(std::string_view text);
+
 } // namespace hui::media

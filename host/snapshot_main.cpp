@@ -331,7 +331,12 @@ int main(int argc, char **argv)
             std::vector<int> genres;
         } facts[] = {{"Orbital Dawn", 7.7f, {878, 12}},     {"Winter Cartographer", 6.9f, {18, 14}},
                      {"Blue Harbor", 7.2f, {9648, 18, 53}}, {"Copper Skies", 8.1f, {878, 28}},
-                     {"Velvet Static", 5.8f, {27, 53}},     {"Sundial", 6.4f, {35}}};
+                     {"Velvet Static", 5.8f, {27, 53}},     {"Sundial", 6.4f, {35}},
+                     {"Orbital Dusk", 6.6f, {878, 12}},     {"Orbital Eclipse", 7.0f, {878, 28}},
+                     {"Orbital Zenith", 7.4f, {878, 12}},   {"Echo Valley", 6.1f, {18}},
+                     {"Hollow Bell", 6.8f, {18, 27}},       {"Ember & Ash", 7.5f, {18, 10749}},
+                     {"Paper Moons", 7.1f, {35, 18}},       {"Lantern Season", 6.3f, {35}},
+                     {"Moss & Marble", 6.0f, {35}}};
         services.library.edit_all(
             [&](hui::media::Movie *movie)
             {
