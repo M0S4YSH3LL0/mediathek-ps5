@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<h1>Mediathek</h1>
+---
 
 **A Netflix-style movie library for your PS5.**<br>
 Put your films in a `movies` folder. Mediathek finds them, fetches their posters and plays them.
@@ -12,7 +12,7 @@ Put your films in a `movies` folder. Mediathek finds them, fetches their posters
 [![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Languages: English, German](https://img.shields.io/badge/languages-EN%20%7C%20DE-green)](#settings-and-language)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/M0S4YSH3LL0/mediathek-ps5/total?style=flat&color=8ea2ff&label=Downloads)](https://github.com/M0S4YSH3LL0/mediathek-ps5/releases)
+[![Downloads](https://img.shields.io/github/downloads/M0S4YSH3LL0/mediathek-ps5/total?style=flat&color=8ea2ff&label=downloads)](https://github.com/M0S4YSH3LL0/mediathek-ps5/releases)
 
 **[Get it on ProsperoStore](https://prosperostore.net/app/PPSA66120/)**
 
