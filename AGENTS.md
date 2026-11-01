@@ -156,7 +156,7 @@ folder's git repository and takes more than two minutes; use a long timeout.
   commit, the tag, the push and the GitHub release (zip and `.sha256` from `dist/release`).
   When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.063` is the app's 0.6.3); the app shows the short form (`kAppVersion` in
+  (`01.000.064` is the app's 0.6.4); the app shows the short form (`kAppVersion` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -188,14 +188,16 @@ info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` 
 `hero_` open on every shelf, `animate()`; the settings file is format version 5, older ones still
 load with the defaults; *App language* is `ui_language`, *Wallpaper on the details page* is
 `details_wallpaper`, read by `draw_details_art`; *Shelves on Home* is `home_shelves`, read by
-`rebuild`: all, own (Continue Watching, Recently Added, collections, All Movies) or the rest
-(genres, decades), with the All Movies shelf as the fallback when that leaves none). A read-only *Version* row under Developer shows
+`rebuild`: Continue Watching always, then all, own (Recently Added, collections, All Movies), genres
+or decades, with the All Movies shelf as the fallback when the choice has no shelf of its own).
+A value is added within format version 5: an older build reading 3 clamps it to genres. A read-only *Version* row under Developer shows
 the version and `build_time()` (`core/build_info.cpp`, `__DATE__`/`__TIME__`; `tools/build.sh` touches the file so every build
 stamps it). A change sets `context_.settings_changed`;
 the shell saves `/download0/hui/settings.bin` 0.75 s after the last one, and `main.cpp`
 (`apply_ui_sounds`, also at start-up) mutes the `ui` and `sfx` mixer buses. The music bus
 is deliberately left at its tuned gain; do not route the kit's volume curve through it.
-*Reload all* calls `refetch_cover` for every film, as the details page does for one.
+*Reload all* calls `refetch_cover` for every film, as the details page does for one; its toast counts
+the jobs with `Services::cover_jobs` ("Fetching 3/26 ...", `update_reload_progress`) and waits while a film plays.
 
 **Memory.** FFmpeg needs far more than the kit's original 128 MiB heap; a 1080p
 H.264 MKV ran it out ("failures=260" in the log) and showed as blocks and frame
@@ -275,5 +277,5 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   checked them on hardware; a PC picture never counts as a console result. The
   owner has checked language detection, subtitle and audio switching, Back/exit,
   menu sounds, controller feedback, stepping between films, genre shelves, search,
-  the settings page (categories and settings panes, UI sounds, debug info, reload all, shelves on Home) and internal and external drives on firmware 12.70; 4K and HEVC playback are
+  the settings page (categories and settings panes, UI sounds, debug info, reload all with its progress message, shelves on Home) and internal and external drives on firmware 12.70; 4K and HEVC playback are
   still unchecked.

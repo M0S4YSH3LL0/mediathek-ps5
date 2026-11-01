@@ -495,8 +495,11 @@ int main()
                 ++services.revision;
                 sys::log("[HUI] covers arrived=%zu waiting=%zu", arrived.size(), covers.pending());
             }
-            services.cover_note = covers.problem();
         }
+        // In this order: a queue given up on is empty only once its problem is set, so the screen
+        // never takes the end of a failed reload for a finished one.
+        services.cover_jobs = covers.pending();
+        services.cover_note = covers.problem();
 
         shell.update(input, dt);
         progress_clock += static_cast<double>(dt);

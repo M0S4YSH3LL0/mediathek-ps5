@@ -185,7 +185,7 @@ TEST(Settings, TheHomeShelvesChoiceIsSavedAndAnOlderFileShowsAll)
     data = hui::encode_settings(settings);
     data.back() = 9; // not an option
     ASSERT_TRUE(hui::decode_settings(data, &read));
-    EXPECT_EQ(read.home_shelves, 2);
+    EXPECT_EQ(read.home_shelves, 3);
 }
 
 TEST(Settings, ClampsOutOfRangeValuesAndRejectsGarbage)

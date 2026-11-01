@@ -43,6 +43,9 @@ struct Services
     std::function<std::string(const std::string &id)> refetch_cover;
     // What stops the covers coming ("No TMDB_API_KEY in mediathek.env"), or "".
     std::string cover_note;
+    // Cover jobs not yet finished, the running one included. The platform sets it every frame;
+    // the screen counts a reload's progress with it.
+    std::size_t cover_jobs = 0;
     // The language "automatic" means in Settings: the console's, or UI_LANGUAGE's.
     i18n::Language automatic_language = i18n::Language::english;
     // Set by the platform when a scan finished: how many movies it found, -1 when there is

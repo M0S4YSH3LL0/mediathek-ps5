@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.4 (01.000.064)
+
+- *Shelves on Home* gains a fourth option, *Decades only*, and *Genres* is now *Genres only*: it
+  shows the genre shelves without the decades. Decades appear under *All* and *Decades only*.
+- Continue Watching now stays on Home under every option; 0.6.3 hid it under *Genres*. If *Genres
+  only* or *Decades only* has no shelf of its own (no film has a genre yet, or fewer than 12
+  films), All Movies is added so the films are still there.
+- *Reload all covers and infos* now shows its progress in a message at the bottom: "Fetching 3/26
+  covers and infos...", then "Finished fetching covers and infos". The count comes from the
+  download queue, so it includes covers still on their way from a scan. Other messages show first,
+  and while a film plays the message waits until the player closes. A reload that TMDB stops shows
+  the problem instead of "Finished".
+
 ## 0.6.3 (01.000.063)
 
 - The Settings page is rebuilt in two panes. On the left is a list of categories (Sound,

@@ -84,6 +84,7 @@ enum HomeShelves : int
     kShelvesAll,
     kShelvesOwn,
     kShelvesGenres,
+    kShelvesDecades,
 };
 
 // The list on the left of the settings page, top to bottom; its focus is one of these.
@@ -117,7 +118,7 @@ constexpr float kGridTop = 232.0f;
 // Cards scrolling up under the "All Movies" header fade out above this line.
 constexpr float kGridFadeTop = kGridTop - 34.0f;
 
-constexpr const char *kAppVersion = "0.6.3"; // equals contentVersion 01.000.063 in param.json
+constexpr const char *kAppVersion = "0.6.4"; // equals contentVersion 01.000.064 in param.json
 constexpr float kOsdSeconds = 4.0f;
 constexpr float kSeekHoldGap = 0.5f;   // a pause this long in the repeats ends a hold
 constexpr double kSeekHeldStep = 30.0; // first held step, and what each held second adds
@@ -396,6 +397,7 @@ class Mediathek final : public app::Concept
                    audio::Cue::notify);
             svc_->scan_found = -1;
         }
+        update_reload_progress(feedback);
 
         switch (screen_)
         {
@@ -475,8 +477,10 @@ class Mediathek final : public app::Concept
         shelves_.clear();
         const media::Library &lib = library();
         const int total = static_cast<int>(lib.size());
-        const bool own = context_.settings.home_shelves != kShelvesGenres;
-        const bool others = context_.settings.home_shelves != kShelvesOwn;
+        const int shown = context_.settings.home_shelves;
+        const bool own = shown == kShelvesAll || shown == kShelvesOwn;
+        const bool genres = shown == kShelvesAll || shown == kShelvesGenres;
+        const bool decade_shelves = shown == kShelvesAll || shown == kShelvesDecades;
 
         const auto add = [&](std::string title, std::vector<int> movies)
         {
@@ -495,8 +499,9 @@ class Mediathek final : public app::Concept
             if (index >= 0 && continuing.size() < 20)
                 continuing.push_back(index);
         }
-        if (own)
-            add(tr(Text::shelf_continue), continuing);
+        // Every choice keeps it: it is where the viewer left off, not a way to sort the library.
+        add(tr(Text::shelf_continue), continuing);
+        const std::size_t always = shelves_.size();
 
         std::vector<int> all(static_cast<std::size_t>(total));
         for (int i = 0; i < total; ++i)
@@ -526,17 +531,17 @@ class Mediathek final : public app::Concept
                     add(entry.first, entry.second);
         // One shelf for every genre a film has among its two main ones (the two the details
         // page names), the fullest first.
-        if (others)
+        if (genres)
             for (media::GenreShelf &entry : media::genre_shelves(lib.movies()))
                 add(media::genre_name(entry.genre), std::move(entry.movies));
-        if (others && total >= 12)
+        if (decade_shelves && total >= 12)
             for (auto &entry : decades)
                 if (entry.second.size() >= 3)
                     add(i18n::format(Text::decade, std::to_string(entry.first)), entry.second);
 
-        // Without covers there are no genres, and a small library has no decades: Home must not
-        // be left without a shelf (the rest of the page counts on one) while there are films.
-        if (own || shelves_.empty())
+        // Without covers there are no genres, and a small library has no decades: the films must
+        // still be on Home, and the rest of the page counts on a shelf while there are films.
+        if (own || shelves_.size() == always)
             add(tr(total >= 8 ? Text::shelf_all : Text::shelf_yours), all);
 
         row_ = 0;
@@ -828,7 +833,8 @@ class Mediathek final : public app::Concept
                 .add_choice(kRowHomeShelves, tr(Text::settings_home_shelves),
                             {tr(Text::settings_home_shelves_all),
                              tr(Text::settings_home_shelves_own),
-                             tr(Text::settings_home_shelves_genres)})
+                             tr(Text::settings_home_shelves_genres),
+                             tr(Text::settings_home_shelves_decades)})
                 .description = tr(Text::settings_home_shelves_hint);
             break;
         case kCategoryLanguage:
@@ -1014,6 +1020,7 @@ class Mediathek final : public app::Concept
             notify(feedback, tr(Text::tmdb_no_key), audio::Cue::error);
             return;
         }
+        const std::size_t waiting = svc_->cover_jobs; // films still fetched since the last scan
         std::size_t started = 0;
         for (std::size_t i = 0; i < library().size(); ++i)
         {
@@ -1025,8 +1032,42 @@ class Mediathek final : public app::Concept
             }
             ++started;
         }
-        notify(feedback, i18n::format(Text::reloading, i18n::movie_count(started)),
-               audio::Cue::notify);
+        reload_total_ = started + waiting;
+        reload_text_ = reload_progress_text(reload_total_);
+        notify(feedback, reload_text_, audio::Cue::notify);
+    }
+
+    // "Fetching 3/26 ...": the job being worked on, counted from what the queue has left.
+    std::string reload_progress_text(std::size_t left) const
+    {
+        const std::size_t finished = reload_total_ - std::min(left, reload_total_);
+        const std::size_t current = std::min(finished + 1, reload_total_);
+        return i18n::format(Text::reload_progress,
+                            std::to_string(current) + "/" + std::to_string(reload_total_));
+    }
+
+    // The message stays up for as long as the reload runs. It gives way to any other message until
+    // that has had its time, and to the film: it waits, finished or not, until the player closes.
+    void update_reload_progress(app::Feedback &feedback)
+    {
+        if (reload_total_ == 0 || screen_ == Screen::player)
+            return;
+        if (svc_->cover_jobs == 0)
+        {
+            reload_total_ = 0;
+            // A reload that was given up on has already said why (cover_note).
+            if (svc_->cover_note.empty())
+                notify(feedback, tr(Text::reload_finished), audio::Cue::notify);
+            return;
+        }
+        const bool other_message = toast_time_ > 0.0f && toast_ != reload_text_;
+        reload_text_ = reload_progress_text(svc_->cover_jobs);
+        if (other_message)
+            return;
+        // Held above the point where draw_toast starts to fade; a new toast starts from the full
+        // time, because that is what fades it in.
+        toast_time_ = toast_time_ > 0.0f ? std::max(toast_time_, 1.5f) : 2.6f;
+        toast_ = reload_text_;
     }
 
     const char *sort_name() const
@@ -2722,6 +2763,8 @@ class Mediathek final : public app::Concept
     Direction seek_direction_ = Direction::none;
     media::Subtitles subtitles_;
 
+    std::size_t reload_total_ = 0; // jobs of the reload that is running; 0: none is
+    std::string reload_text_;
     std::string toast_;
     float toast_time_ = 0.0f;
     // First time each poster was drawn, for its fade-in.

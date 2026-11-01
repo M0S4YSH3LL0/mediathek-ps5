@@ -7,7 +7,7 @@
 **A Netflix-style movie library for your PS5.**<br>
 Put your films in a `movies` folder. Mediathek finds them, fetches their posters and plays them.
 
-[![Version 0.6.3](https://img.shields.io/badge/version-0.6.3-blue)](CHANGELOG.md)
+[![Version 0.6.4](https://img.shields.io/badge/version-0.6.4-blue)](CHANGELOG.md)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
 [![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Languages: English, German](https://img.shields.io/badge/languages-EN%20%7C%20DE-green)](#settings-and-language)
@@ -35,8 +35,8 @@ Put your films in a `movies` folder. Mediathek finds them, fetches their posters
 - **Finds your films** on the internal drive, USB and extended storage, and reads
   messy names: `blue.harbor.2011.2160p.BluRay.x265-GRP.mkv` is *Blue Harbor (2011)*.
 - **Home:** a billboard, then shelves for *Continue Watching*, *Recently Added*,
-  collections, genres and decades. A setting limits them to your own collections or
-  to genres.
+  collections, genres and decades. A setting limits them to your own collections,
+  genres or decades.
 - **Movies:** a grid with search and sorting.
 - **Details:** length, video and sound format, audio and subtitle languages, and
   Play, Resume or Start over.
@@ -179,9 +179,9 @@ Circle to go back. Changes apply at once and save themselves.
 | Sound | UI sounds | Menu sounds on or off. |
 | Appearance | Fixed billboard | Keeps the Play button on screen while you scroll the shelves. |
 | Appearance | Wallpaper on the details page | Shows the film's wallpaper behind its details. |
-| Appearance | Shelves on Home | All, your own collections only (*Continue Watching*, *Recently Added*, collections, *All Movies*), or genres (genre and decade shelves). |
+| Appearance | Shelves on Home | *Continue Watching* always, then all shelves, your own collections only (*Recently Added*, collections, *All Movies*), genres only or decades only. |
 | Language | App language | Automatic, English or Deutsch. |
-| Library | Reload all covers and infos | Fetches everything from TMDB again. |
+| Library | Reload all covers and infos | Fetches everything from TMDB again, with a message that counts the progress. |
 | Developer | Debug info | Frame rate in the corner. |
 | Developer | Version | The version and when this build was made. |
 
@@ -247,7 +247,7 @@ rules for changes. A release tag is the exact `contentVersion` of `sce_sys/param
 
 ## Status
 
-Version 0.6.3 (`contentVersion` 01.000.063).
+Version 0.6.4 (`contentVersion` 01.000.064).
 
 **Checked on the author's console, firmware 12.70:** the scan, covers and descriptions,
 the details page, a large 1080p H.264 MKV with sound, seeking, audio and subtitle

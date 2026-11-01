@@ -69,7 +69,7 @@ bool decode_settings(std::string_view data, Settings *settings)
     if (version > kVersionWithoutWallpaper)
         s.details_wallpaper = r.get_bool();
     if (version > kVersionWithoutHomeShelves)
-        s.home_shelves = std::clamp<int>(r.get<std::uint8_t>(), 0, 2);
+        s.home_shelves = std::clamp<int>(r.get<std::uint8_t>(), 0, 3);
     if (!r.finished())
         return false;
     *settings = s;

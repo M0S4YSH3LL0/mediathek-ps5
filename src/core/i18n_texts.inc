@@ -56,13 +56,13 @@ HUI_TEXT(settings_details_wallpaper_hint, "Off: only the film's colour fills the
          "Aus: nur die Farbe des Films f\xC3\xBCllt die Seite")
 HUI_TEXT(settings_home_shelves, "Shelves on Home", "Regale auf der Startseite")
 HUI_TEXT(settings_home_shelves_hint,
-         "Own collections: Continue Watching, Recently Added, your collections and All Movies. "
-         "Genres: everything else",
-         "Eigene Sammlungen: Weiterschauen, Neu hinzugef\xC3\xBC" "gt, deine Sammlungen und Alle "
-         "Filme. Genres: alles andere")
+         "Continue Watching always stays. Own collections: Recently Added, collections, All Movies",
+         "Weiterschauen bleibt immer. Eigene Sammlungen: Neu hinzugef\xC3\xBC" "gt, Sammlungen, "
+         "Alle Filme")
 HUI_TEXT(settings_home_shelves_all, "All", "Alle")
 HUI_TEXT(settings_home_shelves_own, "Own collections only", "Nur eigene Sammlungen")
-HUI_TEXT(settings_home_shelves_genres, "Genres", "Genres")
+HUI_TEXT(settings_home_shelves_genres, "Genres only", "Nur Genres")
+HUI_TEXT(settings_home_shelves_decades, "Decades only", "Nur Jahrzehnte")
 HUI_TEXT(settings_language, "Language", "Sprache")
 HUI_TEXT(settings_ui_language, "App language", "Sprache der App")
 HUI_TEXT(settings_language_auto, "Automatic", "Automatisch")
@@ -82,7 +82,9 @@ HUI_TEXT(reload_body,
          "Datei wird neu gelesen. Das kann dauern. Bilder, die du neben einen Film legst, bleiben.")
 HUI_TEXT(reload_do, "Reload", "Neu laden")
 HUI_TEXT(reload_cancel, "Cancel", "Abbrechen")
-HUI_TEXT(reloading, "Reloading {}\xE2\x80\xA6", "Lade {} neu\xE2\x80\xA6")
+HUI_TEXT(reload_progress, "Fetching {} covers and infos\xE2\x80\xA6",
+         "Lade {} Cover und Infos\xE2\x80\xA6")
+HUI_TEXT(reload_finished, "Finished fetching covers and infos", "Cover und Infos fertig geladen")
 HUI_TEXT(reload_nothing, "No movies to reload", "Keine Filme zum Neuladen")
 HUI_TEXT(hint_change, "Change", "\xC3\x84ndern")
 HUI_TEXT(hint_open, "Open", "\xC3\x96" "ffnen")

@@ -23,6 +23,9 @@ namespace audio = hui::audio;
 namespace concepts = hui::concepts;
 namespace media = hui::media;
 
+using hui::i18n::Text;
+using hui::i18n::tr;
+
 class MediathekTest : public hui::testing::ConceptFixture
 {
   protected:
@@ -123,6 +126,52 @@ class MediathekTest : public hui::testing::ConceptFixture
                 ++index;
             });
         ++services_.revision;
+    }
+
+    // Twelve films, six each from two decades: enough for the decade shelves, and no genres.
+    void fill_library_with_decades()
+    {
+        media::ScanResult scan;
+        scan.roots = {"/data/movies"};
+        for (int i = 0; i < 12; ++i)
+        {
+            media::FoundFile file;
+            file.path = "/data/movies/Film " + std::to_string(i) + " (" +
+                        std::to_string(i < 6 ? 1990 + i : 2000 + i) + ").mkv";
+            file.readable = file.path;
+            file.size = 1ull << 30;
+            file.mtime = 1700000000 + i;
+            scan.videos.push_back(file);
+        }
+        services_.library = media::Library::from_scan(scan);
+        ++services_.revision;
+    }
+
+    // The toast as drawn: its pill is 56 high with its top at 906 once it has arrived. -1: none.
+    float toast_width(const app::Concept &design)
+    {
+        frame_.reset();
+        design.draw(frame_);
+        for (const hui::gfx::Instance &instance : frame_.scene.instances())
+        {
+            if (instance.rect[3] == 56.0f && instance.rect[1] == 906.0f)
+                return instance.rect[2];
+        }
+        return -1.0f;
+    }
+
+    float toast_width_of(const std::string &text)
+    {
+        return context_.fonts.semibold.measure(text, 24) + 64;
+    }
+
+    // Library, the reload row, the question, then "Reload".
+    void start_reload(app::Concept &design)
+    {
+        open_category(design, 3);
+        send(design, press(Action::confirm), 0.6f);
+        send(design, nav(Direction::right), 0.3f);
+        send(design, press(Action::confirm), 0.0f);
     }
 
     // The settings tab with the focus in the form of this category (the order of the list).
@@ -588,18 +637,79 @@ TEST_F(MediathekTest, TheHomeShelvesSettingChoosesWhichShelvesHomeShows)
     settings_.home_shelves = 2;
     ++services_.revision;
     send(*design, idle(), 0.1f);
-    EXPECT_EQ(count_shelves(*design), 2); // the two genres
+    EXPECT_EQ(count_shelves(*design), 3); // continue, the two genres
     expect_drawable(*design);
+}
+
+TEST_F(MediathekTest, TheDecadeShelvesFollowTheHomeShelvesSetting)
+{
+    fill_library_with_decades();
+    auto design = make();
+    EXPECT_EQ(count_shelves(*design), 4); // recently added, two decades, all
+
+    const auto choose = [&](int option)
+    {
+        settings_.home_shelves = option;
+        ++services_.revision;
+        send(*design, idle(), 0.1f);
+    };
+    choose(1);
+    EXPECT_EQ(count_shelves(*design), 2); // recently added, all: no decades
+    choose(2);
+    EXPECT_EQ(count_shelves(*design), 1); // no genres and no decades: all, as the fallback
+    choose(3);
+    EXPECT_EQ(count_shelves(*design), 2); // the two decades
+
+    add_second_shelf();
+    ++services_.revision;
+    send(*design, idle(), 0.1f);
+    EXPECT_EQ(count_shelves(*design), 3); // continue, the two decades
+    expect_drawable(*design);
+}
+
+// A library that has both: each choice shows its own kind and not the other's.
+TEST_F(MediathekTest, GenresOnlyHasNoDecadesAndDecadesOnlyHasNoGenres)
+{
+    fill_library_with_decades();
+    int index = 0;
+    services_.library.edit_all([&index](media::Movie *movie)
+                               { movie->genres = {index++ < 6 ? 28 : 18}; });
+    ++services_.revision;
+    settings_.home_shelves = 2;
+    auto design = make();
+    EXPECT_EQ(count_shelves(*design), 2); // the two genres; with decades it would be four
+
+    settings_.home_shelves = 3;
+    ++services_.revision;
+    send(*design, idle(), 0.1f);
+    EXPECT_EQ(count_shelves(*design), 2); // the two decades
+
+    settings_.home_shelves = 0;
+    ++services_.revision;
+    send(*design, idle(), 0.1f);
+    EXPECT_EQ(count_shelves(*design), 6); // recently added, genres, decades, all
+}
+
+TEST_F(MediathekTest, DecadesOnlyInASmallLibraryStillShowsItsFilms)
+{
+    fill_library();
+    settings_.home_shelves = 3;
+    auto design = make();
+    EXPECT_EQ(count_shelves(*design), 1); // under twelve films there are no decade shelves
 }
 
 TEST_F(MediathekTest, GenresOnlyStillHasAShelfWhenNoFilmHasAGenre)
 {
     fill_library();
-    add_second_shelf();
     settings_.home_shelves = 2;
     auto design = make();
-    EXPECT_EQ(count_shelves(*design), 1);
-    EXPECT_GE(play_pills(*design), 1); // a film is focused, the billboard has its Play
+    EXPECT_EQ(count_shelves(*design), 1); // all the films, with nothing to continue
+
+    add_second_shelf();
+    ++services_.revision;
+    send(*design, idle(), 0.1f);
+    EXPECT_EQ(count_shelves(*design), 2); // continue alone would hide the other films
+    EXPECT_GE(play_pills(*design), 1);    // a film is focused, the billboard has its Play
     send(*design, press(Action::confirm), 0.4f);
     expect_drawable(*design);
 }
@@ -619,7 +729,7 @@ TEST_F(MediathekTest, TheHomeShelvesRowChangesHomeAtOnce)
     EXPECT_EQ(settings_.home_shelves, 2);
     send(*design, press(Action::back), 0.3f);
     send(*design, press(Action::back), 0.5f); // Home
-    EXPECT_EQ(count_shelves(*design), 2);
+    EXPECT_EQ(count_shelves(*design), 3);     // continue, the two genres
 }
 
 TEST_F(MediathekTest, HoldingRightIntoTheFormDoesNotChangeTheLanguage)
@@ -775,6 +885,94 @@ TEST_F(MediathekTest, ReloadingEverythingAsksFirstThenFetchesEveryFilmAgain)
     send(*design, press(Action::confirm), 0.6f);
     EXPECT_EQ(fetched, 4);
     expect_drawable(*design);
+}
+
+// The console's queue, played by hand: services_.cover_jobs is what main.cpp sets every frame.
+TEST_F(MediathekTest, AReloadCountsItsProgressInAMessageThatStaysUntilItIsDone)
+{
+    namespace i18n = hui::i18n;
+    fill_library();
+    services_.refetch_cover = [](const std::string &) { return std::string(); };
+    auto design = make();
+    services_.cover_jobs = 8; // films still being fetched: part of the work to wait for
+    start_reload(*design);
+    EXPECT_TRUE(played(audio::Cue::notify));
+    services_.cover_jobs = 12;
+    send(*design, idle(), 0.5f);
+    EXPECT_FALSE(played(audio::Cue::notify)); // one sound for the whole reload
+    EXPECT_EQ(toast_width(*design), toast_width_of(i18n::format(Text::reload_progress, "1/12")));
+
+    services_.cover_jobs = 2;
+    send(*design, idle(), 10.0f); // far longer than a message lasts
+    EXPECT_EQ(toast_width(*design), toast_width_of(i18n::format(Text::reload_progress, "11/12")));
+
+    services_.cover_jobs = 0;
+    send(*design, idle(), 0.0f);
+    EXPECT_TRUE(played(audio::Cue::notify));
+    send(*design, idle(), 1.0f);
+    EXPECT_EQ(toast_width(*design), toast_width_of(tr(Text::reload_finished)));
+    send(*design, idle(), 3.0f);
+    EXPECT_EQ(toast_width(*design), -1.0f); // and the finished message goes away
+    expect_drawable(*design);
+}
+
+TEST_F(MediathekTest, AReloadThatIsGivenUpOnDoesNotSayItFinished)
+{
+    fill_library();
+    services_.refetch_cover = [](const std::string &) { return std::string(); };
+    auto design = make();
+    services_.cover_jobs = 4;
+    start_reload(*design);
+    send(*design, idle(), 0.5f);
+
+    services_.cover_jobs = 0;
+    services_.cover_note = "TMDB cannot be reached";
+    send(*design, idle(), 0.0f);
+    EXPECT_FALSE(played(audio::Cue::notify));
+    send(*design, idle(), 2.5f); // a problem's message arrives late: it is up for longer
+    EXPECT_EQ(toast_width(*design), toast_width_of("TMDB cannot be reached"));
+}
+
+TEST_F(MediathekTest, AnotherMessageIsNotOverwrittenByAReloadInProgress)
+{
+    fill_library();
+    int scans = 0;
+    services_.rescan = [&scans] { ++scans; };
+    services_.refetch_cover = [](const std::string &) { return std::string(); };
+    auto design = make();
+    services_.cover_jobs = 4;
+    start_reload(*design);
+    send(*design, idle(), 0.5f);
+
+    send(*design, press(Action::menu), 0.5f); // "Looking for movies..."
+    EXPECT_EQ(scans, 1);
+    EXPECT_EQ(toast_width(*design), toast_width_of(tr(Text::looking_for_movies)));
+    send(*design, idle(), 4.0f);
+    EXPECT_EQ(toast_width(*design),
+              toast_width_of(hui::i18n::format(Text::reload_progress, "5/8")));
+}
+
+TEST_F(MediathekTest, AReloadStaysQuietWhileAFilmPlays)
+{
+    fill_library();
+    services_.refetch_cover = [](const std::string &) { return std::string(); };
+    auto design = make();
+    services_.cover_jobs = 4;
+    start_reload(*design);
+    send(*design, idle(), 3.0f);
+
+    send(*design, press(Action::back), 0.5f); // the list
+    send(*design, press(Action::back), 0.5f); // Home
+    send(*design, press(Action::west), 3.0f); // Square: play, and the message runs out
+    EXPECT_EQ(toast_width(*design), -1.0f);
+    services_.cover_jobs = 0;
+    send(*design, idle(), 0.5f);
+    EXPECT_FALSE(played(audio::Cue::notify));
+    EXPECT_EQ(toast_width(*design), -1.0f);
+
+    send(*design, press(Action::back), 0.0f); // stop: now it says so
+    send(*design, idle(), 0.0f);
+    EXPECT_TRUE(played(audio::Cue::notify));
 }
 
 TEST_F(MediathekTest, BackClosesTheReloadQuestionBeforeItLeavesTheSettings)
