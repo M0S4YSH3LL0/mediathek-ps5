@@ -97,6 +97,8 @@ struct FormStyle : ComponentStyle
                                     // start where the label column ends
     bool toggle_text = true;        // "On" / "Off" beside a switch
     bool description_inline = true; // the focused row unfolds to show its description
+    bool idle_focus = true;         // set_active(false) keeps a faint highlight and the unfolded
+                                    // description; false: neither, for a form beside a list
     bool scroll_thumb = true;       // shown only when the form overflows
     StepperButtons stepper_buttons = StepperButtons::surface;
     const char *on_text = "On";
@@ -223,10 +225,7 @@ class Form
     bool uses_horizontal() const;
     // The focused row's description, for a help area of the screen's own.
     const std::string &help_text() const;
-    void set_active(bool active)
-    {
-        active_ = active;
-    }
+    void set_active(bool active);
     // Replays the entrance animation.
     void enter();
     // Where a row is on screen right now (scroll applied).

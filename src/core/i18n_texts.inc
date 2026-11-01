@@ -45,6 +45,7 @@ HUI_TEXT(settings_ui_sounds, "UI sounds", "Men\xC3\xBCt\xC3\xB6ne")
 HUI_TEXT(settings_ui_sounds_hint, "Clicks and chimes when you move around the app",
          "Klicks und T\xC3\xB6ne beim Navigieren in der App")
 HUI_TEXT(settings_appearance, "Appearance", "Darstellung")
+HUI_TEXT(settings_version, "Version", "Version")
 HUI_TEXT(settings_built, "built", "gebaut")
 HUI_TEXT(settings_pin_billboard, "Fixed billboard", "Feste Titelanzeige")
 HUI_TEXT(settings_pin_billboard_hint, "The billboard stays in place while you scroll the shelves",
@@ -53,6 +54,15 @@ HUI_TEXT(settings_details_wallpaper, "Wallpaper on the details page",
          "Hintergrundbild auf der Detailseite")
 HUI_TEXT(settings_details_wallpaper_hint, "Off: only the film's colour fills the page",
          "Aus: nur die Farbe des Films f\xC3\xBCllt die Seite")
+HUI_TEXT(settings_home_shelves, "Shelves on Home", "Regale auf der Startseite")
+HUI_TEXT(settings_home_shelves_hint,
+         "Own collections: Continue Watching, Recently Added, your collections and All Movies. "
+         "Genres: everything else",
+         "Eigene Sammlungen: Weiterschauen, Neu hinzugef\xC3\xBC" "gt, deine Sammlungen und Alle "
+         "Filme. Genres: alles andere")
+HUI_TEXT(settings_home_shelves_all, "All", "Alle")
+HUI_TEXT(settings_home_shelves_own, "Own collections only", "Nur eigene Sammlungen")
+HUI_TEXT(settings_home_shelves_genres, "Genres", "Genres")
 HUI_TEXT(settings_language, "Language", "Sprache")
 HUI_TEXT(settings_ui_language, "App language", "Sprache der App")
 HUI_TEXT(settings_language_auto, "Automatic", "Automatisch")
@@ -75,6 +85,7 @@ HUI_TEXT(reload_cancel, "Cancel", "Abbrechen")
 HUI_TEXT(reloading, "Reloading {}\xE2\x80\xA6", "Lade {} neu\xE2\x80\xA6")
 HUI_TEXT(reload_nothing, "No movies to reload", "Keine Filme zum Neuladen")
 HUI_TEXT(hint_change, "Change", "\xC3\x84ndern")
+HUI_TEXT(hint_open, "Open", "\xC3\x96" "ffnen")
 
 // ---- nothing found yet
 HUI_TEXT(looking_for_movies, "Looking for movies\xE2\x80\xA6", "Suche nach Filmen\xE2\x80\xA6")

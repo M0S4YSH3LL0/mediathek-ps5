@@ -127,6 +127,7 @@ column there, and only there.
 | `toggle_text` | true | "On" / "Off" beside a switch |
 | `on_text`, `off_text` | "On", "Off" | Those two words |
 | `description_inline` | true | The focused row unfolds to show its description |
+| `idle_focus` | true | While `set_active(false)`, the focused row keeps a faint highlight and its description; false shows neither, for a form beside a list that has the focus |
 | `scroll_thumb` | true | A thumb at the right edge when the form overflows |
 | `stepper_buttons` | surface | `StepperButtons::surface` (two small buttons) or `plain` (bare signs) |
 | `wrap` | false | Past the last row comes the first |

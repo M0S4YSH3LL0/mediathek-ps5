@@ -32,6 +32,7 @@
 #include "ui/components/dialog.hpp"
 #include "ui/components/form.hpp"
 #include "ui/components/input_prompt.hpp"
+#include "ui/components/list.hpp"
 #include "ui/glyphs.hpp"
 #include "ui/motion.hpp"
 
@@ -70,10 +71,35 @@ enum SettingsRow : int
     kRowUiSounds = 1,
     kRowPinBillboard,
     kRowDetailsWallpaper,
+    kRowHomeShelves,
     kRowLanguage,
     kRowReload,
     kRowDebug,
+    kRowVersion,
 };
+
+// What Settings::home_shelves holds, in the order of the row's options.
+enum HomeShelves : int
+{
+    kShelvesAll,
+    kShelvesOwn,
+    kShelvesGenres,
+};
+
+// The list on the left of the settings page, top to bottom; its focus is one of these.
+enum SettingsCategory : int
+{
+    kCategorySound,
+    kCategoryAppearance,
+    kCategoryLanguage,
+    kCategoryLibrary,
+    kCategoryDeveloper,
+};
+constexpr float kSettingsTop = 244.0f;
+constexpr float kSettingsHeight = 712.0f; // ends above the hint row
+constexpr float kSettingsListWidth = 440.0f;
+constexpr float kSettingsFormLeft = 584.0f;
+constexpr float kSettingsRight = 1824.0f;
 constexpr float kCardW = 176.0f; // poster at rest on a shelf
 constexpr float kCardH = 264.0f;
 constexpr float kCardGap = 20.0f;
@@ -91,7 +117,7 @@ constexpr float kGridTop = 232.0f;
 // Cards scrolling up under the "All Movies" header fade out above this line.
 constexpr float kGridFadeTop = kGridTop - 34.0f;
 
-constexpr const char *kAppVersion = "0.6.2"; // equals contentVersion 01.000.062 in param.json
+constexpr const char *kAppVersion = "0.6.3"; // equals contentVersion 01.000.063 in param.json
 constexpr float kOsdSeconds = 4.0f;
 constexpr float kSeekHoldGap = 0.5f;   // a pause this long in the repeats ends a hold
 constexpr double kSeekHeldStep = 30.0; // first held step, and what each held second adds
@@ -156,18 +182,28 @@ constexpr app::TourStep kTour[] = {
     {0.4f, action_bit(Action::back)},
     {0.4f, action_bit(Action::page_next)},
     {1.0f, 0, Direction::none, "settings"},
+    {0.3f, 0, Direction::right},
     {0.2f, action_bit(Action::confirm)},
-    {0.3f, 0, Direction::down},
-    {0.3f, 0, Direction::down},
-    {0.3f, 0, Direction::down},
-    {0.3f, 0, Direction::down},
-    {0.3f, 0, Direction::down},
-    {0.2f, action_bit(Action::confirm)},
-    {0.3f, 0, Direction::up},
     {0.9f, 0, Direction::none, "settings-changed"},
+    {0.3f, action_bit(Action::back)},
+    {0.3f, 0, Direction::down},
+    {0.3f, 0, Direction::right},
+    {0.3f, 0, Direction::down},
+    {0.9f, 0, Direction::none, "settings-appearance"},
+    {0.3f, 0, Direction::down},
+    {0.9f, 0, Direction::none, "settings-shelves"},
+    {0.3f, action_bit(Action::back)},
+    {0.3f, 0, Direction::down},
+    {0.9f, 0, Direction::none, "settings-language"},
+    {0.3f, 0, Direction::down},
+    {0.3f, action_bit(Action::confirm)},
     {0.2f, action_bit(Action::confirm)},
     {0.9f, 0, Direction::none, "reload"},
     {0.3f, action_bit(Action::back)},
+    {0.3f, action_bit(Action::back)},
+    {0.3f, 0, Direction::down},
+    {0.3f, 0, Direction::right},
+    {0.9f, 0, Direction::none, "settings-developer"},
     {0.4f, action_bit(Action::page_prev)},
     {0.8f, action_bit(Action::page_prev)},
 };
@@ -439,6 +475,8 @@ class Mediathek final : public app::Concept
         shelves_.clear();
         const media::Library &lib = library();
         const int total = static_cast<int>(lib.size());
+        const bool own = context_.settings.home_shelves != kShelvesGenres;
+        const bool others = context_.settings.home_shelves != kShelvesOwn;
 
         const auto add = [&](std::string title, std::vector<int> movies)
         {
@@ -457,13 +495,14 @@ class Mediathek final : public app::Concept
             if (index >= 0 && continuing.size() < 20)
                 continuing.push_back(index);
         }
-        add(tr(Text::shelf_continue), continuing);
+        if (own)
+            add(tr(Text::shelf_continue), continuing);
 
         std::vector<int> all(static_cast<std::size_t>(total));
         for (int i = 0; i < total; ++i)
             all[static_cast<std::size_t>(i)] = i;
 
-        if (total >= 8)
+        if (own && total >= 8)
         {
             std::vector<int> recent = all;
             std::stable_sort(recent.begin(), recent.end(),
@@ -481,19 +520,24 @@ class Mediathek final : public app::Concept
             if (movie(i).year > 0)
                 decades[movie(i).year / 10 * 10].push_back(i);
         }
-        for (auto &entry : collections)
-            if (entry.second.size() >= 2)
-                add(entry.first, entry.second);
+        if (own)
+            for (auto &entry : collections)
+                if (entry.second.size() >= 2)
+                    add(entry.first, entry.second);
         // One shelf for every genre a film has among its two main ones (the two the details
         // page names), the fullest first.
-        for (media::GenreShelf &entry : media::genre_shelves(lib.movies()))
-            add(media::genre_name(entry.genre), std::move(entry.movies));
-        if (total >= 12)
+        if (others)
+            for (media::GenreShelf &entry : media::genre_shelves(lib.movies()))
+                add(media::genre_name(entry.genre), std::move(entry.movies));
+        if (others && total >= 12)
             for (auto &entry : decades)
                 if (entry.second.size() >= 3)
                     add(i18n::format(Text::decade, std::to_string(entry.first)), entry.second);
 
-        add(tr(total >= 8 ? Text::shelf_all : Text::shelf_yours), all);
+        // Without covers there are no genres, and a small library has no decades: Home must not
+        // be left without a shelf (the rest of the page counts on one) while there are films.
+        if (own || shelves_.empty())
+            add(tr(total >= 8 ? Text::shelf_all : Text::shelf_yours), all);
 
         row_ = 0;
         if (!keep.empty())
@@ -649,6 +693,12 @@ class Mediathek final : public app::Concept
     // True when the press was used.
     bool handle_back(app::Feedback &feedback)
     {
+        if (tab_ == Tab::settings && settings_in_form_)
+        {
+            focus_settings_form(false);
+            feedback.play(audio::Cue::back);
+            return true;
+        }
         if (tab_ == Tab::movies && !search_.empty())
         {
             search_.clear();
@@ -725,8 +775,9 @@ class Mediathek final : public app::Concept
         search_prompt_.keyboard.style.done_label = tr(Text::search_do);
     }
 
-    // The settings page is a ui::Form: every row is a setting that is applied and saved
-    // the moment it changes (the shell stores it a moment after the last change).
+    // The settings page is a list of categories on the left and a ui::Form with the settings of
+    // the chosen one on the right: every row is applied and saved the moment it changes (the
+    // shell stores it a moment after the last change).
     void setup_settings()
     {
         const bool calm = context_.settings.reduced_motion;
@@ -735,32 +786,77 @@ class Mediathek final : public app::Concept
         settings_form_.style.control_width = 360.0f;
         settings_form_.style.on_text = tr(Text::settings_on);
         settings_form_.style.off_text = tr(Text::settings_off);
-        settings_form_.add_header(tr(Text::settings_sound));
-        settings_form_.add_toggle(kRowUiSounds, tr(Text::settings_ui_sounds), true).description =
-            tr(Text::settings_ui_sounds_hint);
-        settings_form_.add_header(tr(Text::settings_appearance));
-        settings_form_.add_toggle(kRowPinBillboard, tr(Text::settings_pin_billboard), true)
-            .description = tr(Text::settings_pin_billboard_hint);
-        settings_form_
-            .add_toggle(kRowDetailsWallpaper, tr(Text::settings_details_wallpaper),
-                        context_.settings.details_wallpaper)
-            .description = tr(Text::settings_details_wallpaper_hint);
-        settings_form_.add_header(tr(Text::settings_language));
-        settings_form_.add_choice(kRowLanguage, tr(Text::settings_ui_language),
-                                  {tr(Text::settings_language_auto), "English", "Deutsch"},
-                                  context_.settings.ui_language);
-        settings_form_.add_header(tr(Text::settings_library));
-        settings_form_.add_action(kRowReload, tr(Text::settings_reload)).description =
-            tr(Text::settings_reload_hint);
-        settings_form_.add_header(tr(Text::settings_developer));
-        settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug), false).description =
-            tr(Text::settings_debug_hint);
-        settings_form_.set_bounds({kMargin, 236.0f, 1020.0f, 720.0f});
-        sync_settings_form();
+        settings_form_.style.idle_focus = false; // while the list has the focus, only it shows one
+        settings_form_.set_bounds(
+            {kSettingsFormLeft, kSettingsTop, kSettingsRight - kSettingsFormLeft, kSettingsHeight});
+
+        settings_list_.style.theme = app_theme();
+        settings_list_.style.reduced_motion = calm;
+        settings_list_.style.row_height = settings_form_.style.row_height;
+        settings_list_.style.title_size = settings_form_.style.label_size;
+        settings_list_.set_bounds({kMargin, kSettingsTop, kSettingsListWidth, kSettingsHeight});
+        std::vector<ui::ListItem> categories(5);
+        categories[kCategorySound].title = tr(Text::settings_sound);
+        categories[kCategoryAppearance].title = tr(Text::settings_appearance);
+        categories[kCategoryLanguage].title = tr(Text::settings_language);
+        categories[kCategoryLibrary].title = tr(Text::settings_library);
+        categories[kCategoryDeveloper].title = tr(Text::settings_developer);
+        settings_list_.set_items(std::move(categories));
+        build_settings_form();
 
         reload_dialog_.style.theme = app_theme();
         reload_dialog_.style.frosted = false;
         reload_dialog_.style.reduced_motion = calm;
+    }
+
+    // The rows of the category the list has its focus on.
+    void build_settings_form()
+    {
+        settings_form_.clear();
+        switch (settings_list_.focus())
+        {
+        case kCategorySound:
+            settings_form_.add_toggle(kRowUiSounds, tr(Text::settings_ui_sounds)).description =
+                tr(Text::settings_ui_sounds_hint);
+            break;
+        case kCategoryAppearance:
+            settings_form_.add_toggle(kRowPinBillboard, tr(Text::settings_pin_billboard))
+                .description = tr(Text::settings_pin_billboard_hint);
+            settings_form_.add_toggle(kRowDetailsWallpaper, tr(Text::settings_details_wallpaper))
+                .description = tr(Text::settings_details_wallpaper_hint);
+            settings_form_
+                .add_choice(kRowHomeShelves, tr(Text::settings_home_shelves),
+                            {tr(Text::settings_home_shelves_all),
+                             tr(Text::settings_home_shelves_own),
+                             tr(Text::settings_home_shelves_genres)})
+                .description = tr(Text::settings_home_shelves_hint);
+            break;
+        case kCategoryLanguage:
+            settings_form_.add_choice(kRowLanguage, tr(Text::settings_ui_language),
+                                      {tr(Text::settings_language_auto), "English", "Deutsch"});
+            break;
+        case kCategoryLibrary:
+            settings_form_.add_action(kRowReload, tr(Text::settings_reload)).description =
+                tr(Text::settings_reload_hint);
+            break;
+        default:
+            settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug)).description =
+                tr(Text::settings_debug_hint);
+            // Says which build this is: whether the console runs the one you just made.
+            settings_form_.add_value(kRowVersion, tr(Text::settings_version), version_text());
+            break;
+        }
+        sync_settings_form();
+        settings_form_.set_focus(0, true);
+        settings_form_.enter();
+    }
+
+    static std::string version_text()
+    {
+        std::string text = std::string("v") + kAppVersion;
+        if (const std::string stamp = build_time(); !stamp.empty())
+            text += std::string("  \xC2\xB7  ") + tr(Text::settings_built) + " " + stamp;
+        return text;
     }
 
     // The form shows what the settings hold now (they may have been loaded after it was built).
@@ -770,14 +866,24 @@ class Mediathek final : public app::Concept
         settings_form_.set_toggle(kRowPinBillboard, context_.settings.pin_billboard);
         settings_form_.set_toggle(kRowDetailsWallpaper, context_.settings.details_wallpaper);
         settings_form_.set_toggle(kRowDebug, context_.settings.show_fps);
+        settings_form_.set_choice(kRowHomeShelves, context_.settings.home_shelves);
         settings_form_.set_choice(kRowLanguage, context_.settings.ui_language);
     }
 
     void open_settings()
     {
-        sync_settings_form();
-        settings_form_.set_focus(1, true); // the first row, under its header
-        settings_form_.enter();
+        focus_settings_form(false);
+        settings_list_.set_focus(kCategorySound, true);
+        settings_list_.enter();
+        build_settings_form();
+    }
+
+    void focus_settings_form(bool in_form)
+    {
+        settings_in_form_ = in_form;
+        settings_held_ = in_form;
+        settings_list_.set_active(!in_form);
+        settings_form_.set_active(in_form);
     }
 
     void update_settings(const InputFrame &input, app::Feedback &feedback)
@@ -788,6 +894,43 @@ class Mediathek final : public app::Concept
                 reload_dialog_.choice() == 1)
                 reload_everything(feedback);
             return;
+        }
+        const bool sideways = input.nav == Direction::left || input.nav == Direction::right;
+        if (!settings_in_form_)
+        {
+            if (input.nav == Direction::right && !input.nav_repeat)
+            {
+                focus_settings_form(true);
+                feedback.play(audio::Cue::focus);
+                return;
+            }
+            const ui::Event moved = settings_list_.handle(input, feedback);
+            if (moved == ui::Event::moved)
+                build_settings_form();
+            else if (moved == ui::Event::activated)
+                focus_settings_form(true);
+            return;
+        }
+        // Right into the form may still be held: its repeats must not go on to change a choice.
+        if (input.nav != Direction::none && !input.nav_repeat)
+            settings_held_ = false;
+        if (sideways)
+        {
+            if (settings_held_ && input.nav_repeat)
+                return;
+            // Only a choice uses left and right; everywhere else left is the way back to the
+            // list, so a switch is changed with confirm alone and left never changes it by
+            // accident.
+            const ui::FormRow *row = settings_form_.row(settings_form_.focus_id());
+            if (row == nullptr || row->kind != ui::FormRowKind::choice)
+            {
+                if (input.nav == Direction::left && !input.nav_repeat)
+                {
+                    focus_settings_form(false);
+                    feedback.play(audio::Cue::back);
+                }
+                return;
+            }
         }
         const ui::Event event = settings_form_.handle(input, feedback);
         if (event == ui::Event::changed)
@@ -804,10 +947,8 @@ class Mediathek final : public app::Concept
             i18n::choose_language(context_.settings.ui_language, svc_->automatic_language));
         rebuild();
         setup_search();
-        settings_form_.clear();
         setup_settings();
         settings_form_.focus_row(kRowLanguage, true);
-        settings_form_.enter();
     }
 
     void apply_setting(int row)
@@ -825,6 +966,11 @@ class Mediathek final : public app::Concept
         else if (row == kRowDetailsWallpaper)
         {
             settings.details_wallpaper = settings_form_.toggle_value(row);
+        }
+        else if (row == kRowHomeShelves)
+        {
+            settings.home_shelves = settings_form_.choice_index(row);
+            rebuild();
         }
         else if (row == kRowLanguage)
         {
@@ -1364,6 +1510,7 @@ class Mediathek final : public app::Concept
         hero_fade_.update(dt);
         details_swap_.update(dt);
         search_prompt_.update(dt);
+        settings_list_.update(dt);
         settings_form_.update(dt);
         reload_dialog_.update(dt);
 
@@ -1588,16 +1735,14 @@ class Mediathek final : public app::Concept
         const float in = tween::stagger(tab_age_, 0, 0.0f, 0.35f);
         list.push_opacity(in);
         ui::text(list, fonts.display, tr(Text::settings_title), kMargin, 214.0f, 52, kInk);
-        ui::text(list, fonts.regular, tr(Text::settings_saved), kMargin + 1020.0f, 214.0f, 22,
+        ui::text(list, fonts.regular, tr(Text::settings_saved), kSettingsRight, 214.0f, 22,
                  kInk.with_alpha(0.5f), gfx::Align::right);
         ui::Canvas canvas{list, fonts, 0, clock_};
+        settings_list_.draw(canvas);
+        list.rounded_rect({(kMargin + kSettingsListWidth + kSettingsFormLeft) * 0.5f - 0.75f,
+                           kSettingsTop, 1.5f, kSettingsHeight},
+                          0.0f, kInk.with_alpha(0.12f));
         settings_form_.draw(canvas);
-        // Which build this is, bottom left where the hints leave room; the date and time say
-        // whether the console runs the build you just made.
-        std::string build = std::string("v") + kAppVersion;
-        if (const std::string stamp = build_time(); !stamp.empty())
-            build += std::string("  \xC2\xB7  ") + tr(Text::settings_built) + " " + stamp;
-        ui::text(list, fonts.regular, build, kMargin, 1018.0f, 20, kInk.with_alpha(0.5f));
         list.pop_opacity();
     }
 
@@ -2330,7 +2475,8 @@ class Mediathek final : public app::Concept
         }
         else if (tab_ == Tab::settings)
         {
-            const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_change)},
+            const ui::Hint hints[] = {{ui::Button::cross, settings_in_form_ ? tr(Text::hint_change)
+                                                                            : tr(Text::hint_open)},
                                       {ui::Button::circle, tr(Text::hint_back)},
                                       {ui::Button::l1, tr(Text::hint_tab), ui::Button::r1}};
             ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true);
@@ -2534,7 +2680,10 @@ class Mediathek final : public app::Concept
     std::vector<int> grid_;
     std::string search_; // what the Movies page is filtered by; empty: everything
     ui::InputPrompt search_prompt_;
+    ui::ListView settings_list_;
     ui::Form settings_form_;
+    bool settings_in_form_ = false; // which of the two has the focus
+    bool settings_held_ = false;    // no fresh direction since the focus entered the form
     ui::Dialog reload_dialog_;
     int grid_focus_ = 0;
     ui::Scroller grid_scroll_;

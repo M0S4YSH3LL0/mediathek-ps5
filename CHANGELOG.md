@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.3 (01.000.063)
+
+- The Settings page is rebuilt in two panes. On the left is a list of categories (Sound,
+  Appearance, Language, Library, Developer); on the right, the settings of the one you are on.
+  Right or Cross moves into the settings; Left or Circle moves back to the list, and Circle
+  there goes to Home. Both sides scroll when they are too long.
+- Switches on the Settings page change with Cross only. Left and right no longer flip them,
+  because Left is now the way back to the list. A row with several options, such as *App
+  language*, still uses left and right, so Circle is the way back from there.
+- A new setting, *Shelves on Home* (Settings, under Appearance; All by default). *Own collections
+  only* shows Continue Watching, Recently Added, your folder collections and All Movies; *Genres*
+  shows the genre and decade shelves. Home changes at once. If *Genres* would leave Home empty
+  (no film has a genre yet and the library is small), it shows All Movies instead. The settings
+  file gains one byte (format version 5); earlier files load as All.
+- The version and build time moved from the bottom left of the Settings page to a read-only
+  *Version* row under Developer.
+
 ## 0.6.2 (01.000.062)
 
 - While the film is paused, the Cross hint in the player reads "Resume" ("Fortsetzen") instead of

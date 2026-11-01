@@ -324,7 +324,7 @@ void Form::retarget(bool snap)
     for (int i = 0; i < count; ++i)
     {
         FormRow &row = rows_[static_cast<std::size_t>(i)];
-        row.open.target = i == focus_ ? 1.0f : 0.0f;
+        row.open.target = i == focus_ && (active_ || style.idle_focus) ? 1.0f : 0.0f;
         if (snap)
             row.open.snap(row.open.target);
     }
@@ -399,6 +399,14 @@ bool Form::uses_horizontal() const
 const std::string &Form::help_text() const
 {
     return focus_ >= 0 ? rows_[static_cast<std::size_t>(focus_)].description : kNoText;
+}
+
+void Form::set_active(bool active)
+{
+    if (active == active_)
+        return;
+    active_ = active;
+    retarget(false); // the focused row's description folds with the focus when !idle_focus
 }
 
 void Form::enter()
@@ -887,7 +895,8 @@ void Form::draw(Canvas &canvas) const
         }
         // The highlight is kept in content space; bring it to the screen here.
         list.push_transform(1.0f, 0.0f, 0.0f, in.x, in.y - scroll);
-        highlight_.draw(canvas, style, look, (0.35f + 0.65f * active) * entrance(focus_));
+        const float idle = style.idle_focus ? 0.35f : 0.0f;
+        highlight_.draw(canvas, style, look, (idle + (1.0f - idle) * active) * entrance(focus_));
         list.pop_transform();
     }
 

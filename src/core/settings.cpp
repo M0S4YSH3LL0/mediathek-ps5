@@ -13,12 +13,13 @@ namespace hui
 
 namespace
 {
-// Version 2 appends pin_billboard, version 3 ui_language and version 4 details_wallpaper; older
-// files are still read (the settings they lack keep their defaults).
-constexpr std::uint8_t kVersion = 4;
+// Version 2 appends pin_billboard, version 3 ui_language, version 4 details_wallpaper and version
+// 5 home_shelves; older files are still read (the settings they lack keep their defaults).
+constexpr std::uint8_t kVersion = 5;
 constexpr std::uint8_t kVersionWithoutPin = 1;
 constexpr std::uint8_t kVersionWithoutLanguage = 2;
 constexpr std::uint8_t kVersionWithoutWallpaper = 3;
+constexpr std::uint8_t kVersionWithoutHomeShelves = 4;
 } // namespace
 
 std::string encode_settings(const Settings &settings)
@@ -39,6 +40,7 @@ std::string encode_settings(const Settings &settings)
     w.put_bool(settings.pin_billboard);
     w.put(static_cast<std::uint8_t>(settings.ui_language));
     w.put_bool(settings.details_wallpaper);
+    w.put(static_cast<std::uint8_t>(settings.home_shelves));
     return w.data();
 }
 
@@ -66,6 +68,8 @@ bool decode_settings(std::string_view data, Settings *settings)
         s.ui_language = std::clamp<int>(r.get<std::uint8_t>(), 0, 2);
     if (version > kVersionWithoutWallpaper)
         s.details_wallpaper = r.get_bool();
+    if (version > kVersionWithoutHomeShelves)
+        s.home_shelves = std::clamp<int>(r.get<std::uint8_t>(), 0, 2);
     if (!r.finished())
         return false;
     *settings = s;

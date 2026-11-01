@@ -107,6 +107,7 @@ TEST(Settings, RoundTripsEveryField)
 TEST(Settings, AFileFromBeforeTheFixedBillboardStillLoadsWithItsDefault)
 {
     std::string data = hui::encode_settings(hui::Settings{});
+    data.pop_back(); // the shelves on Home
     data.pop_back(); // the wallpaper
     data.pop_back(); // the language
     data.pop_back(); // the billboard
@@ -135,6 +136,7 @@ TEST(Settings, TheWallpaperChoiceIsSavedAndAnOlderFileKeepsTheWallpaper)
 
     std::string data = hui::encode_settings(settings);
     data.pop_back();
+    data.pop_back();
     data[0] = 3; // saved by the build with the language setting only
     read.details_wallpaper = false;
     ASSERT_TRUE(hui::decode_settings(data, &read));
@@ -150,6 +152,7 @@ TEST(Settings, TheLanguageChoiceIsSavedAndAFileWithoutItMeansAutomatic)
     EXPECT_EQ(read.ui_language, 2);
 
     std::string data = hui::encode_settings(settings);
+    data.pop_back(); // the shelves on Home
     data.pop_back(); // the wallpaper
     data.pop_back(); // the language
     data[0] = 2;     // saved by 0.6.0 and 0.6.1, before the language setting
@@ -158,9 +161,31 @@ TEST(Settings, TheLanguageChoiceIsSavedAndAFileWithoutItMeansAutomatic)
     EXPECT_EQ(read.ui_language, 0);
 
     data = hui::encode_settings(settings);
-    data[data.size() - 2] = 9; // not a language
+    data[data.size() - 3] = 9; // not a language
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.ui_language, 2);
+}
+
+TEST(Settings, TheHomeShelvesChoiceIsSavedAndAnOlderFileShowsAll)
+{
+    hui::Settings settings;
+    ASSERT_EQ(settings.home_shelves, 0);
+    settings.home_shelves = 2;
+    hui::Settings read;
+    ASSERT_TRUE(hui::decode_settings(hui::encode_settings(settings), &read));
+    EXPECT_EQ(read.home_shelves, 2);
+
+    std::string data = hui::encode_settings(settings);
+    data.pop_back();
+    data[0] = 4; // saved by 0.6.2
+    read.home_shelves = 1;
+    ASSERT_TRUE(hui::decode_settings(data, &read));
+    EXPECT_EQ(read.home_shelves, 0);
+
+    data = hui::encode_settings(settings);
+    data.back() = 9; // not an option
+    ASSERT_TRUE(hui::decode_settings(data, &read));
+    EXPECT_EQ(read.home_shelves, 2);
 }
 
 TEST(Settings, ClampsOutOfRangeValuesAndRejectsGarbage)

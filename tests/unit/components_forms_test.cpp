@@ -118,6 +118,21 @@ TEST_F(ComponentsForms, ToggleFlipsWithConfirmAndDirections)
     EXPECT_LT(pitch(Cue::toggle), 1.0f); // down for off
 }
 
+TEST_F(ComponentsForms, InactiveFormFoldsItsDescriptionOnlyWithoutIdleFocus)
+{
+    const auto open_target = [this] { return form_.row_at(form_.focus()).open.target; };
+    EXPECT_EQ(open_target(), 1.0f);
+    form_.set_active(false);
+    EXPECT_EQ(open_target(), 1.0f); // the default keeps it, as the kit always did
+
+    form_.set_active(true);
+    form_.style.idle_focus = false;
+    form_.set_active(false);
+    EXPECT_EQ(open_target(), 0.0f);
+    form_.set_active(true);
+    EXPECT_EQ(open_target(), 1.0f);
+}
+
 TEST_F(ComponentsForms, ChoiceCyclesAndWrapIsAKnob)
 {
     form_.focus_row(kChoice);
