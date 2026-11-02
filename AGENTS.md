@@ -157,7 +157,7 @@ folder's git repository and takes more than two minutes; use a long timeout.
   commit, the tag, the push and the GitHub release (zip and `.sha256` from `dist/release`).
   When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.064` is the app's 0.6.4); the app shows the short form (`kAppVersion` in
+  (`01.000.070` is the app's 0.7.0); the app shows the short form (`kAppVersion` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -227,8 +227,15 @@ refuses (`media::clean_hevc_unit`); after a random access RASL pictures stay out
 seek makes a new decoder on the same memory, because `Reset` leaves some 4K streams unable to restart.
 The pictures carry no time and come in display order, so each takes the earliest outstanding stamp
 (`media::PendingStamps`). They are 4:2:0 in two planes in direct memory, 10-bit as low-aligned 16-bit words
-(not P010); `media::yuv_to_rgba` makes the same RGBA picture the software path makes, on a thread of its
-own, and the kit's renderer shows it as ever (no second rendering path). Its working memory is
+(not P010). A converter thread copies them (`media::copy_planes`, 4K luma halved to 1080p, 10 bits moved to
+the top of the word), and on the frame thread `gfx::VideoConverter` draws the planes into the player's
+RGBA texture with a shader: matrix, range, and for HDR (PQ, HLG) VLC's BT.2390 tone mapping with 203 nits
+as white, BT.2020 into BT.709. The kit's renderer then shows that texture as ever (no second rendering
+path); the converter puts back the GL state it changes. The hook is `VideoSurface::update_yuv`; if it fails
+once, the player goes back to `media::yuv_to_rgba` on the CPU (no tone mapping) for the app's life.
+`HUI_SIM_HDR=1 tools/host-snapshots.sh ...` makes the preview's simulated player send a 10-bit PQ test
+card through the same converter. The peak comes from the stream's content light level, else its mastering
+display, else 1000 nits (`media::hdr_peak_nits`); `[HUI] hdr ...` logs it. Its working memory is
 flexible memory (`kernel.flexibleMemorySize`, which is why the heap leaves room), its pictures direct
 memory, so it does not touch the heap. The klog names each step *before* it enters the system's code
 (`[HUI] hw decoder: ...`): a bad value there can kill the process without returning. `HW_DECODE=0` in
@@ -237,9 +244,17 @@ the default one. Evidence to ask for: `[HUI] heap` (`of=` shows whether the bigg
 `[HUI] hw decoder`, and `(hardware)` with the times in `[HUI] playing/stall`.
 
 **Playback.** Below that, software decode on up to 4 frame threads, an audio-clock-driven
-`StreamRing`, a 4 MB AVIO read buffer. Pausing and resuming re-seeks. 4K, 10-bit HEVC
-and HDR are not expected to be smooth. Embedded subtitle tracks are not shown; `.srt`
+`StreamRing`, a 4 MB AVIO read buffer. Pausing and resuming re-seeks. 4K on this path is not
+expected to be smooth, and HDR here is not tone-mapped. Embedded subtitle tracks are not shown; `.srt`
 files are.
+
+**AV1 does not play, at any size.** FFmpeg's `av1` decoder is only a front for hardware decoding,
+PacBrew's FFmpeg has no `libdav1d` or `libaom`, and no AV1 codec of `libSceVideodec2` is known (VLC's
+PS5 port sends H.264, HEVC and VP9 to it). The way planned, as VLC's port does it: build dav1d 1.5.4
+for the console (static, with its x86 assembly through nasm; `meson` is not installed on the author's
+PC), feed it the demuxed packets on a decoding path of its own, and hand its pictures to the GPU
+converter (its chroma comes in two planes; `copy_planes` would interleave them). 1080p should keep up;
+whether 4K does depends on the CPU and is open. The owner deferred it after 0.7.0.
 
 **Decoder memory.** Each frame thread holds frames of its own: 4K 10-bit HEVC needs about
 175 MiB on one thread and 320 MiB on four (measured with FFmpeg on a PC), the 1080p
@@ -324,5 +339,5 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   checked them on hardware; a PC picture never counts as a console result. The
   owner has checked language detection, subtitle and audio switching, Back/exit,
   menu sounds, controller feedback, stepping between films, genre shelves, search,
-  the settings page (categories and settings panes, UI sounds, debug info, reload all with its progress message, shelves on Home) and internal and external drives on firmware 12.70. One 4K HEVC sample plays
-  almost fluently on the hardware decoder, its first picture taking seconds to arrive (cause open).
+  the settings page (categories and settings panes, UI sounds, debug info, reload all with its progress message, shelves on Home) and internal and external drives on firmware 12.70. 4K HEVC films, HDR
+  included, play smoothly on the hardware decoder with tone mapping (two checked, 0.7.0).

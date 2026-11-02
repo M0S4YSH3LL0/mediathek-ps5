@@ -124,6 +124,10 @@ The hardware decoder's structures, call order and rules for its input
 console, both GPL-3.0-or-later:
 [EVO Player](https://github.com/sainsaji/EVO-PLAYER-PS5) and
 [ps5-hardware-video-decoding-research](https://github.com/JMUtechnologies/ps5-hardware-video-decoding-research).
+How the decoder is set up and kept (the compute queue made once, the reused memory, the
+levels and pipeline depths tried, the restart after a stream error) and the HDR tone
+mapping in `src/gfx/video_converter.cpp` follow the PS5 port of
+[VLC](https://github.com/ZiZc3/VLC) (GPL-2.0-or-later).
 
 The app links PacBrew's static FFmpeg (`libavformat`, `libavcodec`,
 `libavutil`, `libswscale`, `libswresample`). That build was configured with

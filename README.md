@@ -7,7 +7,7 @@
 **A Netflix-style movie library for your PS5.**<br>
 Put your films in a `movies` folder. Mediathek finds them, fetches their posters and plays them.
 
-[![Version 0.6.4](https://img.shields.io/badge/version-0.6.4-blue)](CHANGELOG.md)
+[![Version 0.7.0](https://img.shields.io/badge/version-0.7.0-blue)](CHANGELOG.md)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
 [![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Languages: English, German](https://img.shields.io/badge/languages-EN%20%7C%20DE-green)](#settings-and-language)
@@ -109,13 +109,18 @@ Press **Options** to scan again.
 | **Subtitles** | `.srt` files only. Tracks inside the film are not shown. |
 | **Pictures** | `.jpg` `.jpeg` `.png` |
 
-Films are decoded in software on the CPU, by FFmpeg.
+Films up to 1080p are decoded in software on the CPU, by FFmpeg. Films beyond 1080p
+(H.264, HEVC Main and Main10, up to 3840 x 2176) go to the console's hardware decoder,
+with FFmpeg as the fallback. HDR films on the hardware decoder (HDR10 and HLG) are
+tone-mapped for an ordinary screen; HDR up to 1080p is not.
 
 - **Plays smoothly:** a large 1080p H.264 MKV. It is the one video format tested at
   length.
-- **Do not expect smooth playback:** 4K, HEVC (especially 10-bit) and HDR. HDR is not
-  tone-mapped.
-- **Probably will not play:** AV1. The build has no software decoder for it.
+- **Plays smoothly on the hardware decoder:** 4K HEVC, HDR included (two films checked).
+- **Do not expect smooth playback:** 4K films the hardware decoder will not take (VP9,
+  4:2:2, 12-bit, wider than 3840).
+- **Does not play:** AV1, at any size. The build has no software decoder for it, and the
+  console's hardware decoder is not known to take it.
 
 A file with a codec the app cannot decode is still listed, but will not play. Audio
 tracks it cannot decode are left out of the list.
@@ -249,15 +254,17 @@ rules for changes. A release tag is the exact `contentVersion` of `sce_sys/param
 
 ## Status
 
-Version 0.6.4 (`contentVersion` 01.000.064).
+Version 0.7.0 (`contentVersion` 01.000.070).
 
 **Checked on the author's console, firmware 12.70:** the scan, covers and descriptions,
 the details page, a large 1080p H.264 MKV with sound, seeking, audio and subtitle
 switching, language detection, genre shelves, search, sorting, Settings, menu sounds
-and controller feedback, with films on internal and external drives. The loader
+and controller feedback, with films on internal and external drives, and 4K HEVC HDR
+films on the hardware decoder with tone mapping. The loader
 version was not recorded. Reports from other firmware are welcome.
 
-**Not checked on a console:** 4K and HEVC playback.
+**Not checked on a console:** 4K H.264, HLG and Dolby Vision films, and the fallback to the
+CPU when the graphics chip cannot convert a picture.
 
 **Checked on a PC:** the unit tests, the preview pictures, the scan helper against a
 folder of sample files, a clean build and lint.

@@ -119,7 +119,7 @@ constexpr float kGridTop = 232.0f;
 // Cards scrolling up under the "All Movies" header fade out above this line.
 constexpr float kGridFadeTop = kGridTop - 34.0f;
 
-constexpr const char *kAppVersion = "0.6.4"; // equals contentVersion 01.000.064 in param.json
+constexpr const char *kAppVersion = "0.7.0"; // equals contentVersion 01.000.070 in param.json
 constexpr float kOsdSeconds = 4.0f;
 constexpr float kSeekHoldGap = 0.5f;   // a pause this long in the repeats ends a hold
 constexpr double kSeekHeldStep = 30.0; // first held step, and what each held second adds

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (01.000.070)
 
 - Films are also found below a `mediathek/movies` folder (or `mediathek/Movies`) on the
   internal drive, USB drives and extended storage, beside the `movies` folder as before. Its
@@ -11,8 +11,25 @@
   file and decodes the sound, and it still plays everything up to 1080p. If the hardware will
   not take a film, or gives up on one mid-way, FFmpeg takes over. `HW_DECODE=0` in
   `mediathek.env` keeps every film on FFmpeg. The picture is still shown at 1080p, the app's output.
-  The owner's 4K HEVC sample plays almost fluently on the console. Its first picture takes
-  seconds to arrive; the cause is still open.
+  On the owner's console two 4K HEVC HDR films play smoothly.
+- HDR films (HDR10's PQ and HLG) on the hardware decoder are tone-mapped for an ordinary
+  screen instead of looking grey and washed out. Their BT.2020 colours are mapped into
+  BT.709. The CPU now only copies the decoder's picture, with 4K's brightness plane halved to
+  1080p; a shader in the app's renderer does the colour conversion. The tone mapping follows
+  VLC's PS5 port: BT.2390's curve, HDR's 203-nit reference white as the screen's white, and
+  the film's peak from its content light level or mastering data (1000 nits when it has none).
+  The klog line `[HUI] hdr ...` says what was read. If the graphics chip cannot convert, the CPU
+  does it as before, without tone mapping. Films up to 1080p are not tone-mapped yet.
+- The hardware decoder now works more like VLC's PS5 port does:
+  - Its library and compute queue are made once, while the app starts, and its working memory
+    is kept for the next film.
+  - HEVC is opened at level 5.2 for 4K films at high bit rates, with 5.1 as the fallback, and
+    with a pipeline of four pictures, falling back to one.
+  - After a stream error it starts again from the next key frame (up to five times in a row)
+    instead of giving the film to FFmpeg.
+  - Dolby Vision's second layer is left out, so profile 7 films play their HDR10 base layer.
+  - A picture buffer is not written again until the player has shown what was in it.
+  - The klog times each step of opening the decoder.
 - Fixed: the sound started alone when the first picture took over 2 s, so a 4K film's picture
   began seconds in and stood still. The sound now waits for it, up to 15 s.
 - Fixed: leaving a film on the hardware decoder could be taken for the hardware failing, and
@@ -49,6 +66,9 @@
 - The app asked the console for a 384 MiB heap, got nothing and fell back to 256. It now
   tries every size in between (8 MiB steps) and takes the largest the console grants, less
   a 24 MiB margin, which gives a 4K film the room it needs where the console allows it.
+- Known gap: AV1 does not play, at 1080p or 4K. FFmpeg's own AV1 decoder needs hardware
+  behind it, this FFmpeg build has no software one (dav1d or libaom), and no AV1 mode of the
+  console's hardware decoder is known. Such films are listed but will not play.
 
 ## 0.6.4 (01.000.064)
 
