@@ -47,6 +47,7 @@ HUI_TEXT(settings_ui_sounds_hint, "Clicks and chimes when you move around the ap
 HUI_TEXT(settings_appearance, "Appearance", "Darstellung")
 HUI_TEXT(settings_version, "Version", "Version")
 HUI_TEXT(settings_built, "built", "gebaut")
+HUI_TEXT(settings_author, "Author", "Autor")
 HUI_TEXT(settings_pin_billboard, "Fixed billboard", "Feste Titelanzeige")
 HUI_TEXT(settings_pin_billboard_hint, "The billboard stays in place while you scroll the shelves",
          "Die Titelanzeige bleibt beim Bl\xC3\xA4ttern durch die Regale stehen")

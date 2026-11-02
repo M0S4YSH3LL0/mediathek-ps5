@@ -76,6 +76,7 @@ enum SettingsRow : int
     kRowReload,
     kRowDebug,
     kRowVersion,
+    kRowAuthor,
 };
 
 // What Settings::home_shelves holds, in the order of the row's options.
@@ -90,9 +91,9 @@ enum HomeShelves : int
 // The list on the left of the settings page, top to bottom; its focus is one of these.
 enum SettingsCategory : int
 {
-    kCategorySound,
     kCategoryAppearance,
     kCategoryLanguage,
+    kCategorySound,
     kCategoryLibrary,
     kCategoryDeveloper,
 };
@@ -186,9 +187,6 @@ constexpr app::TourStep kTour[] = {
     {0.3f, 0, Direction::right},
     {0.2f, action_bit(Action::confirm)},
     {0.9f, 0, Direction::none, "settings-changed"},
-    {0.3f, action_bit(Action::back)},
-    {0.3f, 0, Direction::down},
-    {0.3f, 0, Direction::right},
     {0.3f, 0, Direction::down},
     {0.9f, 0, Direction::none, "settings-appearance"},
     {0.3f, 0, Direction::down},
@@ -196,6 +194,8 @@ constexpr app::TourStep kTour[] = {
     {0.3f, action_bit(Action::back)},
     {0.3f, 0, Direction::down},
     {0.9f, 0, Direction::none, "settings-language"},
+    {0.3f, 0, Direction::down},
+    {0.9f, 0, Direction::none, "settings-sound"},
     {0.3f, 0, Direction::down},
     {0.3f, action_bit(Action::confirm)},
     {0.2f, action_bit(Action::confirm)},
@@ -850,6 +850,7 @@ class Mediathek final : public app::Concept
                 tr(Text::settings_debug_hint);
             // Says which build this is: whether the console runs the one you just made.
             settings_form_.add_value(kRowVersion, tr(Text::settings_version), version_text());
+            settings_form_.add_value(kRowAuthor, tr(Text::settings_author), "m0");
             break;
         }
         sync_settings_form();
@@ -879,7 +880,7 @@ class Mediathek final : public app::Concept
     void open_settings()
     {
         focus_settings_form(false);
-        settings_list_.set_focus(kCategorySound, true);
+        settings_list_.set_focus(kCategoryAppearance, true);
         settings_list_.enter();
         build_settings_form();
     }
@@ -1815,9 +1816,6 @@ class Mediathek final : public app::Concept
         const float y = 86.0f - 8.0f * (1.0f - in);
         float x = ui::text(list, fonts.display, "MEDIATHEK", kMargin, y, 30, kAccent,
                            gfx::Align::left, 5.0f);
-        // Version and author, small, under the logo.
-        ui::text(list, fonts.regular, std::string("v") + kAppVersion + " \xC2\xB7 by m0", kMargin,
-                 y + 30, 17, kInk.with_alpha(0.5f), gfx::Align::left, 1.0f);
         x = kMargin + x + 64.0f;
         const char *tabs[] = {tr(Text::tab_home), tr(Text::tab_movies)};
         for (int i = 0; i < 2; ++i)

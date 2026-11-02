@@ -168,11 +168,18 @@ class MediathekTest : public hui::testing::ConceptFixture
     // Library, the reload row, the question, then "Reload".
     void start_reload(app::Concept &design)
     {
-        open_category(design, 3);
+        open_category(design, kLibrary);
         send(design, press(Action::confirm), 0.6f);
         send(design, nav(Direction::right), 0.3f);
         send(design, press(Action::confirm), 0.0f);
     }
+
+    // The settings list, top to bottom (SettingsCategory in mediathek.cpp).
+    static constexpr int kAppearance = 0;
+    static constexpr int kLanguage = 1;
+    static constexpr int kSound = 2;
+    static constexpr int kLibrary = 3;
+    static constexpr int kDeveloper = 4;
 
     // The settings tab with the focus in the form of this category (the order of the list).
     void open_category(app::Concept &design, int category)
@@ -522,18 +529,8 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     auto design = make(); // works without a single film
     ASSERT_GT(settings_.ui_volume, 0);
     ASSERT_FALSE(settings_.show_fps);
-    open_category(*design, 0); // Sound
+    open_category(*design, kAppearance);
 
-    context_.settings_changed = false;
-    send(*design, press(Action::confirm), 0.4f); // UI sounds
-    EXPECT_EQ(settings_.ui_volume, 0);
-    EXPECT_TRUE(context_.settings_changed);
-    send(*design, press(Action::confirm), 0.4f);
-    EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
-
-    send(*design, press(Action::back), 0.3f);  // to the list
-    send(*design, nav(Direction::down), 0.3f); // Appearance
-    send(*design, nav(Direction::right), 0.3f);
     ASSERT_TRUE(settings_.pin_billboard); // on unless the viewer turned it off
     context_.settings_changed = false;
     send(*design, press(Action::confirm), 0.4f); // fixed billboard
@@ -546,8 +543,18 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     EXPECT_FALSE(settings_.details_wallpaper);
     EXPECT_TRUE(context_.settings_changed);
 
-    send(*design, press(Action::back), 0.3f);
+    send(*design, press(Action::back), 0.3f);  // to the list
     send(*design, nav(Direction::down), 0.3f); // Language
+    send(*design, nav(Direction::down), 0.3f); // Sound
+    send(*design, nav(Direction::right), 0.3f);
+    context_.settings_changed = false;
+    send(*design, press(Action::confirm), 0.4f); // UI sounds
+    EXPECT_EQ(settings_.ui_volume, 0);
+    EXPECT_TRUE(context_.settings_changed);
+    send(*design, press(Action::confirm), 0.4f);
+    EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
+
+    send(*design, press(Action::back), 0.3f);
     send(*design, nav(Direction::down), 0.3f); // Library
     send(*design, nav(Direction::down), 0.3f); // Developer
     send(*design, nav(Direction::right), 0.3f);
@@ -556,6 +563,15 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     EXPECT_TRUE(settings_.show_fps);
     EXPECT_TRUE(context_.settings_changed);
     expect_drawable(*design);
+}
+
+TEST_F(MediathekTest, TheSettingsListStartsWithAppearanceAndHasSoundThird)
+{
+    auto design = make();
+    open_category(*design, kSound);
+    send(*design, press(Action::confirm), 0.4f); // UI sounds
+    EXPECT_EQ(settings_.ui_volume, 0);
+    EXPECT_TRUE(settings_.pin_billboard);
 }
 
 // The two panes: the list on the left only chooses, the form on the right changes things.
@@ -570,29 +586,31 @@ TEST_F(MediathekTest, TheCategoryListChangesNothingUntilTheFormHasTheFocus)
     EXPECT_TRUE(played(audio::Cue::focus));
     send(*design, nav(Direction::up), 0.3f);
     send(*design, press(Action::confirm), 0.3f); // opens the form, flips nothing
-    EXPECT_GT(settings_.ui_volume, 0);
+    EXPECT_TRUE(settings_.pin_billboard);
     EXPECT_FALSE(context_.settings_changed);
     send(*design, press(Action::confirm), 0.3f); // now it does
-    EXPECT_EQ(settings_.ui_volume, 0);
+    EXPECT_FALSE(settings_.pin_billboard);
 }
 
 TEST_F(MediathekTest, LeftAndBackLeaveTheFormWithoutChangingASwitch)
 {
     auto design = make();
-    open_category(*design, 0); // Sound: UI sounds, on
+    open_category(*design, kAppearance); // Fixed billboard, on
     context_.settings_changed = false;
     send(*design, nav(Direction::left), 0.3f);
     EXPECT_TRUE(played(audio::Cue::back));
-    EXPECT_GT(settings_.ui_volume, 0);
+    EXPECT_TRUE(settings_.pin_billboard);
     EXPECT_FALSE(context_.settings_changed);
 
     // Down moves the list, so the focus really is there, and the form follows it.
-    send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f); // Language
+    send(*design, nav(Direction::down), 0.3f); // Sound
     send(*design, nav(Direction::right), 0.3f);
     send(*design, press(Action::back), 0.3f); // Back: to the list, not yet to Home
     send(*design, press(Action::confirm), 0.3f);
     send(*design, press(Action::confirm), 0.3f);
-    EXPECT_FALSE(settings_.pin_billboard); // Appearance's first row: still on the page
+    EXPECT_EQ(settings_.ui_volume, 0); // Sound's first row: still on the page
+    EXPECT_TRUE(settings_.pin_billboard);
 
     // A switch does not answer right either: Cross is the one way to change it.
     context_.settings_changed = false;
@@ -600,27 +618,27 @@ TEST_F(MediathekTest, LeftAndBackLeaveTheFormWithoutChangingASwitch)
     EXPECT_FALSE(context_.settings_changed);
     send(*design, nav(Direction::left), 0.3f);
     EXPECT_FALSE(context_.settings_changed);
-    EXPECT_FALSE(settings_.pin_billboard);
+    EXPECT_EQ(settings_.ui_volume, 0);
 }
 
 TEST_F(MediathekTest, BackFromTheListLeavesTheSettingsAndComingBackStartsAtTheList)
 {
     auto design = make();
-    open_category(*design, 0);
+    open_category(*design, kAppearance);
     send(*design, press(Action::back), 0.3f); // the list
     send(*design, press(Action::back), 0.5f); // Home
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
-    send(*design, press(Action::confirm), 0.3f); // Sound's form, not a switch
-    EXPECT_GT(settings_.ui_volume, 0);
+    send(*design, press(Action::confirm), 0.3f); // Appearance's form, not a switch
+    EXPECT_TRUE(settings_.pin_billboard);
 
     // L1 out of the form, then back: the list has the focus again.
     send(*design, press(Action::page_prev), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::confirm), 0.3f);
-    EXPECT_GT(settings_.ui_volume, 0);
+    EXPECT_TRUE(settings_.pin_billboard);
     send(*design, press(Action::confirm), 0.3f);
-    EXPECT_EQ(settings_.ui_volume, 0);
+    EXPECT_FALSE(settings_.pin_billboard);
 }
 
 TEST_F(MediathekTest, TheHomeShelvesSettingChoosesWhichShelvesHomeShows)
@@ -718,7 +736,7 @@ TEST_F(MediathekTest, TheHomeShelvesRowChangesHomeAtOnce)
 {
     fill_library_with_genres();
     auto design = make();
-    open_category(*design, 1); // Appearance
+    open_category(*design, kAppearance);
     send(*design, nav(Direction::down), 0.3f);
     send(*design, nav(Direction::down), 0.3f);
     context_.settings_changed = false;
@@ -735,7 +753,7 @@ TEST_F(MediathekTest, TheHomeShelvesRowChangesHomeAtOnce)
 TEST_F(MediathekTest, HoldingRightIntoTheFormDoesNotChangeTheLanguage)
 {
     auto design = make();
-    open_category(*design, 2); // Language; the press that opened it is still held
+    open_category(*design, kLanguage); // the press that opened it is still held
     InputFrame held = nav(Direction::right);
     held.nav_repeat = true;
     send(*design, held, 0.2f);
@@ -750,10 +768,10 @@ TEST_F(MediathekTest, HoldingRightIntoTheFormDoesNotChangeTheLanguage)
     hui::i18n::set_language(hui::i18n::Language::english);
 }
 
-TEST_F(MediathekTest, TheDeveloperFormSkipsItsReadOnlyVersionRow)
+TEST_F(MediathekTest, TheDeveloperFormSkipsItsReadOnlyVersionAndAuthorRows)
 {
     auto design = make();
-    open_category(*design, 4);
+    open_category(*design, kDeveloper);
     expect_drawable(*design);
     send(*design, nav(Direction::down), 0.3f); // nothing focusable below Debug info
     EXPECT_FALSE(played(audio::Cue::focus));
@@ -813,7 +831,7 @@ TEST_F(MediathekTest, TheLanguageRowSwitchesTheAppAtOnce)
     services_.automatic_language = i18n::Language::german; // a German console
     i18n::set_language(i18n::Language::german);
     auto design = make();
-    open_category(*design, 2); // Language
+    open_category(*design, kLanguage);
     ASSERT_EQ(settings_.ui_language, 0);
 
     context_.settings_changed = false;
@@ -844,16 +862,16 @@ TEST_F(MediathekTest, TheSettingsPageShowsWhatWasSaved)
     settings_.show_fps = true;
     settings_.pin_billboard = true;
     auto design = make();
-    open_category(*design, 0);
-    send(*design, press(Action::confirm), 0.4f); // flips "off" to on, not on to off
-    EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
-    send(*design, press(Action::back), 0.3f);
-    send(*design, nav(Direction::down), 0.3f); // Appearance
-    send(*design, nav(Direction::right), 0.3f);
+    open_category(*design, kAppearance);
     send(*design, press(Action::confirm), 0.4f);
     EXPECT_FALSE(settings_.pin_billboard);
     send(*design, press(Action::back), 0.3f);
     send(*design, nav(Direction::down), 0.3f); // Language
+    send(*design, nav(Direction::down), 0.3f); // Sound
+    send(*design, nav(Direction::right), 0.3f);
+    send(*design, press(Action::confirm), 0.4f); // flips "off" to on, not on to off
+    EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
+    send(*design, press(Action::back), 0.3f);
     send(*design, nav(Direction::down), 0.3f); // Library
     send(*design, nav(Direction::down), 0.3f); // Developer
     send(*design, nav(Direction::right), 0.3f);
@@ -871,7 +889,7 @@ TEST_F(MediathekTest, ReloadingEverythingAsksFirstThenFetchesEveryFilmAgain)
         return std::string();
     };
     auto design = make();
-    open_category(*design, 3); // Library
+    open_category(*design, kLibrary);
     send(*design, press(Action::confirm), 0.6f);
     EXPECT_TRUE(played(audio::Cue::modal_open));
     expect_drawable(*design);
@@ -985,7 +1003,7 @@ TEST_F(MediathekTest, BackClosesTheReloadQuestionBeforeItLeavesTheSettings)
         return std::string();
     };
     auto design = make();
-    open_category(*design, 3); // Library
+    open_category(*design, kLibrary);
     send(*design, press(Action::confirm), 0.6f);
     send(*design, press(Action::back), 0.6f);
     EXPECT_TRUE(played(audio::Cue::modal_close));
@@ -1006,7 +1024,7 @@ TEST_F(MediathekTest, AReloadThatIsRefusedStopsAtTheFirstFilm)
         return std::string("No TMDB_API_KEY in mediathek.env");
     };
     auto design = make();
-    open_category(*design, 3); // Library
+    open_category(*design, kLibrary);
     send(*design, press(Action::confirm), 0.6f);
     send(*design, nav(Direction::right), 0.3f);
     send(*design, press(Action::confirm), 0.6f);
@@ -1023,7 +1041,7 @@ TEST_F(MediathekTest, ReloadingAnEmptyLibraryJustSaysThereIsNothing)
         return std::string();
     };
     auto design = make();
-    open_category(*design, 3); // Library
+    open_category(*design, kLibrary);
     send(*design, press(Action::confirm), 0.6f);
     EXPECT_TRUE(played(audio::Cue::error));
     EXPECT_EQ(asked, 0);

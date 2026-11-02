@@ -176,14 +176,15 @@ Circle to go back. Changes apply at once and save themselves.
 
 | Category | Setting | What it does |
 | --- | --- | --- |
-| Sound | UI sounds | Menu sounds on or off. |
 | Appearance | Fixed billboard | Keeps the Play button on screen while you scroll the shelves. |
 | Appearance | Wallpaper on the details page | Shows the film's wallpaper behind its details. |
 | Appearance | Shelves on Home | *Continue Watching* always, then all shelves, your own collections only (*Recently Added*, collections, *All Movies*), genres only or decades only. |
 | Language | App language | Automatic, English or Deutsch. |
+| Sound | UI sounds | Menu sounds on or off. |
 | Library | Reload all covers and infos | Fetches everything from TMDB again, with a message that counts the progress. |
 | Developer | Debug info | Frame rate in the corner. |
 | Developer | Version | The version and when this build was made. |
+| Developer | Author | Who made the app. |
 
 *Automatic* follows the console, German on a German console and English otherwise. Set
 `UI_LANGUAGE` in `mediathek.env` to change what *Automatic* picks.
