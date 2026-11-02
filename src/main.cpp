@@ -20,6 +20,7 @@
 #include "demo/catalog.hpp"
 #include "gfx/canvas.hpp"
 #include "gfx/renderer.hpp"
+#include "gfx/video_converter.hpp"
 #include "media/cover_service.hpp"
 #include "media/library.hpp"
 #include "media/poster_cache.hpp"
@@ -294,6 +295,10 @@ int main()
     { renderer.batch().update_texture(texture, w, h, rgba); };
     surface.release = [&renderer](std::uint32_t texture)
     { renderer.batch().delete_texture(texture); };
+    gfx::VideoConverter video_converter;
+    surface.update_yuv =
+        [&video_converter](std::uint32_t texture, int w, int h, const media::YuvFrame &frame)
+    { return video_converter.convert(frame, texture, w, h); };
     const bool hardware_decoding = env.get("HW_DECODE") != "0";
     if (hardware_decoding)
     {

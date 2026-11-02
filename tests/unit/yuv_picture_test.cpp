@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 namespace
@@ -165,6 +166,99 @@ TEST(TenBitShift, ReadsWhereTheBitsAreSitting)
     EXPECT_EQ(ten_bit_shift(high, 4), 6);
     const std::uint16_t empty[] = {0, 0};
     EXPECT_EQ(ten_bit_shift(empty, 2), 0) << "an all-black row says nothing: the usual layout";
+}
+
+TEST(YuvLayout, FourKOnAFullHdScreenArrivesWithItsLumaHalved)
+{
+    YuvPicture source;
+    source.width = 3840;
+    source.height = 2160;
+    source.wide = true;
+    const YuvLayout layout = yuv_layout(source, 1920, 1080);
+    EXPECT_EQ(layout.luma_width, 1920);
+    EXPECT_EQ(layout.luma_height, 1080);
+    EXPECT_EQ(layout.chroma_width, 1920);
+    EXPECT_EQ(layout.chroma_height, 1080);
+    EXPECT_TRUE(layout.wide);
+    EXPECT_EQ(yuv_luma_bytes(layout), 1920u * 1080u * 2u);
+    EXPECT_EQ(yuv_bytes(layout), 1920u * 1080u * 2u * 3u);
+}
+
+TEST(YuvLayout, LessThanTwiceTheSizeIsLeftForTheGraphicsChipToScale)
+{
+    YuvPicture source;
+    source.width = 2560;
+    source.height = 1440;
+    const YuvLayout layout = yuv_layout(source, 1920, 1080);
+    EXPECT_EQ(layout.luma_width, 2560);
+    EXPECT_EQ(layout.luma_height, 1440);
+    EXPECT_EQ(layout.chroma_width, 1280);
+    EXPECT_EQ(layout.chroma_height, 720);
+    EXPECT_EQ(yuv_bytes(layout), 2560u * 1440u * 3u / 2u);
+
+    source.width = 0;
+    EXPECT_EQ(yuv_bytes(yuv_layout(source, 1920, 1080)), 0u);
+}
+
+TEST(YuvLayout, AnOddSizeKeepsItsLastChromaColumn)
+{
+    YuvPicture source;
+    source.width = 7;
+    source.height = 5;
+    const YuvLayout layout = yuv_layout(source, 7, 5);
+    EXPECT_EQ(layout.chroma_width, 4);
+    EXPECT_EQ(layout.chroma_height, 3);
+}
+
+TEST(CopyPlanes, HalvedLumaIsTheAverageOfFourAndTheChromaIsCopiedWithoutTheGaps)
+{
+    Flat<std::uint8_t> flat(4, 4, 100, 90, 160);
+    // One square of four different samples at the top left.
+    flat.luma[0] = 10;
+    flat.luma[1] = 20;
+    const std::size_t stride = flat.picture.pitch;
+    flat.luma[stride] = 30;
+    flat.luma[stride + 1] = 41;
+    const YuvLayout layout = yuv_layout(flat.picture, 2, 2);
+    ASSERT_EQ(layout.luma_width, 2);
+    std::vector<std::uint8_t> out(yuv_bytes(layout), 0xee);
+    copy_planes(flat.picture, layout, out.data());
+    EXPECT_EQ(out[0], 25) << "(10 + 20 + 30 + 41 + 2) / 4";
+    EXPECT_EQ(out[1], 100);
+    EXPECT_EQ(out[2], 100);
+    EXPECT_EQ(out[3], 100);
+    const std::vector<std::uint8_t> chroma(out.begin() + 4, out.end());
+    EXPECT_EQ(chroma, (std::vector<std::uint8_t>{90, 160, 90, 160, 90, 160, 90, 160}));
+}
+
+TEST(CopyPlanes, TenBitSamplesEndUpAtTheTopOfTheWordWhereverTheyWere)
+{
+    for (int shift : {0, 6})
+    {
+        Flat<std::uint16_t> wide(4, 2, static_cast<std::uint16_t>(940 << shift),
+                                 static_cast<std::uint16_t>(64 << shift),
+                                 static_cast<std::uint16_t>(960 << shift));
+        wide.picture.shift = shift;
+        const YuvLayout layout = yuv_layout(wide.picture, 4, 2);
+        std::vector<std::uint8_t> out(yuv_bytes(layout), 0);
+        copy_planes(wide.picture, layout, out.data());
+        std::vector<std::uint16_t> samples(out.size() / 2);
+        std::memcpy(samples.data(), out.data(), out.size());
+        ASSERT_EQ(samples.size(), 8u + 4u);
+        for (int i = 0; i < 8; ++i)
+            EXPECT_EQ(samples[static_cast<std::size_t>(i)], 940 << 6) << "shift " << shift;
+        EXPECT_EQ(samples[8], 64 << 6);
+        EXPECT_EQ(samples[9], 960 << 6);
+    }
+}
+
+TEST(HdrPeak, TheContentLightLevelThenTheMasteringPeakThenAThousandNits)
+{
+    EXPECT_FLOAT_EQ(hdr_peak_nits(1500.0f, 4000.0f), 1500.0f);
+    EXPECT_FLOAT_EQ(hdr_peak_nits(0.0f, 4000.0f), 4000.0f);
+    EXPECT_FLOAT_EQ(hdr_peak_nits(0.0f, 0.0f), 1000.0f);
+    EXPECT_FLOAT_EQ(hdr_peak_nits(80.0f, 0.0f), 400.0f) << "too dark for an HDR curve";
+    EXPECT_FLOAT_EQ(hdr_peak_nits(0.0f, 50000.0f), 10000.0f);
 }
 
 } // namespace

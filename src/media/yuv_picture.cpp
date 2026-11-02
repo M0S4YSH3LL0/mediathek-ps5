@@ -5,6 +5,7 @@
 #include "media/yuv_picture.hpp"
 
 #include <algorithm>
+#include <cstring>
 
 namespace hui::media
 {
@@ -126,6 +127,136 @@ void yuv_to_rgba(const YuvPicture &picture, YuvMatrix matrix, bool full_range, s
         convert<std::uint16_t>(picture, f, rgba, width, height);
     else
         convert<std::uint8_t>(picture, f, rgba, width, height);
+}
+
+float hdr_peak_nits(float max_content_light, float mastering_peak)
+{
+    // Below 400 a curve made for HDR would darken what is meant to be bright; nothing is
+    // mastered beyond 10 000, the end of the PQ scale.
+    constexpr float kLowest = 400.0f;
+    constexpr float kHighest = 10000.0f;
+    constexpr float kUsual = 1000.0f;
+    float peak = kUsual;
+    if (max_content_light > 0.0f)
+        peak = max_content_light;
+    else if (mastering_peak > 0.0f)
+        peak = mastering_peak;
+    return std::clamp(peak, kLowest, kHighest);
+}
+
+YuvLayout yuv_layout(const YuvPicture &source, int width, int height)
+{
+    YuvLayout layout;
+    if (source.width <= 0 || source.height <= 0)
+        return layout;
+    const bool halve =
+        width > 0 && height > 0 && source.width >= 2 * width && source.height >= 2 * height;
+    layout.luma_width = halve ? source.width / 2 : source.width;
+    layout.luma_height = halve ? source.height / 2 : source.height;
+    layout.chroma_width = (source.width + 1) / 2;
+    layout.chroma_height = (source.height + 1) / 2;
+    layout.wide = source.wide;
+    return layout;
+}
+
+std::size_t yuv_luma_bytes(const YuvLayout &layout)
+{
+    const std::size_t sample = layout.wide ? 2 : 1;
+    return static_cast<std::size_t>(layout.luma_width) *
+           static_cast<std::size_t>(layout.luma_height) * sample;
+}
+
+std::size_t yuv_bytes(const YuvLayout &layout)
+{
+    const std::size_t sample = layout.wide ? 2 : 1;
+    return yuv_luma_bytes(layout) + static_cast<std::size_t>(layout.chroma_width) *
+                                        static_cast<std::size_t>(layout.chroma_height) * 2 * sample;
+}
+
+namespace
+{
+
+// 10 bits wherever they sit, moved to the top of the word.
+inline std::uint16_t raised(std::uint16_t sample, int shift)
+{
+    return static_cast<std::uint16_t>((static_cast<unsigned>(sample) >> shift << 6) & 0xffc0u);
+}
+
+template <class Sample> Sample stored(unsigned value, int shift)
+{
+    if constexpr (sizeof(Sample) == 1)
+    {
+        (void)shift;
+        return static_cast<Sample>(value);
+    }
+    else
+    {
+        return raised(static_cast<std::uint16_t>(value), shift);
+    }
+}
+
+template <class Sample>
+void copy_luma(const YuvPicture &source, const YuvLayout &layout, Sample *out)
+{
+    const bool halve = layout.luma_width < source.width;
+    for (int row = 0; row < layout.luma_height; ++row)
+    {
+        Sample *line = out + static_cast<std::size_t>(row) * layout.luma_width;
+        if (!halve)
+        {
+            const auto *in = reinterpret_cast<const Sample *>(
+                source.luma + static_cast<std::size_t>(row) * source.pitch);
+            for (int x = 0; x < layout.luma_width; ++x)
+                line[x] = stored<Sample>(in[x], source.shift);
+            continue;
+        }
+        const auto *top = reinterpret_cast<const Sample *>(
+            source.luma + static_cast<std::size_t>(2 * row) * source.pitch);
+        const auto *bottom = reinterpret_cast<const Sample *>(
+            source.luma + static_cast<std::size_t>(2 * row + 1) * source.pitch);
+        for (int x = 0; x < layout.luma_width; ++x)
+        {
+            const unsigned sum = static_cast<unsigned>(top[2 * x]) + top[2 * x + 1] +
+                                 bottom[2 * x] + bottom[2 * x + 1];
+            line[x] = stored<Sample>((sum + 2) >> 2, source.shift);
+        }
+    }
+}
+
+template <class Sample>
+void copy_chroma(const YuvPicture &source, const YuvLayout &layout, Sample *out)
+{
+    const int samples = 2 * layout.chroma_width;
+    for (int row = 0; row < layout.chroma_height; ++row)
+    {
+        const auto *in = reinterpret_cast<const Sample *>(
+            source.chroma + static_cast<std::size_t>(row) * source.pitch);
+        Sample *line = out + static_cast<std::size_t>(row) * samples;
+        if constexpr (sizeof(Sample) == 1)
+            std::memcpy(line, in, static_cast<std::size_t>(samples));
+        else
+            for (int x = 0; x < samples; ++x)
+                line[x] = raised(in[x], source.shift);
+    }
+}
+
+} // namespace
+
+void copy_planes(const YuvPicture &source, const YuvLayout &layout, std::uint8_t *out)
+{
+    if (layout.luma_width <= 0 || source.luma == nullptr || source.chroma == nullptr)
+        return;
+    std::uint8_t *chroma = out + yuv_luma_bytes(layout);
+    if (layout.wide)
+    {
+        copy_luma(source, layout, reinterpret_cast<std::uint16_t *>(out));
+        copy_chroma(source, layout, reinterpret_cast<std::uint16_t *>(chroma));
+    }
+    else
+    {
+        copy_luma(source, layout, out);
+        copy_chroma(source, layout, chroma);
+    }
 }
 
 int ten_bit_shift(const std::uint16_t *samples, std::size_t count)

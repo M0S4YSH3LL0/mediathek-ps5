@@ -37,6 +37,7 @@ extern "C"
 #include <libavcodec/avcodec.h>
 #include <libavcodec/bsf.h>
 #include <libavformat/avformat.h>
+#include <libavutil/mastering_display_metadata.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
@@ -124,11 +125,17 @@ struct Item
 
 struct Picture
 {
+    // RGBA, or with `yuv` the hardware decoder's planes as media::copy_planes() writes
+    // them, which the graphics chip makes into RGBA. The same buffer either way, so the
+    // spare ones serve both.
     std::vector<std::uint8_t> rgba;
-    int width = 0;
+    int width = 0; // what is shown
     int height = 0;
     double pts = 0.0;
     int serial = 0;
+    bool yuv = false;
+    media::YuvLayout layout;
+    media::YuvColour colour;
 };
 
 // A picture the hardware decoder finished, still in its memory.
@@ -204,8 +211,10 @@ class Lock
 class Session
 {
   public:
-    Session(std::string path, double start, audio::StreamRing *ring, bool hardware)
-        : path_(std::move(path)), ring_(ring), hardware_(hardware), discard_before_(start)
+    Session(std::string path, double start, audio::StreamRing *ring, bool hardware,
+            bool gpu_pictures)
+        : path_(std::move(path)), ring_(ring), hardware_(hardware), gpu_pictures_(gpu_pictures),
+          discard_before_(start)
     {
         pthread_mutex_init(&mutex_, nullptr);
         pthread_cond_init(&wake_, nullptr);
@@ -459,20 +468,57 @@ class Session
         hevc_ = codec == media::HwCodec::hevc;
         hw_visible_width_ = parameters->width;
         hw_visible_height_ = parameters->height;
-        hw_full_range_ = parameters->color_range == AVCOL_RANGE_JPEG;
-        hw_matrix_ = media::YuvMatrix::bt709;
-        if (parameters->color_space == AVCOL_SPC_BT2020_NCL ||
-            parameters->color_space == AVCOL_SPC_BT2020_CL)
-            hw_matrix_ = media::YuvMatrix::bt2020;
-        else if (parameters->color_space == AVCOL_SPC_BT470BG ||
-                 parameters->color_space == AVCOL_SPC_SMPTE170M)
-            hw_matrix_ = media::YuvMatrix::bt601;
+        hw_colour_ = colour_of(parameters);
         AVStream *stream = format_->streams[video_stream_];
         fit_to_screen(av_guess_sample_aspect_ratio(format_, stream, nullptr), parameters->width,
                       parameters->height, &hw_width_, &hw_height_);
         const AVRational rate = av_guess_frame_rate(format_, stream, nullptr);
         hw_frame_time_ = rate.num > 0 && rate.den > 0 ? av_q2d(av_inv_q(rate)) : 0.04;
         return true;
+    }
+
+    // What the shader needs to show the film's colours and light on an ordinary screen.
+    static media::YuvColour colour_of(const AVCodecParameters *parameters)
+    {
+        media::YuvColour colour;
+        colour.full_range = parameters->color_range == AVCOL_RANGE_JPEG;
+        if (parameters->color_space == AVCOL_SPC_BT2020_NCL ||
+            parameters->color_space == AVCOL_SPC_BT2020_CL)
+            colour.matrix = media::YuvMatrix::bt2020;
+        else if (parameters->color_space == AVCOL_SPC_BT470BG ||
+                 parameters->color_space == AVCOL_SPC_SMPTE170M)
+            colour.matrix = media::YuvMatrix::bt601;
+        colour.wide_gamut = parameters->color_primaries == AVCOL_PRI_BT2020;
+        if (parameters->color_trc == AVCOL_TRC_SMPTE2084)
+            colour.transfer = media::Transfer::pq;
+        else if (parameters->color_trc == AVCOL_TRC_ARIB_STD_B67)
+            colour.transfer = media::Transfer::hlg;
+        float content = 0.0f;
+        float mastering = 0.0f;
+        if (const AVPacketSideData *light =
+                av_packet_side_data_get(parameters->coded_side_data, parameters->nb_coded_side_data,
+                                        AV_PKT_DATA_CONTENT_LIGHT_LEVEL))
+            content = static_cast<float>(
+                reinterpret_cast<const AVContentLightMetadata *>(light->data)->MaxCLL);
+        if (const AVPacketSideData *display =
+                av_packet_side_data_get(parameters->coded_side_data, parameters->nb_coded_side_data,
+                                        AV_PKT_DATA_MASTERING_DISPLAY_METADATA))
+        {
+            const auto *metadata =
+                reinterpret_cast<const AVMasteringDisplayMetadata *>(display->data);
+            if (metadata->has_luminance != 0)
+                mastering = static_cast<float>(av_q2d(metadata->max_luminance));
+        }
+        // HLG has no peak of its own: it is shown as on the 1000-nit screen it assumes.
+        colour.peak_nits = colour.transfer == media::Transfer::hlg
+                               ? 1000.0f
+                               : media::hdr_peak_nits(content, mastering);
+        if (colour.transfer != media::Transfer::sdr)
+            sys::log("[HUI] hdr %s, %s, peak %.0f nits (content %.0f, mastering %.0f)",
+                     colour.transfer == media::Transfer::pq ? "PQ" : "HLG",
+                     colour.wide_gamut ? "BT.2020" : "BT.709", colour.peak_nits, content,
+                     mastering);
+        return colour;
     }
 
     // The player's own limits stay as they are here: the frames do not touch the heap.
@@ -1340,8 +1386,6 @@ class Session
         Picture picture;
         if (!wait_for_room(frame.serial, &picture))
             return;
-        picture.rgba.resize(static_cast<std::size_t>(hw_width_) *
-                            static_cast<std::size_t>(hw_height_) * 4);
         if (frame.picture.wide && hw_shift_ < 0)
         {
             // One row across the middle of the first picture: it says where the bits are.
@@ -1360,8 +1404,22 @@ class Session
         source.wide = frame.picture.wide;
         source.shift = frame.picture.wide ? std::max(hw_shift_, 0) : 0;
         const std::int64_t converting = sys::monotonic_us();
-        media::yuv_to_rgba(source, hw_matrix_, hw_full_range_, picture.rgba.data(), hw_width_,
-                           hw_height_);
+        picture.yuv = gpu_pictures_.load(std::memory_order_relaxed);
+        if (picture.yuv)
+        {
+            // Only a copy here: the graphics chip converts, and tone maps HDR on the way.
+            picture.layout = media::yuv_layout(source, hw_width_, hw_height_);
+            picture.colour = hw_colour_;
+            picture.rgba.resize(media::yuv_bytes(picture.layout));
+            media::copy_planes(source, picture.layout, picture.rgba.data());
+        }
+        else
+        {
+            picture.rgba.resize(static_cast<std::size_t>(hw_width_) *
+                                static_cast<std::size_t>(hw_height_) * 4);
+            media::yuv_to_rgba(source, hw_colour_.matrix, hw_colour_.full_range,
+                               picture.rgba.data(), hw_width_, hw_height_);
+        }
         const std::int64_t took = sys::monotonic_us() - converting;
         convert_us_.fetch_add(took, std::memory_order_relaxed);
         if (took > kSlowStepUs)
@@ -1552,6 +1610,8 @@ class Session
     std::string path_;
     audio::StreamRing *ring_;
     const bool hardware_;
+    // Pictures from the hardware decoder go to the graphics chip as planes.
+    std::atomic<bool> gpu_pictures_;
     double start_ = 0.0;
 
     pthread_mutex_t mutex_;
@@ -1639,8 +1699,7 @@ class Session
     int hw_visible_height_ = 0;
     int hw_width_ = 0;
     int hw_height_ = 0;
-    bool hw_full_range_ = false;
-    media::YuvMatrix hw_matrix_ = media::YuvMatrix::bt709;
+    media::YuvColour hw_colour_;
     double hw_frame_time_ = 0.04;
     int hw_shift_ = -1; // converter thread: not known yet
     // Guarded by mutex_.
@@ -1649,6 +1708,13 @@ class Session
     bool hw_finished_ = false;
     // Frame thread only.
     Picture upload_;
+
+  public:
+    // The graphics chip could not take a picture: the converter does them from now on.
+    void convert_on_cpu()
+    {
+        gpu_pictures_.store(false, std::memory_order_relaxed);
+    }
 };
 
 class FfmpegPlayer final : public media::Player
@@ -1678,7 +1744,8 @@ class FfmpegPlayer final : public media::Player
         shown_ = 0;
         skipped_ = 0;
         scrub_ = false;
-        session_ = std::make_unique<Session>(path, clock_, ring_, hardware_);
+        session_ = std::make_unique<Session>(path, clock_, ring_, hardware_,
+                                             static_cast<bool>(surface_.update_yuv) && gpu_ok_);
         state_ = PlayerState::opening;
     }
 
@@ -1903,6 +1970,11 @@ class FfmpegPlayer final : public media::Player
     {
         if (picture == nullptr || picture->rgba.empty())
             return false;
+        if (picture->yuv)
+        {
+            upload_planes(*picture);
+            return true;
+        }
         if (texture_ == 0 || picture->width != width_ || picture->height != height_)
         {
             release_texture();
@@ -1917,6 +1989,29 @@ class FfmpegPlayer final : public media::Player
         }
         shown_pts_ = picture->pts;
         return true;
+    }
+
+    void upload_planes(const Picture &picture)
+    {
+        if (texture_ == 0 || picture.width != width_ || picture.height != height_)
+        {
+            release_texture();
+            if (surface_.create)
+                texture_ = surface_.create(picture.width, picture.height, nullptr);
+            width_ = picture.width;
+            height_ = picture.height;
+        }
+        media::YuvFrame frame;
+        frame.planes = picture.rgba.data();
+        frame.layout = picture.layout;
+        frame.colour = picture.colour;
+        shown_pts_ = picture.pts;
+        if (texture_ != 0 && surface_.update_yuv(texture_, width_, height_, frame))
+            return;
+        // One picture is lost; the next ones come as RGBA, for this film and the rest.
+        sys::log("[HUI] video converter failed, converting on the CPU");
+        gpu_ok_ = false;
+        session_->convert_on_cpu();
     }
 
     void release_texture()
@@ -1949,6 +2044,7 @@ class FfmpegPlayer final : public media::Player
     std::uint32_t texture_ = 0;
     int width_ = 0;
     int height_ = 0;
+    bool gpu_ok_ = true; // false once the graphics chip failed to convert a picture
     std::string error_;
     std::string summary_;
     std::vector<media::Track> tracks_;

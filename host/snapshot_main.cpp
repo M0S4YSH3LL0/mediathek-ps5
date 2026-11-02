@@ -22,6 +22,7 @@
 #include "demo/catalog.hpp"
 #include "gfx/gl_program.hpp"
 #include "gfx/renderer.hpp"
+#include "gfx/video_converter.hpp"
 #include "manifest.hpp"
 #include "core/i18n.hpp"
 #include "media/info_service.hpp"
@@ -423,8 +424,13 @@ int main(int argc, char **argv)
     surface.update = [&](std::uint32_t t, int w, int h, const std::uint8_t *rgba)
     { renderer.batch().update_texture(t, w, h, rgba); };
     surface.release = [&](std::uint32_t t) { renderer.batch().delete_texture(t); };
-    const std::unique_ptr<hui::media::Player> player =
-        hui::media::make_simulated_player(surface, 7200.0);
+    hui::gfx::VideoConverter video_converter;
+    surface.update_yuv = [&](std::uint32_t t, int w, int h, const hui::media::YuvFrame &frame)
+    { return video_converter.convert(frame, t, w, h); };
+    // HUI_SIM_HDR=1: the player screen shows an HDR test card through the GPU converter.
+    const char *sim_hdr = std::getenv("HUI_SIM_HDR");
+    const std::unique_ptr<hui::media::Player> player = hui::media::make_simulated_player(
+        surface, 7200.0, sim_hdr != nullptr && std::string(sim_hdr) == "1");
     services.player = player.get();
 
     hui::app::Shell shell(fonts, catalog, data_root, renderer.glass_texture(), &services);
