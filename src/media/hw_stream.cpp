@@ -20,9 +20,12 @@ constexpr int kMaxWidth = 3840;
 constexpr int kMaxHeight = 2176;
 
 // The level says how big a picture the decoder must expect: a 4K surface at a lower
-// one is refused as an invalid configuration. HEVC counts in thirtieths: 153 is 5.1.
+// one is refused as an invalid configuration. HEVC counts in thirtieths: 156 is 5.2,
+// which VLC's port needed for 4K films at 60-80 Mbit/s, and 153 (5.1) is the one known
+// to work everywhere, tried when 5.2 is refused.
 constexpr unsigned kH264Level = 52;
-constexpr unsigned kHevcLevel = 153;
+constexpr unsigned kHevcLevel = 156;
+constexpr unsigned kHevcFallbackLevel = 153;
 
 constexpr int kH264ConstrainedBaseline = 578; // FFmpeg's number: 66 with a flag
 constexpr int kNalPicturesEnd = 23;           // beyond it: parameter sets, SEI, ...
@@ -35,6 +38,9 @@ constexpr int kNalVps = 32;
 constexpr int kNalPps = 34;
 constexpr int kNalIgnoredFirst = 48;
 constexpr std::size_t kMaxNals = 512;
+constexpr int kH264Slice = 1;
+constexpr int kH264Idr = 5;
+constexpr unsigned kH264SliceI = 2;    // slice_type modulo 5
 constexpr std::size_t kMaxStamps = 64; // far beyond any reorder window
 
 int padded(int size, int ceiling)
@@ -186,6 +192,7 @@ std::optional<HwMode> hw_mode(HwCodec codec, int profile, int depth, bool yuv420
         return std::nullopt;
     mode.profile = depth > 8 || profile == 2 ? 2 : 1;
     mode.level = kHevcLevel;
+    mode.fallback_level = kHevcFallbackLevel;
     return mode;
 }
 
@@ -252,6 +259,9 @@ std::size_t clean_hevc_unit(const std::uint8_t *unit, std::size_t size, std::uin
         const Nal &nal = nals[i];
         if (nal.payload < size && ((unit[nal.payload] >> 1) & 0x3f) >= kNalIgnoredFirst)
             continue;
+        if (nal.payload + 1 < size &&
+            (((unit[nal.payload] & 1u) << 5) | (unit[nal.payload + 1] >> 3)) != 0)
+            continue; // not the base layer
         if (nal.key != 0 &&
             std::any_of(nals.begin() + static_cast<std::ptrdiff_t>(i) + 1, nals.end(),
                         [&](const Nal &later) { return later.key == nal.key; }))
@@ -260,6 +270,25 @@ std::size_t clean_hevc_unit(const std::uint8_t *unit, std::size_t size, std::uin
         written += nal.end - nal.begin;
     }
     return written;
+}
+
+bool h264_is_key(const std::uint8_t *unit, std::size_t size)
+{
+    std::size_t at = find_start(unit, size, 0);
+    while (at + 3 < size)
+    {
+        const int type = unit[at + 3] & 0x1f;
+        if (type == kH264Idr)
+            return true;
+        if (type == kH264Slice)
+        {
+            Bits bits(unit + at + 4, size - at - 4);
+            bits.read_ue(); // first_mb_in_slice
+            return bits.read_ue() % 5 == kH264SliceI;
+        }
+        at = find_start(unit, size, at + 3);
+    }
+    return false;
 }
 
 void HevcEntry::restart()

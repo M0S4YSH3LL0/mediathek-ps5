@@ -91,6 +91,11 @@ constexpr std::size_t kMaxHwFrames = 3;
 // The first few are normal after a random access into the middle of something.
 constexpr int kMaxHwErrors = 32;
 constexpr int kMaxHwSilence = 128;
+// A stream error leaves the decoder refusing everything after it, so it starts again from
+// the next key frame (VLC's port). A film that keeps doing it goes to FFmpeg; the count
+// starts over once this many pictures came out fine since the last one.
+constexpr int kMaxHwResyncs = 5;
+constexpr int kHwResyncForgiven = 300;
 // How long the sound waits for the first picture. Long, because sound that starts alone
 // runs ahead of a picture that then has to catch it up: with 2 s, a 4K film's decoder was
 // 4.24 s behind on the console at its start. Only a film with no working picture waits it out.
@@ -637,7 +642,11 @@ class Session
         for (Picture &picture : pictures_)
             recycle_locked(std::move(picture));
         pictures_.clear();
+        for (const HwFrame &frame : hw_frames_)
+            if (hw_ != nullptr)
+                hw_->release(frame.picture);
         hw_frames_.clear();
+        pthread_cond_broadcast(&wake_); // a video thread may wait for a picture buffer
     }
     void clear_queues()
     {
@@ -819,7 +828,15 @@ class Session
         {
             const bool stopping = hardware_video();
             on_hardware_.store(false, std::memory_order_relaxed);
-            hw_.reset();
+            std::unique_ptr<HwDecoder> leaving;
+            {
+                // Other threads clear the queue under the lock and release into the
+                // decoder; it leaves under the same lock, with nothing in the queue.
+                Lock lock(mutex_);
+                hw_frames_.clear();
+                leaving = std::move(hw_);
+            }
+            leaving.reset();
             if (stopping)
                 return;
             // The hardware gave up on this film: FFmpeg takes over from where it is.
@@ -1035,6 +1052,7 @@ class Session
         hw_entry_.restart();
         hw_errors_ = 0;
         hw_silence_ = 0;
+        hw_h264_need_key_ = false;
         if (renew && !hw_->renew())
             return false;
         return build_annexb_filter();
@@ -1131,6 +1149,23 @@ class Session
             if (!restart_hardware(true))
                 return false;
         }
+        if (hw_resync_)
+        {
+            hw_resync_ = false;
+            if (++hw_resyncs_ > kMaxHwResyncs)
+            {
+                sys::log("[HUI] hw decoder: stream errors keep coming");
+                return false;
+            }
+            if (!restart_hardware(true))
+                return false;
+            hw_entry_.refused(); // HEVC: from the next key frame
+            hw_h264_need_key_ = !hevc_;
+            hw_since_resync_ = 0;
+            sys::log("[HUI] hw decoder: stream error, starting again at the next key frame "
+                     "(%d of %d)",
+                     hw_resyncs_, kMaxHwResyncs);
+        }
         const std::int64_t stamp = packet->pts != AV_NOPTS_VALUE ? packet->pts : packet->dts;
         const double base = av_q2d(format_->streams[video_stream_]->time_base);
         const double pts = stamp != AV_NOPTS_VALUE ? static_cast<double>(stamp) * base - start_time_
@@ -1155,6 +1190,12 @@ class Session
         const int type = hevc_ ? media::hevc_picture_type(unit->data, size) : -1;
         if (hevc_ && !hw_entry_.admit(type))
             return true;
+        if (hw_h264_need_key_)
+        {
+            if (!media::h264_is_key(unit->data, size))
+                return true;
+            hw_h264_need_key_ = false;
+        }
         std::uint8_t *input = hw_->next_input();
         std::size_t used = size;
         if (hevc_)
@@ -1163,14 +1204,26 @@ class Session
             std::memcpy(input, unit->data, size);
         if (used == 0)
             return true;
-        const std::int64_t began = sys::monotonic_us();
         HwPicture picture;
-        const HwDecoder::Result result = hw_->decode(used, &picture);
-        const std::int64_t decoding = sys::monotonic_us() - began;
+        HwDecoder::Result result = HwDecoder::Result::no_room;
+        std::int64_t decoding = 0;
+        while (result == HwDecoder::Result::no_room)
+        {
+            const std::int64_t began = sys::monotonic_us();
+            result = hw_->decode(used, &picture);
+            decoding += sys::monotonic_us() - began;
+            if (result == HwDecoder::Result::no_room && !wait_for_picture_buffer(serial))
+                return !stop_ && hw_->can_free_room();
+        }
         decode_us_.fetch_add(decoding, std::memory_order_relaxed);
         if (decoding > kSlowStepUs)
             sys::log("[HUI] hw decoder: slow decode %lld ms at %.2fs",
                      static_cast<long long>(decoding / 1000), pts);
+        if (result == HwDecoder::Result::broken)
+        {
+            hw_resync_ = true;
+            return true;
+        }
         if (result == HwDecoder::Result::refused)
         {
             if (type >= 16 && type <= 23)
@@ -1182,6 +1235,8 @@ class Session
         {
             hw_errors_ = 0;
             hw_silence_ = 0;
+            if (++hw_since_resync_ >= kHwResyncForgiven)
+                hw_resyncs_ = 0;
             return hand_over(picture, serial);
         }
         return ++hw_silence_ <= kMaxHwSilence;
@@ -1198,14 +1253,29 @@ class Session
         Lock lock(mutex_);
         while (!stop_ && serial == serial_.load() && hw_frames_.size() >= kMaxHwFrames)
             pthread_cond_wait(&wake_, &mutex_);
-        if (stop_)
-            return false;
-        if (serial == serial_.load())
+        if (stop_ || serial != serial_.load())
         {
-            hw_frames_.push_back({picture, pts, serial});
-            pthread_cond_broadcast(&wake_);
+            hw_->release(picture);
+            return !stop_;
         }
+        hw_frames_.push_back({picture, pts, serial});
+        pthread_cond_broadcast(&wake_);
         return true;
+    }
+
+    // Every picture buffer is held. The player's own come back once the converter has
+    // copied them out; false when the session stops or seeks first, or when the decoder
+    // holds them all (nothing will come back then).
+    bool wait_for_picture_buffer(int serial)
+    {
+        Lock lock(mutex_);
+        while (!stop_ && serial == serial_.load() && hw_->can_free_room())
+        {
+            if (hw_->has_room())
+                return true;
+            pthread_cond_wait(&wake_, &mutex_);
+        }
+        return false;
     }
 
     // The file has ended: what the decoder still holds, then wait for the converter.
@@ -1214,7 +1284,10 @@ class Session
         for (int i = 0; i < kMaxHwSilence; ++i)
         {
             HwPicture picture;
-            if (hw_->drain(&picture) != HwDecoder::Result::picture || !hand_over(picture, serial))
+            HwDecoder::Result result = hw_->drain(&picture);
+            if (result == HwDecoder::Result::no_room && wait_for_picture_buffer(serial))
+                result = hw_->drain(&picture);
+            if (result != HwDecoder::Result::picture || !hand_over(picture, serial))
                 break;
         }
         Lock lock(mutex_);
@@ -1251,6 +1324,7 @@ class Session
             }
             if (frame.serial == serial_.load())
                 convert_frame(frame);
+            hw_->release(frame.picture); // the lock and broadcast at the top tell the video thread
         }
     }
 
@@ -1549,7 +1623,11 @@ class Session
     media::PendingStamps hw_stamps_;
     int hw_errors_ = 0;
     int hw_silence_ = 0;
+    int hw_resyncs_ = 0;
+    int hw_since_resync_ = 0;
     bool hw_jumping_ = false;
+    bool hw_resync_ = false;        // a stream error: start again at the next unit
+    bool hw_h264_need_key_ = false; // H.264 after a stream error: nothing but a key frame
     bool jump_logged_ = false;
 
     // The hardware decoder: set up at open, used by the video and converter threads,

@@ -24,7 +24,8 @@ struct HwMode
     HwCodec codec = HwCodec::h264;
     unsigned profile = 0; // the codec's own number: H.264 100 High, HEVC 1 Main, 2 Main10
     unsigned level = 0;
-    int max_width = 0; // what the decoder is sized for, not what the film shows
+    unsigned fallback_level = 0; // tried when the decoder refuses `level`; 0 for none
+    int max_width = 0;           // what the decoder is sized for, not what the film shows
     int max_height = 0;
 };
 
@@ -41,11 +42,17 @@ std::optional<HwMode> hw_mode(HwCodec codec, int profile, int depth, bool yuv420
 int hevc_picture_type(const std::uint8_t *unit, std::size_t size);
 
 // Copies an HEVC access unit without what the decoder refuses: NAL units of types
-// 48-63, which a decoder must ignore and which carry Dolby Vision's extra layers, and
-// a parameter set that a later one in the same unit replaces (a remux can hold two
-// different PPS 0, one from the file's header and one from the stream, and the
-// decoder then refuses the key frame). The output is never longer than the input.
+// 48-63, which a decoder must ignore and which carry Dolby Vision's extra layers, NAL
+// units of any layer but the base one (Dolby Vision profile 7's enhancement layer:
+// the decoder refused it at its first unit in VLC's port), and a parameter set that a later one in
+// the same unit replaces (a remux can hold two different PPS 0, one from the file's header and one
+// from the stream, and the decoder then refuses the key frame). The output is never longer than the
+// input.
 std::size_t clean_hevc_unit(const std::uint8_t *unit, std::size_t size, std::uint8_t *out);
+
+// True when an H.264 access unit in start-code form can start a decoder: an IDR picture,
+// or a picture of I slices only (judged by its first slice, as VLC's port does).
+bool h264_is_key(const std::uint8_t *unit, std::size_t size);
 
 // Decides which HEVC access units may reach the decoder after a random access.
 class HevcEntry

@@ -38,12 +38,13 @@ TEST(HwMode, OnlyFilmsBeyond1080pAskForTheHardware)
     EXPECT_TRUE(wants_hw_decoder(3840, 2160));
 }
 
-TEST(HwMode, FourKHevcIsSizedForTheCodedPictureAtLevelFiveOne)
+TEST(HwMode, FourKHevcIsSizedForTheCodedPictureAtLevelFiveTwoThenFiveOne)
 {
     const auto main10 = hw_mode(HwCodec::hevc, 2, 10, true, 3840, 2160);
     ASSERT_TRUE(main10.has_value());
     EXPECT_EQ(main10->profile, 2u);
-    EXPECT_EQ(main10->level, 153u);
+    EXPECT_EQ(main10->level, 156u);
+    EXPECT_EQ(main10->fallback_level, 153u);
     EXPECT_EQ(main10->max_width, 3840);
     EXPECT_EQ(main10->max_height, 2176);
 
@@ -127,6 +128,40 @@ TEST(HevcUnit, DolbyVisionsNalUnitsAreLeftOut)
     add_nal(&unit, 62, {0x55, 0x66});
     add_nal(&unit, 63, {0x77});
     EXPECT_EQ(cleaned(unit), expected);
+}
+
+// The second header byte holds the layer: Dolby Vision profile 7's enhancement layer is
+// layer 1, and the decoder takes the base layer only.
+TEST(HevcUnit, NalUnitsOfOtherLayersAreLeftOut)
+{
+    Bytes unit;
+    add_nal(&unit, 1, {0x22});
+    Bytes expected = unit;
+    unit.insert(unit.end(), {0, 0, 0, 1, 1 << 1, (1 << 3) | 1, 0x33});  // a slice of layer 1
+    unit.insert(unit.end(), {0, 0, 0, 1, 33 << 1, (1 << 3) | 1, 0x44}); // its SPS
+    EXPECT_EQ(cleaned(unit), expected);
+}
+
+// The first slice decides: slice_type is the second exp-Golomb number of its header.
+TEST(H264Unit, AnIdrOrAPictureOfISlicesIsAKeyAndNothingElse)
+{
+    const auto unit = [](std::initializer_list<std::uint8_t> nals)
+    {
+        Bytes out = {0, 0, 0, 1, 0x67, 0x64}; // an SPS first, as after a seek
+        out.insert(out.end(), nals);
+        return out;
+    };
+    // first_mb_in_slice 0 is "1"; slice_type 7 (I) is "0001000", 5 (P) "00110", 6 (B) "00111".
+    const Bytes idr = unit({0, 0, 1, 0x65, 0x88, 0x80});
+    const Bytes i_slices = unit({0, 0, 1, 0x41, 0x88, 0x80});
+    const Bytes p_slices = unit({0, 0, 1, 0x41, 0x9a, 0x00});
+    const Bytes b_slices = unit({0, 0, 1, 0x41, 0x9e, 0x00});
+    const Bytes no_picture = unit({});
+    EXPECT_TRUE(h264_is_key(idr.data(), idr.size()));
+    EXPECT_TRUE(h264_is_key(i_slices.data(), i_slices.size()));
+    EXPECT_FALSE(h264_is_key(p_slices.data(), p_slices.size()));
+    EXPECT_FALSE(h264_is_key(b_slices.data(), b_slices.size()));
+    EXPECT_FALSE(h264_is_key(no_picture.data(), no_picture.size()));
 }
 
 // PPS id 0 is the single bit 1, id 1 is 010. A remux holds the header's copy and the

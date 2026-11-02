@@ -31,6 +31,7 @@
 #include "platform/ps5/display_egl.hpp"
 #include "platform/ps5/ffmpeg_player.hpp"
 #include "platform/ps5/http.hpp"
+#include "platform/ps5/hw_decoder.hpp"
 #include "platform/ps5/media_probe.hpp"
 #include "platform/ps5/pad.hpp"
 #include "platform/ps5/scanner.hpp"
@@ -40,6 +41,7 @@
 #include <cstring>
 #include <ctime>
 #include <GL/glcorearb.h>
+#include <pthread.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -292,10 +294,31 @@ int main()
     { renderer.batch().update_texture(texture, w, h, rgba); };
     surface.release = [&renderer](std::uint32_t texture)
     { renderer.batch().delete_texture(texture); };
+    const bool hardware_decoding = env.get("HW_DECODE") != "0";
+    if (hardware_decoding)
+    {
+        // The decoder's library and compute queue, made once, off the frame thread: a 4K
+        // film's start then does not wait for them.
+        // A big stack, as on the video thread: this library overflowed the default one.
+        pthread_attr_t attributes;
+        pthread_attr_init(&attributes);
+        pthread_attr_setstacksize(&attributes, std::size_t{1} << 20);
+        pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+        pthread_t preparing{};
+        pthread_create(
+            &preparing, &attributes,
+            [](void *) -> void *
+            {
+                ps5::HwDecoder::prepare();
+                return nullptr;
+            },
+            nullptr);
+        pthread_attr_destroy(&attributes);
+    }
     const std::unique_ptr<media::Player> player = ps5::make_ffmpeg_player(
         surface, &movie_ring, [&mixer](bool on)
         { mixer.set_stream_gain(audio::Mixer::kMovieStream, on ? 1.0f : 0.0f, 0.04f); },
-        env.get("HW_DECODE") != "0");
+        hardware_decoding);
     services.player = player.get();
 
     // Covers and wallpapers from TMDB, fetched in the background for every film
