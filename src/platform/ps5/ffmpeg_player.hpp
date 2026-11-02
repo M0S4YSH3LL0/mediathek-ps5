@@ -19,9 +19,10 @@ namespace hui::ps5
 // `ring` must outlive the player and be attached to a mixer stream slot.
 // `sound` switches that slot on and off: pausing mutes it, because the mixer
 // keeps playing what is already buffered (up to a few seconds) after decoding
-// has stopped.
+// has stopped. `hardware` lets films beyond 1080p use the console's picture decoder,
+// with FFmpeg still reading the file and decoding the sound (HW_DECODE=0 says no).
 std::unique_ptr<media::Player> make_ffmpeg_player(const media::VideoSurface &surface,
                                                   audio::StreamRing *ring,
-                                                  std::function<void(bool)> sound);
+                                                  std::function<void(bool)> sound, bool hardware);
 
 } // namespace hui::ps5

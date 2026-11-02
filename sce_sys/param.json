@@ -26,6 +26,7 @@
   },
   "kernel": {
     "cpuPageTableSize": 268435456,
+    "flexibleMemorySize": 1073741824,
     "gpuPageTableSize": 268435456
   },
   "localizedParameters": {

@@ -118,6 +118,13 @@ is not linked into any PS5 application, runtime, or package artifact.
 
 ## Movie decoding
 
+The hardware decoder's structures, call order and rules for its input
+(`src/platform/ps5/hw_decoder.cpp`, `src/media/hw_stream.cpp`,
+`tooling/native/stubs/videodec2_stub.c`) are transcribed from or modelled on these projects, which found them out on the
+console, both GPL-3.0-or-later:
+[EVO Player](https://github.com/sainsaji/EVO-PLAYER-PS5) and
+[ps5-hardware-video-decoding-research](https://github.com/JMUtechnologies/ps5-hardware-video-decoding-research).
+
 The app links PacBrew's static FFmpeg (`libavformat`, `libavcodec`,
 `libavutil`, `libswscale`, `libswresample`). That build was configured with
 `--enable-gpl --enable-version3 --enable-libx264 --enable-openssl`, so the

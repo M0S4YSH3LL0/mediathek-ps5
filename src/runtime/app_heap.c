@@ -33,12 +33,14 @@ size_t sceLibcMspaceMallocUsableSize(const void *address);
  * decoder frames pushed the old 128 MiB to its end (failed allocations show
  * as blocks and smears), and the player sizes its queues from what it got. */
 #define HUI_HEAP_MIN ((size_t)128u * 1024u * 1024u)
-static const size_t hui_heap_sizes[] = {
-    (size_t)384u * 1024u * 1024u,
-    (size_t)256u * 1024u * 1024u,
-    (size_t)192u * 1024u * 1024u,
-    HUI_HEAP_MIN,
-};
+#define HUI_HEAP_MAX ((size_t)384u * 1024u * 1024u)
+/* The console grants less than 384 MiB (256 on the author's: the larger request
+ * fails), so the sizes in between are tried in steps; whatever it allows wins. */
+#define HUI_HEAP_STEP ((size_t)8u * 1024u * 1024u)
+#define HUI_HEAP_SAFE ((size_t)256u * 1024u * 1024u)
+/* The hardware picture decoder maps its working memory from the same pool, and a 4K
+ * decoder is refused if it finds none. */
+#define HUI_HEAP_MARGIN ((size_t)64u * 1024u * 1024u)
 static size_t hui_heap_size;
 
 static atomic_int hui_heap_state;
@@ -93,9 +95,8 @@ static int hui_heap_ready(void)
 
     void *base = MAP_FAILED;
     size_t size = 0;
-    for (size_t i = 0; i < sizeof(hui_heap_sizes) / sizeof(hui_heap_sizes[0]); ++i)
+    for (size = HUI_HEAP_MAX; size >= HUI_HEAP_MIN; size -= HUI_HEAP_STEP)
     {
-        size = hui_heap_sizes[i];
         base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
         if (base != MAP_FAILED)
             break;
@@ -104,6 +105,31 @@ static int hui_heap_ready(void)
     {
         atomic_store_explicit(&hui_heap_state, -1, memory_order_release);
         return 0;
+    }
+    /* The probe found the limit by reaching it: give a little back so that what
+     * maps memory later (threads, the system's libraries) is not starved. 256 MiB
+     * is known to leave enough, so a heap above it never shrinks below it. */
+    if (size > HUI_HEAP_SAFE)
+    {
+        size_t keep = size - HUI_HEAP_MARGIN;
+        if (keep < HUI_HEAP_SAFE)
+            keep = HUI_HEAP_SAFE;
+        munmap(base, size);
+        void *smaller = mmap(NULL, keep, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        if (smaller != MAP_FAILED)
+        {
+            base = smaller;
+            size = keep;
+        }
+        else
+        {
+            base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            if (base == MAP_FAILED)
+            {
+                atomic_store_explicit(&hui_heap_state, -1, memory_order_release);
+                return 0;
+            }
+        }
     }
 
     hui_heap_base = base;

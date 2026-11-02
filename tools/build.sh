@@ -218,6 +218,20 @@ for stub in "${import_stubs[@]}"; do
     stub_paths+=("$root/$stub")
     stub_options+=(--stub "$root/$stub")
 done
+# The hardware picture decoder has no SDK stub, so one is built. It is linked before
+# --as-needed: a system library that is not plainly NEEDED does not bind for an app like
+# this one, and its first call crashes (EVO Player's finding, also ProsperoLight's way).
+videodec2_stub="$build/stubs/libSceVideodec2.so"
+mkdir -p "$build/stubs"
+ninja_inputs=("$native/stubs/videodec2_stub.c" "$root/tooling/prospero-clang18" "$target_compiler")
+ninja_edge STUB "$build/stubs/videodec2_stub.o" env PS5_PAYLOAD_SDK="$sdk_root" \
+    PS5_CLANG="$target_compiler" USE_CCACHE=0 \
+    sh "$root/tooling/prospero-clang18" -std=c11 -O0 -fPIC \
+    -c "$native/stubs/videodec2_stub.c" -o "$build/stubs/videodec2_stub.o"
+ninja_inputs=("$build/stubs/videodec2_stub.o" "$sdk_root/bin/prospero-lld")
+ninja_edge STUB "$videodec2_stub" "$sdk_root/bin/prospero-lld" --shared \
+    -soname libSceVideodec2.sprx -o "$videodec2_stub" "$build/stubs/videodec2_stub.o"
+stub_options+=(--stub "$videodec2_stub")
 # The OpenGL runtime needs the process-lifetime heap in src/runtime/app_heap.c.
 wrap_options=()
 # The splash picture is hidden when the app says so (src/runtime/runtime_shims.c).
@@ -230,7 +244,7 @@ if [[ -f $root/src/runtime/app_heap.c ]]; then
     done
 fi
 ninja_inputs=("$native/ps5-pie.ld" "$native/app-symbols.map" "$sdk_root/bin/prospero-lld")
-for input in "${link_inputs[@]}" "${stub_paths[@]}" "$sdk_root"/target/lib/*.so; do
+for input in "${link_inputs[@]}" "$videodec2_stub" "${stub_paths[@]}" "$sdk_root"/target/lib/*.so; do
     [[ $input == -* ]] || ninja_inputs+=("$input")
 done
 if [[ -n ${pacbrew_root:-} ]]; then
@@ -242,9 +256,9 @@ fi
 ninja_edge LINK "$build/llvm-pie.elf" "$sdk_root/bin/prospero-lld" \
     -T "$native/ps5-pie.ld" --eh-frame-hdr "${wrap_options[@]}" \
     --version-script "$native/app-symbols.map" \
-    -e _start -o "$build/llvm-pie.elf" "${link_inputs[@]}" \
+    -e _start -o "$build/llvm-pie.elf" "${link_inputs[@]}" "$videodec2_stub" \
     --as-needed "${stub_paths[@]}" "$sdk_root"/target/lib/*.so
-ninja_inputs=("$build/llvm-pie.elf" "$tool" "${stub_paths[@]}" "$sdk_root"/target/lib/*.so)
+ninja_inputs=("$build/llvm-pie.elf" "$tool" "$videodec2_stub" "${stub_paths[@]}" "$sdk_root"/target/lib/*.so)
 ninja_edge CONVERT "$build/eboot.elf" "$tool" link --in "$build/llvm-pie.elf" --out "$build/eboot.elf" \
     "${stub_options[@]}" --stub-dir "$sdk_root/target/lib" --module-sdk "$module_sdk" \
     --companion-sdk "$companion_sdk" --file-name eboot.elf
@@ -312,7 +326,7 @@ printf '==> [zip] Archiving the application folder\n'
 python3 "$root/tools/zip-open-modes.py" "$dist/$title_id.zip"
 
 if [[ -f $root/.env ]] &&
-    grep -E '^(export +)?(TMDB_API_KEY|TMDB_LANGUAGE|DNS_SERVER|UI_LANGUAGE)=' "$root/.env" |
+    grep -E '^(export +)?(TMDB_API_KEY|TMDB_LANGUAGE|DNS_SERVER|UI_LANGUAGE|HW_DECODE)=' "$root/.env" |
         sed -E 's/^export +//' > "$app/mediathek.env" && [[ -s $app/mediathek.env ]]; then
     chmod 0666 "$app/mediathek.env"
     printf '==> [covers] mediathek.env written from .env (not in the zip)\n'

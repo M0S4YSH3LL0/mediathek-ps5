@@ -294,7 +294,8 @@ int main()
     { renderer.batch().delete_texture(texture); };
     const std::unique_ptr<media::Player> player = ps5::make_ffmpeg_player(
         surface, &movie_ring, [&mixer](bool on)
-        { mixer.set_stream_gain(audio::Mixer::kMovieStream, on ? 1.0f : 0.0f, 0.04f); });
+        { mixer.set_stream_gain(audio::Mixer::kMovieStream, on ? 1.0f : 0.0f, 0.04f); },
+        env.get("HW_DECODE") != "0");
     services.player = player.get();
 
     // Covers and wallpapers from TMDB, fetched in the background for every film

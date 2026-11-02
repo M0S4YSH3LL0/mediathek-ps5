@@ -166,6 +166,8 @@ HUI_TEXT(err_no_picture_decoder, "No decoder for this picture format",
          "Kein Decoder f\xC3\xBC" "r dieses Bildformat")
 HUI_TEXT(err_start_decoder, "Cannot start the picture decoder",
          "Bilddecoder l\xC3\xA4sst sich nicht starten")
+HUI_TEXT(err_too_big, "This film is too big for the memory the app has",
+         "Dieser Film ist zu gro\xC3\x9F f\xC3\xBCr den Speicher der App")
 
 // ---- where a movie lives
 HUI_TEXT(drive_internal, "Internal", "Intern")

@@ -33,9 +33,10 @@ src/media/                   the movie side, no platform code (mediainfo: langua
                                name -> title, year, quality; search_fold), progress (resume
                                points, watched), subtitles (.srt), tmdb + cover_service
                                (poster, wallpaper, description), poster_cache,
+                               hw_stream, yuv_picture (feeding the hardware decoder, its pictures to RGBA),
                                player.hpp (the interface), simulated_player (PC preview)
 src/core/i18n*               texts: i18n_texts.inc is THE table (English, German)
-src/platform/ps5/            ffmpeg_player, media_probe (stream list of a file, no
+src/platform/ps5/            ffmpeg_player, hw_decoder (the console's picture decoder), media_probe (stream list of a file, no
                              decoding), scanner (talks to the helper), display,
                              pad, audio_out, http + dns (own TLS client), system
 src/runtime/app_heap.c       the app's own heap (see "Memory" below)
@@ -137,7 +138,7 @@ folder's git repository and takes more than two minutes; use a long timeout.
 
 - The TMDB key belongs in the owner's `.env` (and from there in
   `dist/PPSA66120/mediathek.env`) or in `mediathek.env` on the console. The build
-  copies only `TMDB_API_KEY`, `TMDB_LANGUAGE`, `DNS_SERVER` and `UI_LANGUAGE`, and
+  copies only `TMDB_API_KEY`, `TMDB_LANGUAGE`, `DNS_SERVER`, `UI_LANGUAGE` and `HW_DECODE`, and
   never into the `.zip`. Never print, log or paste the key; `.env` and `dist/` are
   git-ignored.
 
@@ -202,7 +203,8 @@ the jobs with `Services::cover_jobs` ("Fetching 3/26 ...", `update_reload_progre
 
 **Memory.** FFmpeg needs far more than the kit's original 128 MiB heap; a 1080p
 H.264 MKV ran it out ("failures=260" in the log) and showed as blocks and frame
-jumps. `src/runtime/app_heap.c` tries 384, 256, 192 then 128 MiB, and
+jumps. `src/runtime/app_heap.c` tries 384 MiB down to 128 in 8 MiB steps (the author's console grants
+256: the 384 request fails), keeps a 24 MiB margin above 256, and
 `hui_heap_capacity()` lets the player scale its queues to what it got. The log
 lines `[HUI] heap ...` and `[HUI] playing/stall` are the evidence to ask for.
 
@@ -213,10 +215,54 @@ over 0.3 s or read over 16 MiB logs `[HUI] seek to ... took ... and read ... MB 
 points)`: few seek points and many MB mean such a file. Remuxing it (`ffmpeg -i in.mkv -c copy
 out.mkv`) writes the index.
 
-**Playback.** Software decode with 3 threads, an audio-clock-driven `StreamRing`,
-a 4 MB AVIO read buffer. Pausing and resuming re-seeks. 4K, 10-bit HEVC and HDR
-are not expected to be smooth. Embedded subtitle tracks are not shown; `.srt`
+**The hardware decoder.** Films beyond 1080p (`media::wants_hw_decoder`) go to `libSceVideodec2`
+(`src/platform/ps5/hw_decoder.cpp`), because the CPU tops out near 31 fps on a 4K60 10-bit film; FFmpeg still
+demuxes, decodes the sound and plays the rest. No public documentation exists: the structures and
+the call order come from EVO Player and ps5-hardware-video-decoding-research. The SDK has no stub, so
+`tools/build.sh` builds one from `tooling/native/stubs/videodec2_stub.c` and links it *before*
+`--as-needed`. Every name in it must exist on the console, or the app does not start at all (no log,
+CE-108255-1), so list only what is called. The decoder takes access units in start-code form
+(`hevc_mp4toannexb`, rebuilt per seek, or the parameter sets are not repeated) and cleaned of what it
+refuses (`media::clean_hevc_unit`); after a random access RASL pictures stay out (`media::HevcEntry`). A
+seek makes a new decoder on the same memory, because `Reset` leaves some 4K streams unable to restart.
+The pictures carry no time and come in display order, so each takes the earliest outstanding stamp
+(`media::PendingStamps`). They are 4:2:0 in two planes in direct memory, 10-bit as low-aligned 16-bit words
+(not P010); `media::yuv_to_rgba` makes the same RGBA picture the software path makes, on a thread of its
+own, and the kit's renderer shows it as ever (no second rendering path). Its working memory is
+flexible memory (`kernel.flexibleMemorySize`, which is why the heap leaves room), its pictures direct
+memory, so it does not touch the heap. The klog names each step *before* it enters the system's code
+(`[HUI] hw decoder: ...`): a bad value there can kill the process without returning. `HW_DECODE=0` in
+`mediathek.env` switches it off. Do not skip the 1 MiB stack on the video thread: the decoder overflows
+the default one. Evidence to ask for: `[HUI] heap` (`of=` shows whether the bigger pool applied),
+`[HUI] hw decoder`, and `(hardware)` with the times in `[HUI] playing/stall`.
+
+**Playback.** Below that, software decode on up to 4 frame threads, an audio-clock-driven
+`StreamRing`, a 4 MB AVIO read buffer. Pausing and resuming re-seeks. 4K, 10-bit HEVC
+and HDR are not expected to be smooth. Embedded subtitle tracks are not shown; `.srt`
 files are.
+
+**Decoder memory.** Each frame thread holds frames of its own: 4K 10-bit HEVC needs about
+175 MiB on one thread and 320 MiB on four (measured with FFmpeg on a PC), the 1080p
+H.264 case a fraction of that. `media::decoder_threads` (`src/media/decode_budget.cpp`)
+picks the threads that fit into what `hui_heap_stats` says is left, and the player
+refuses a film that fits on none (`err_too_big`) rather than run the fixed heap out,
+which aborts the app (no exceptions: a failed allocation is a crash). With one
+frame thread left the decoder uses 4 slice threads (no extra frames; helps only WPP streams,
+x265's default). The author's console grants a 336 MiB heap; one frame thread decodes their 4K
+10-bit HEVC sample at ~30 ms/frame, which is why it now gets two where they fit. A decoder
+slower than the film (the author's console decodes a 4K 59.94 fps 10-bit HEVC file at ~31 fps)
+is held in step with the sound by `media::DecodePace` (`src/media/decode_pace.cpp`; it does nothing
+until the first picture after a start or seek is out, because the way from the key frame to the target only looks like lag): on one
+frame thread it leaves out non-reference frames when 0.25 s behind, and on any number it jumps
+to a key frame near the sound when 0.8 s behind (`Session::keep_pace`). Several frame threads
+keep the non-reference frames on purpose: they are the work that runs in parallel (measured on
+a 4K 59.94 fps sample: 47 / 75 / 93 / 121 fps on 1 / 2 / 3 / 4 threads with everything, 32 fps
+on any number without the B-frames). It works only because the
+clock follows the sound in the `buffering` state too: a frozen clock sent the decoder after a
+time the sound had left. Do not switch the loop filter off to save time: it smears into every
+frame predicted from it. The estimate in `decode_budget.cpp` is fitted to the console's heap
+peak (238 MB, 35 MB of it the app, for one 10-bit 4K thread), not to a PC. The log
+line `[HUI] decoder WxH N-bit threads=... need=... room=...` is the evidence to ask for.
 
 **TMDB.** A v3 key or a v4 token. One request per film brings the poster, the
 wallpaper and the description (`overview`), and only for a film with no cover:
@@ -278,5 +324,5 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   checked them on hardware; a PC picture never counts as a console result. The
   owner has checked language detection, subtitle and audio switching, Back/exit,
   menu sounds, controller feedback, stepping between films, genre shelves, search,
-  the settings page (categories and settings panes, UI sounds, debug info, reload all with its progress message, shelves on Home) and internal and external drives on firmware 12.70; 4K and HEVC playback are
-  still unchecked.
+  the settings page (categories and settings panes, UI sounds, debug info, reload all with its progress message, shelves on Home) and internal and external drives on firmware 12.70. One 4K HEVC sample plays
+  almost fluently on the hardware decoder, its first picture taking seconds to arrive (cause open).

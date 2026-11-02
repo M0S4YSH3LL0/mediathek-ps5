@@ -5,6 +5,50 @@
 - Films are also found below a `mediathek/movies` folder (or `mediathek/Movies`) on the
   internal drive, USB drives and extended storage, beside the `movies` folder as before. Its
   subfolders become collections in the same way.
+- Films beyond 1080p (H.264 up to High, HEVC Main and Main10, up to 3840 x 2176) now decode on
+  the console's hardware decoder, `libSceVideodec2`, instead of on the CPU, which cannot keep up
+  with 4K: a 4K 59.94 fps 10-bit film got about 31 fps however it was tuned. FFmpeg still reads the
+  file and decodes the sound, and it still plays everything up to 1080p. If the hardware will
+  not take a film, or gives up on one mid-way, FFmpeg takes over. `HW_DECODE=0` in
+  `mediathek.env` keeps every film on FFmpeg. The picture is still shown at 1080p, the app's output.
+  The owner's 4K HEVC sample plays almost fluently on the console. Its first picture takes
+  seconds to arrive; the cause is still open.
+- Fixed: the sound started alone when the first picture took over 2 s, so a 4K film's picture
+  began seconds in and stood still. The sound now waits for it, up to 15 s.
+- Fixed: leaving a film on the hardware decoder could be taken for the hardware failing, and
+  started FFmpeg for a film that was closing.
+- Fixed: after a seek or a resume the picture stood still until the next key frame while the sound
+  played on. A seek lands on the key frame before its target, and the player took the decoder's
+  way from there for lag and skipped it. The klog line `[HUI] picture ... jumping to a key frame`
+  now names every real jump.
+- The app asks the console for 1 GiB of flexible memory (`kernel.flexibleMemorySize` in
+  `param.json`), and the heap leaves 64 MiB of it free rather than 24: the decoder's working
+  memory comes from the same pool.
+- Fixed: a 4K film (HEVC above all, and 10-bit most) crashed the app. The picture decoder
+  runs on up to four threads and each holds frames of its own, which at 4K is more than
+  the fixed heap has left. The player now works out what the heap has left when a film opens
+  and uses as many threads as fit (a 4K 10-bit film gets fewer), keeps smaller queues for
+  pictures above 1080p, and shows "This film is too big for the memory the app has" in place
+  of running the heap out. The klog line `[HUI] decoder ...` says what was chosen. Fewer
+  threads means slower decoding, so a big 4K film may still not play smoothly.
+- A 4K film that fits only one frame thread now decodes on four slice threads instead.
+  They need no frames of their own (same memory) and speed up streams coded for them, which
+  is x265's default (3x on a test clip); a stream without them is no faster than before.
+- A decoder that cannot keep up with the sound used to show a picture every few seconds: it
+  decoded every frame and fell further behind, and when the picture ran dry the clock stood
+  still while the sound played on, so the next pictures were always too late. The clock now
+  follows the sound while the picture catches up. A decoder on one thread drops the frames
+  nothing else is predicted from when it is 0.25 s behind; with several frame threads it keeps
+  them (they are what runs in parallel: a 4K 59.94 fps sample decodes at 47 fps on one thread,
+  75 on two and 121 on four, but at 32 on any number without them). A decoder 0.8 s behind
+  jumps to the next key frame near the sound. The klog `stall` and `playing` lines now say when the
+  file was opened, when the first picture was ready, and where the video thread spends its time.
+- The memory estimate for the picture decoder was too cautious (it assumed 204 MB for one
+  thread of a 4K 10-bit film, the console used under 150): such a film now gets two frame
+  threads instead of one.
+- The app asked the console for a 384 MiB heap, got nothing and fell back to 256. It now
+  tries every size in between (8 MiB steps) and takes the largest the console grants, less
+  a 24 MiB margin, which gives a 4K film the room it needs where the console allows it.
 
 ## 0.6.4 (01.000.064)
 

@@ -6,7 +6,12 @@
 
 #include "audio/mixer.hpp"
 #include "core/i18n.hpp"
+#include "media/decode_budget.hpp"
+#include "media/decode_pace.hpp"
+#include "media/hw_stream.hpp"
+#include "media/yuv_picture.hpp"
 #include "platform/ps5/av_names.hpp"
+#include "platform/ps5/hw_decoder.hpp"
 #include "platform/ps5/system.hpp"
 
 #include <fcntl.h>
@@ -30,14 +35,18 @@
 extern "C"
 {
 #include <libavcodec/avcodec.h>
+#include <libavcodec/bsf.h>
 #include <libavformat/avformat.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
 
 extern "C" std::size_t hui_heap_capacity(void);
+extern "C" void hui_heap_stats(std::size_t *live_bytes, std::size_t *peak_bytes,
+                               std::size_t *blocks, std::size_t *failures);
 
 namespace hui::ps5
 {
@@ -63,6 +72,31 @@ constexpr std::size_t kMaxPackets = 600;
 constexpr int kReadBuffer = 4 << 20;
 constexpr int kMaxWidth = 1920; // pictures are scaled down to fit, never up
 constexpr int kMaxHeight = 1080;
+// Beyond 1080p the decoder's frames take the room the queues had: a 4K file's
+// seconds of packets are cheap to refill, the frames are not. The console gave
+// the app 256 MiB, 34 of them in use at start, and one decoder thread of a 4K
+// 10-bit film already needs about 190.
+constexpr std::size_t kBigVideoPackets = 24 * kMiB;
+constexpr std::size_t kBigAudioPackets = 4 * kMiB;
+constexpr std::size_t kBigPictures = 3;
+constexpr std::size_t kSlack = 16 * kMiB;
+constexpr std::size_t kBigSlack = 8 * kMiB;
+constexpr int kDecoderThreads = 4;
+// The console's default thread stack is too small for its decoder library: an ordinary
+// H.264 film overflowed it inside sceVideodec2Decode (EVO Player's finding).
+constexpr std::size_t kVideoStack = kMiB;
+// Pictures the hardware decoder has finished and the converter has not reached.
+constexpr std::size_t kMaxHwFrames = 3;
+// A film the hardware cannot read shows it at once: errors or silence, not a bad picture.
+// The first few are normal after a random access into the middle of something.
+constexpr int kMaxHwErrors = 32;
+constexpr int kMaxHwSilence = 128;
+// How long the sound waits for the first picture. Long, because sound that starts alone
+// runs ahead of a picture that then has to catch it up: with 2 s, a 4K film's decoder was
+// 4.24 s behind on the console at its start. Only a film with no working picture waits it out.
+constexpr int kFirstPictureWaitMs = 15000;
+constexpr int kFirstPicturePollMs = 5;
+constexpr std::int64_t kSlowStepUs = 200000; // a step this long is worth a line in the log
 constexpr int kOutputRate = audio::kSampleRate;
 
 std::size_t max_video_bytes()
@@ -88,6 +122,14 @@ struct Picture
     std::vector<std::uint8_t> rgba;
     int width = 0;
     int height = 0;
+    double pts = 0.0;
+    int serial = 0;
+};
+
+// A picture the hardware decoder finished, still in its memory.
+struct HwFrame
+{
+    HwPicture picture;
     double pts = 0.0;
     int serial = 0;
 };
@@ -157,14 +199,14 @@ class Lock
 class Session
 {
   public:
-    Session(std::string path, double start, audio::StreamRing *ring)
-        : path_(std::move(path)), ring_(ring), discard_before_(start)
+    Session(std::string path, double start, audio::StreamRing *ring, bool hardware)
+        : path_(std::move(path)), ring_(ring), hardware_(hardware), discard_before_(start)
     {
         pthread_mutex_init(&mutex_, nullptr);
         pthread_cond_init(&wake_, nullptr);
         start_ = start;
         pthread_create(&demux_thread_, nullptr, &Session::demux_entry, this);
-        pthread_create(&video_thread_, nullptr, &Session::video_entry, this);
+        start_with_big_stack(&video_thread_, &Session::video_entry);
         pthread_create(&audio_thread_, nullptr, &Session::audio_entry, this);
     }
 
@@ -330,15 +372,27 @@ class Session
         const std::int64_t read_bytes = source_.bytes.load();
         const std::int64_t read_us = std::max<std::int64_t>(source_.micros.load(), 1);
         const std::int64_t frames = std::max<std::int64_t>(decoded_.load(), 1);
-        sys::log("[HUI] %s at %.1fs: %d shown, %d skipped on screen; video queue %zu packets %zu "
-                 "KB, audio %zu packets, "
-                 "%zu pictures; drive %.1f MB/s while reading (%lld MB total); "
-                 "decode+convert %.1f ms/frame over %lld frames, %lld late",
-                 what, position, shown, skipped, video_packets, video_bytes >> 10, audio_packets,
-                 pictures, static_cast<double>(read_bytes) / static_cast<double>(read_us),
-                 static_cast<long long>(read_bytes >> 20),
-                 static_cast<double>(decode_us_.load()) / 1000.0 / static_cast<double>(frames),
-                 static_cast<long long>(decoded_.load()), static_cast<long long>(late_.load()));
+        sys::log(
+            "[HUI] %s at %.1fs (%s): %d shown, %d skipped on screen; video queue %zu packets %zu "
+            "KB, audio %zu packets, "
+            "%zu pictures; drive %.1f MB/s while reading (%lld MB total); "
+            "decode+convert %.1f ms/frame over %lld frames, %lld late; opened %.2fs, first "
+            "picture %.2fs; video thread: %.1fs waiting for packets, %.1fs for room, %.1fs "
+            "converting %lld pictures (%.0f ms each)",
+            what, position, on_hardware_.load(std::memory_order_relaxed) ? "hardware" : "software",
+            shown, skipped, video_packets, video_bytes >> 10, audio_packets, pictures,
+            static_cast<double>(read_bytes) / static_cast<double>(read_us),
+            static_cast<long long>(read_bytes >> 20),
+            static_cast<double>(decode_us_.load()) / 1000.0 / static_cast<double>(frames),
+            static_cast<long long>(decoded_.load()), static_cast<long long>(late_.load()),
+            static_cast<double>(opened_us_.load()) / 1e6,
+            static_cast<double>(first_picture_us_.load()) / 1e6,
+            static_cast<double>(packet_wait_us_.load()) / 1e6,
+            static_cast<double>(room_wait_us_.load()) / 1e6,
+            static_cast<double>(convert_us_.load()) / 1e6,
+            static_cast<long long>(converted_.load()),
+            static_cast<double>(convert_us_.load()) / 1000.0 /
+                static_cast<double>(std::max<std::int64_t>(converted_.load(), 1)));
     }
 
   private:
@@ -350,6 +404,126 @@ class Session
         av_strerror(code, reason, sizeof(reason));
         error_ = std::string(what) + ": " + reason;
         return false;
+    }
+
+    // What the heap has left for the decoder once the player has its share:
+    // the packet queues, the pictures for the screen and some slack.
+    std::size_t decoder_room() const
+    {
+        const std::size_t capacity = hui_heap_capacity();
+        if (capacity == 0)
+            return SIZE_MAX; // the system's malloc, not the fixed heap
+        std::size_t live = 0;
+        hui_heap_stats(&live, nullptr, nullptr, nullptr);
+        const std::size_t player =
+            video_limit_ + audio_limit_ + picture_limit_ * kMaxWidth * kMaxHeight * 4 + slack_;
+        return capacity > live + player ? capacity - live - player : 0;
+    }
+
+    // The console's picture decoder, for a film it can take and FFmpeg cannot play in
+    // time. False leaves the film to FFmpeg, which also gets it if this fails later.
+    bool open_hardware(const AVCodecParameters *parameters)
+    {
+        if (!hardware_ || !media::wants_hw_decoder(parameters->width, parameters->height))
+            return false;
+        media::HwCodec codec = media::HwCodec::h264;
+        if (parameters->codec_id == AV_CODEC_ID_HEVC)
+            codec = media::HwCodec::hevc;
+        else if (parameters->codec_id != AV_CODEC_ID_H264)
+            return false;
+        const AVPixFmtDescriptor *format =
+            av_pix_fmt_desc_get(static_cast<AVPixelFormat>(parameters->format));
+        const int depth =
+            format != nullptr
+                ? format->comp[0].depth
+                : (parameters->profile == 2 && codec == media::HwCodec::hevc ? 10 : 8);
+        const bool yuv420 =
+            format == nullptr || (format->log2_chroma_w == 1 && format->log2_chroma_h == 1);
+        const auto mode = media::hw_mode(codec, parameters->profile, depth, yuv420,
+                                         parameters->width, parameters->height);
+        if (!mode.has_value())
+        {
+            sys::log("[HUI] hw decoder: not for this film (profile %d, %d-bit, %dx%d)",
+                     parameters->profile, depth, parameters->width, parameters->height);
+            return false;
+        }
+        hw_ = HwDecoder::open(*mode);
+        if (hw_ == nullptr)
+            return false;
+        on_hardware_.store(true, std::memory_order_relaxed);
+        hevc_ = codec == media::HwCodec::hevc;
+        hw_visible_width_ = parameters->width;
+        hw_visible_height_ = parameters->height;
+        hw_full_range_ = parameters->color_range == AVCOL_RANGE_JPEG;
+        hw_matrix_ = media::YuvMatrix::bt709;
+        if (parameters->color_space == AVCOL_SPC_BT2020_NCL ||
+            parameters->color_space == AVCOL_SPC_BT2020_CL)
+            hw_matrix_ = media::YuvMatrix::bt2020;
+        else if (parameters->color_space == AVCOL_SPC_BT470BG ||
+                 parameters->color_space == AVCOL_SPC_SMPTE170M)
+            hw_matrix_ = media::YuvMatrix::bt601;
+        AVStream *stream = format_->streams[video_stream_];
+        fit_to_screen(av_guess_sample_aspect_ratio(format_, stream, nullptr), parameters->width,
+                      parameters->height, &hw_width_, &hw_height_);
+        const AVRational rate = av_guess_frame_rate(format_, stream, nullptr);
+        hw_frame_time_ = rate.num > 0 && rate.den > 0 ? av_q2d(av_inv_q(rate)) : 0.04;
+        return true;
+    }
+
+    // The player's own limits stay as they are here: the frames do not touch the heap.
+    bool open_software(const AVCodecParameters *parameters)
+    {
+        const AVCodec *codec = avcodec_find_decoder(parameters->codec_id);
+        if (codec == nullptr)
+            return fail(i18n::tr(i18n::Text::err_no_picture_decoder), AVERROR_DECODER_NOT_FOUND);
+        video_context_ = avcodec_alloc_context3(codec);
+        avcodec_parameters_to_context(video_context_, parameters);
+        // Every frame thread holds frames of its own; at 4K that is more than
+        // the fixed heap has left, and running it out ends the app.
+        if (parameters->width > kMaxWidth)
+        {
+            Lock lock(mutex_); // the hardware's failure brings this here mid-film
+            video_limit_ = std::min(video_limit_, kBigVideoPackets);
+            audio_limit_ = std::min(audio_limit_, kBigAudioPackets);
+            picture_limit_ = kBigPictures;
+            slack_ = kBigSlack;
+        }
+        const AVPixFmtDescriptor *format =
+            av_pix_fmt_desc_get(static_cast<AVPixelFormat>(parameters->format));
+        const int depth = format != nullptr ? format->comp[0].depth : 16;
+        const int bytes_per_sample = depth > 8 ? 2 : 1;
+        const int threads =
+            media::decoder_threads(parameters->width, parameters->height, bytes_per_sample,
+                                   kDecoderThreads, decoder_room());
+        const bool slices = threads == 1 && kDecoderThreads > 1;
+        sys::log("[HUI] decoder %dx%d %d-bit threads=%d (of %d)%s need=%zu room=%zu",
+                 parameters->width, parameters->height, depth, threads, kDecoderThreads,
+                 slices ? " +slice threads" : "",
+                 media::decoder_bytes(parameters->width, parameters->height, bytes_per_sample,
+                                      std::max(threads, 1)),
+                 decoder_room());
+        if (threads == 0)
+        {
+            error_ = i18n::tr(i18n::Text::err_too_big); // no system reason to add
+            return false;
+        }
+        // One frame thread is all a 4K film may have. Slice threads hold no
+        // frames of their own (measured: the same memory, 94 instead of 32 fps)
+        // and help every stream coded for them, which is x265's default (WPP);
+        // a stream without them decodes on one thread either way.
+        pace_.allow_thinning(threads == 1);
+        video_context_->thread_count = slices ? kDecoderThreads : threads;
+        video_context_->thread_type = slices ? FF_THREAD_SLICE : FF_THREAD_FRAME | FF_THREAD_SLICE;
+        // Not AV_CODEC_FLAG2_FAST: its non-conforming shortcuts leave
+        // blocks and smears in busy, high-bitrate H.264 for a few percent.
+        // Beyond 1080p the CPU is the limit: skip the in-loop filter on
+        // frames nothing else is predicted from.
+        if (parameters->width > kMaxWidth)
+            video_context_->skip_loop_filter = AVDISCARD_NONREF;
+        const int code = avcodec_open2(video_context_, codec, nullptr);
+        if (code < 0)
+            return fail(i18n::tr(i18n::Text::err_start_decoder), code);
+        return true;
     }
 
     bool open_input()
@@ -423,23 +597,8 @@ class Session
         if (video_stream_ >= 0)
         {
             const AVCodecParameters *parameters = format_->streams[video_stream_]->codecpar;
-            const AVCodec *codec = avcodec_find_decoder(parameters->codec_id);
-            if (codec == nullptr)
-                return fail(i18n::tr(i18n::Text::err_no_picture_decoder),
-                            AVERROR_DECODER_NOT_FOUND);
-            video_context_ = avcodec_alloc_context3(codec);
-            avcodec_parameters_to_context(video_context_, parameters);
-            video_context_->thread_count = 4;
-            video_context_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
-            // Not AV_CODEC_FLAG2_FAST: its non-conforming shortcuts leave
-            // blocks and smears in busy, high-bitrate H.264 for a few percent.
-            // Beyond 1080p the CPU is the limit: skip the in-loop filter on
-            // frames nothing else is predicted from.
-            if (parameters->width > kMaxWidth)
-                video_context_->skip_loop_filter = AVDISCARD_NONREF;
-            code = avcodec_open2(video_context_, codec, nullptr);
-            if (code < 0)
-                return fail(i18n::tr(i18n::Text::err_start_decoder), code);
+            if (!open_hardware(parameters) && !open_software(parameters))
+                return false;
             char text[96];
             std::snprintf(text, sizeof(text), "%s %dx%d", video_name(parameters->codec_id),
                           parameters->width, parameters->height);
@@ -478,6 +637,7 @@ class Session
         for (Picture &picture : pictures_)
             recycle_locked(std::move(picture));
         pictures_.clear();
+        hw_frames_.clear();
     }
     void clear_queues()
     {
@@ -487,7 +647,7 @@ class Session
 
     void recycle_locked(Picture &&picture)
     {
-        if (spare_.size() < kMaxPictures + 1 && !picture.rgba.empty())
+        if (spare_.size() < picture_limit_ + 1 && !picture.rgba.empty())
             spare_.push_back(std::move(picture.rgba));
     }
     void drop_stale_pictures_locked()
@@ -522,6 +682,7 @@ class Session
                 seek_target_ = start_ + start_time_;
                 seek_pending_ = true;
             }
+            opened_us_.store(sys::monotonic_us() - began_us_);
             opened_.store(1, std::memory_order_release);
             pthread_cond_broadcast(&wake_);
         }
@@ -632,27 +793,53 @@ class Session
         return !stop_ && opened_.load() == 1;
     }
 
+    // The next packet for the picture decoder; false when the session is stopping.
+    bool next_video_item(Item *item)
+    {
+        const std::int64_t waiting = sys::monotonic_us();
+        Lock lock(mutex_);
+        while (!stop_ && video_queue_.empty())
+            pthread_cond_wait(&wake_, &mutex_);
+        packet_wait_us_.fetch_add(sys::monotonic_us() - waiting, std::memory_order_relaxed);
+        if (stop_)
+            return false;
+        *item = video_queue_.front();
+        video_queue_.pop_front();
+        if (item->packet != nullptr)
+            video_bytes_ -= static_cast<std::size_t>(item->packet->size);
+        pthread_cond_broadcast(&wake_);
+        return true;
+    }
+
     void video()
     {
         if (!wait_opened() || video_stream_ < 0)
             return;
+        if (hw_ != nullptr)
+        {
+            const bool stopping = hardware_video();
+            on_hardware_.store(false, std::memory_order_relaxed);
+            hw_.reset();
+            if (stopping)
+                return;
+            // The hardware gave up on this film: FFmpeg takes over from where it is.
+            if (!open_software(format_->streams[video_stream_]->codecpar))
+            {
+                sys::log("[HUI] hw decoder: no software decoder to fall back on");
+                Lock lock(mutex_);
+                video_eof_ = true;
+                return;
+            }
+            sys::log("[HUI] hw decoder: FFmpeg takes over");
+            seek(clock_.load(std::memory_order_relaxed));
+        }
         AVFrame *frame = av_frame_alloc();
         int decoder_serial = -1;
         for (;;)
         {
             Item item;
-            {
-                Lock lock(mutex_);
-                while (!stop_ && video_queue_.empty())
-                    pthread_cond_wait(&wake_, &mutex_);
-                if (stop_)
-                    break;
-                item = video_queue_.front();
-                video_queue_.pop_front();
-                if (item.packet != nullptr)
-                    video_bytes_ -= static_cast<std::size_t>(item.packet->size);
-                pthread_cond_broadcast(&wake_);
-            }
+            if (!next_video_item(&item))
+                break;
             if (item.serial != serial_.load())
             {
                 av_packet_free(&item.packet);
@@ -662,8 +849,12 @@ class Session
             {
                 avcodec_flush_buffers(video_context_);
                 decoder_serial = item.serial;
+                pace_.reset();
+                apply_pace(media::Skip::none);
             }
             const bool ended = item.packet == nullptr; // av_packet_free clears the pointer
+            if (!ended)
+                keep_pace(item.packet);
             const std::int64_t began = sys::monotonic_us();
             avcodec_send_packet(video_context_, item.packet); // null drains at the end of the file
             av_packet_free(&item.packet);
@@ -683,6 +874,38 @@ class Session
             }
         }
         av_frame_free(&frame);
+    }
+
+    // Leaves frames out when the decoder is behind the sound (see DecodePace). The
+    // lag is that of the packet's picture; the clock is where the sound is.
+    void keep_pace(const AVPacket *packet)
+    {
+        apply_pace(next_pace(packet));
+    }
+
+    media::Skip next_pace(const AVPacket *packet)
+    {
+        const std::int64_t stamp = packet->pts != AV_NOPTS_VALUE ? packet->pts : packet->dts;
+        if (stamp == AV_NOPTS_VALUE)
+            return media::Skip::none;
+        const double base = av_q2d(format_->streams[video_stream_]->time_base);
+        const double lag = clock_.load(std::memory_order_relaxed) -
+                           (static_cast<double>(stamp) * base - start_time_);
+        const media::Skip skip =
+            pace_.next(lag, (packet->flags & AV_PKT_FLAG_KEY) != 0, video_ready_.load());
+        // A jump leaves the picture standing while the sound runs, so the log names each one.
+        if (skip == media::Skip::to_key_frame && !jump_logged_)
+            sys::log("[HUI] picture %.2fs behind the sound at %.2fs: jumping to a key frame", lag,
+                     clock_.load(std::memory_order_relaxed));
+        jump_logged_ = skip == media::Skip::to_key_frame;
+        return skip;
+    }
+
+    void apply_pace(media::Skip skip)
+    {
+        video_context_->skip_frame = skip == media::Skip::none            ? AVDISCARD_DEFAULT
+                                     : skip == media::Skip::non_reference ? AVDISCARD_NONREF
+                                                                          : AVDISCARD_NONKEY;
     }
 
     // Converts one decoded picture and queues it for the screen.
@@ -706,16 +929,11 @@ class Session
             return;
         }
 
-        int width = frame->width;
-        int height = frame->height;
-        const AVRational aspect = av_guess_sample_aspect_ratio(
-            format_, const_cast<AVStream *>(stream), const_cast<AVFrame *>(frame));
-        if (aspect.num > 0 && aspect.den > 0 && aspect.num != aspect.den)
-            width = static_cast<int>(static_cast<double>(width) * aspect.num / aspect.den);
-        const double fit = std::min({1.0, static_cast<double>(kMaxWidth) / width,
-                                     static_cast<double>(kMaxHeight) / height});
-        width = std::max(2, static_cast<int>(width * fit) & ~1);
-        height = std::max(2, static_cast<int>(height * fit) & ~1);
+        int width = 0;
+        int height = 0;
+        fit_to_screen(av_guess_sample_aspect_ratio(format_, const_cast<AVStream *>(stream),
+                                                   const_cast<AVFrame *>(frame)),
+                      frame->width, frame->height, &width, &height);
 
         sws_ = sws_getCachedContext(sws_, frame->width, frame->height,
                                     static_cast<AVPixelFormat>(frame->format), width, height,
@@ -734,33 +952,353 @@ class Session
                                  sws_getCoefficients(SWS_CS_DEFAULT), 1, 0, 1 << 16, 1 << 16);
 
         Picture picture;
-        {
-            Lock lock(mutex_);
-            while (!stop_ && serial == serial_.load() && pictures_.size() >= kMaxPictures)
-                pthread_cond_wait(&wake_, &mutex_);
-            if (stop_ || serial != serial_.load())
-                return;
-            if (!spare_.empty())
-            {
-                picture.rgba = std::move(spare_.back());
-                spare_.pop_back();
-            }
-        }
+        if (!wait_for_room(serial, &picture))
+            return;
         picture.rgba.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
         std::uint8_t *planes[4] = {picture.rgba.data(), nullptr, nullptr, nullptr};
         const int strides[4] = {width * 4, 0, 0, 0};
+        const std::int64_t converting = sys::monotonic_us();
         sws_scale(sws_, frame->data, frame->linesize, 0, frame->height, planes, strides);
+        convert_us_.fetch_add(sys::monotonic_us() - converting, std::memory_order_relaxed);
+        converted_.fetch_add(1, std::memory_order_relaxed);
         picture.width = width;
         picture.height = height;
         picture.pts = pts;
         picture.serial = serial;
+        queue_picture(std::move(picture));
+    }
 
+    // Pictures are never scaled up, and always fit the screen's canvas.
+    static void fit_to_screen(AVRational aspect, int source_width, int source_height, int *width,
+                              int *height)
+    {
+        int wide = source_width;
+        if (aspect.num > 0 && aspect.den > 0 && aspect.num != aspect.den)
+            wide = static_cast<int>(static_cast<double>(wide) * aspect.num / aspect.den);
+        const double fit = std::min({1.0, static_cast<double>(kMaxWidth) / wide,
+                                     static_cast<double>(kMaxHeight) / source_height});
+        *width = std::max(2, static_cast<int>(wide * fit) & ~1);
+        *height = std::max(2, static_cast<int>(source_height * fit) & ~1);
+    }
+
+    // Waits until the screen's queue has room and gives `picture` a used buffer if there
+    // is one; false when the picture is not wanted any more.
+    bool wait_for_room(int serial, Picture *picture)
+    {
+        const std::int64_t waiting = sys::monotonic_us();
         Lock lock(mutex_);
+        while (!stop_ && serial == serial_.load() && pictures_.size() >= picture_limit_)
+            pthread_cond_wait(&wake_, &mutex_);
+        room_wait_us_.fetch_add(sys::monotonic_us() - waiting, std::memory_order_relaxed);
         if (stop_ || serial != serial_.load())
+            return false;
+        if (!spare_.empty())
+        {
+            picture->rgba = std::move(spare_.back());
+            spare_.pop_back();
+        }
+        return true;
+    }
+
+    void queue_picture(Picture &&picture)
+    {
+        Lock lock(mutex_);
+        if (stop_ || picture.serial != serial_.load())
             return;
         pictures_.push_back(std::move(picture));
+        std::int64_t none = 0;
+        if (first_picture_us_.compare_exchange_strong(none, sys::monotonic_us() - began_us_))
+            sys::log("[HUI] first picture after %.2fs",
+                     static_cast<double>(first_picture_us_) / 1e6);
         video_ready_.store(true);
         pthread_cond_broadcast(&wake_);
+    }
+
+    // ------------------------------------------------- the hardware's pictures
+    //
+    // Two threads, so that neither waits for the other: the decoder's call takes about as
+    // long as a frame lasts at 4K60, and so can the conversion on a loaded console.
+
+    void start_with_big_stack(pthread_t *thread, void *(*entry)(void *))
+    {
+        pthread_attr_t attributes;
+        pthread_attr_init(&attributes);
+        pthread_attr_setstacksize(&attributes, kVideoStack);
+        pthread_create(thread, &attributes, entry, this);
+        pthread_attr_destroy(&attributes);
+    }
+
+    // A new decoder and filter for a stream that starts here: after a seek or a jump.
+    bool restart_hardware(bool renew)
+    {
+        hw_stamps_.reset();
+        hw_entry_.restart();
+        hw_errors_ = 0;
+        hw_silence_ = 0;
+        if (renew && !hw_->renew())
+            return false;
+        return build_annexb_filter();
+    }
+
+    // The decoder wants start codes where a file holds lengths. The filter is built anew
+    // each time because only a new one puts the parameter sets in front of the first key
+    // frame, and a decoder that starts without them never starts at all.
+    bool build_annexb_filter()
+    {
+        av_bsf_free(&annexb_);
+        const AVBitStreamFilter *filter =
+            av_bsf_get_by_name(hevc_ ? "hevc_mp4toannexb" : "h264_mp4toannexb");
+        if (filter == nullptr || av_bsf_alloc(filter, &annexb_) < 0)
+            return false;
+        const AVStream *stream = format_->streams[video_stream_];
+        if (avcodec_parameters_copy(annexb_->par_in, stream->codecpar) < 0)
+            return false;
+        annexb_->time_base_in = stream->time_base;
+        return av_bsf_init(annexb_) >= 0;
+    }
+
+    // Runs until the session stops (true) or the hardware gives up on the film (false).
+    bool hardware_video()
+    {
+        pthread_t converter{};
+        start_with_big_stack(&converter, &Session::convert_entry);
+        AVPacket *unit = av_packet_alloc();
+        pace_.allow_thinning(false); // the hardware works on several frames at once
+        bool stopping = true;
+        int decoder_serial = -1;
+        for (;;)
+        {
+            Item item;
+            if (!next_video_item(&item))
+                break;
+            if (item.serial != serial_.load())
+            {
+                av_packet_free(&item.packet);
+                continue;
+            }
+            if (item.serial != decoder_serial)
+            {
+                if (!restart_hardware(decoder_serial >= 0))
+                {
+                    av_packet_free(&item.packet);
+                    stopping = false;
+                    break;
+                }
+                pace_.reset();
+                hw_jumping_ = false;
+                decoder_serial = item.serial;
+            }
+            if (item.packet == nullptr)
+            {
+                finish_hardware(decoder_serial);
+                continue;
+            }
+            const bool fine = feed_hardware(item.packet, unit, decoder_serial);
+            av_packet_free(&item.packet);
+            if (!fine)
+            {
+                stopping = false;
+                break;
+            }
+        }
+        {
+            Lock lock(mutex_);
+            hw_finished_ = true;
+            // Leaving a film also ends in `false` from below; that is no failure of the hardware.
+            stopping = stopping || stop_;
+            pthread_cond_broadcast(&wake_);
+        }
+        pthread_join(converter, nullptr); // it reads the decoder's memory
+        av_packet_free(&unit);
+        av_bsf_free(&annexb_);
+        return stopping;
+    }
+
+    // False when the hardware cannot go on with this film.
+    bool feed_hardware(AVPacket *packet, AVPacket *unit, int serial)
+    {
+        const media::Skip skip = next_pace(packet);
+        if (skip == media::Skip::to_key_frame)
+        {
+            hw_jumping_ = true;
+            return true;
+        }
+        if (hw_jumping_)
+        {
+            // A key frame near the sound. What came before it was never submitted, so
+            // this is a random access like any seek.
+            hw_jumping_ = false;
+            if (!restart_hardware(true))
+                return false;
+        }
+        const std::int64_t stamp = packet->pts != AV_NOPTS_VALUE ? packet->pts : packet->dts;
+        const double base = av_q2d(format_->streams[video_stream_]->time_base);
+        const double pts = stamp != AV_NOPTS_VALUE ? static_cast<double>(stamp) * base - start_time_
+                                                   : last_video_pts_ + hw_frame_time_;
+        if (av_bsf_send_packet(annexb_, packet) < 0)
+            return true; // one bad packet, not a bad film
+        while (av_bsf_receive_packet(annexb_, unit) == 0)
+        {
+            const bool fine = submit_unit(unit, pts, serial);
+            av_packet_unref(unit);
+            if (!fine)
+                return false;
+        }
+        return true;
+    }
+
+    bool submit_unit(const AVPacket *unit, double pts, int serial)
+    {
+        const auto size = static_cast<std::size_t>(unit->size);
+        if (size == 0 || size > HwDecoder::input_capacity())
+            return true;
+        const int type = hevc_ ? media::hevc_picture_type(unit->data, size) : -1;
+        if (hevc_ && !hw_entry_.admit(type))
+            return true;
+        std::uint8_t *input = hw_->next_input();
+        std::size_t used = size;
+        if (hevc_)
+            used = media::clean_hevc_unit(unit->data, size, input);
+        else
+            std::memcpy(input, unit->data, size);
+        if (used == 0)
+            return true;
+        const std::int64_t began = sys::monotonic_us();
+        HwPicture picture;
+        const HwDecoder::Result result = hw_->decode(used, &picture);
+        const std::int64_t decoding = sys::monotonic_us() - began;
+        decode_us_.fetch_add(decoding, std::memory_order_relaxed);
+        if (decoding > kSlowStepUs)
+            sys::log("[HUI] hw decoder: slow decode %lld ms at %.2fs",
+                     static_cast<long long>(decoding / 1000), pts);
+        if (result == HwDecoder::Result::refused)
+        {
+            if (type >= 16 && type <= 23)
+                hw_entry_.refused();
+            return ++hw_errors_ <= kMaxHwErrors;
+        }
+        hw_stamps_.push(pts);
+        if (result == HwDecoder::Result::picture)
+        {
+            hw_errors_ = 0;
+            hw_silence_ = 0;
+            return hand_over(picture, serial);
+        }
+        return ++hw_silence_ <= kMaxHwSilence;
+    }
+
+    // True, unless the session is stopping.
+    bool hand_over(const HwPicture &picture, int serial)
+    {
+        double pts = 0.0;
+        if (!hw_stamps_.take(&pts))
+            pts = last_video_pts_ + hw_frame_time_;
+        last_video_pts_ = pts;
+        decoded_.fetch_add(1, std::memory_order_relaxed);
+        Lock lock(mutex_);
+        while (!stop_ && serial == serial_.load() && hw_frames_.size() >= kMaxHwFrames)
+            pthread_cond_wait(&wake_, &mutex_);
+        if (stop_)
+            return false;
+        if (serial == serial_.load())
+        {
+            hw_frames_.push_back({picture, pts, serial});
+            pthread_cond_broadcast(&wake_);
+        }
+        return true;
+    }
+
+    // The file has ended: what the decoder still holds, then wait for the converter.
+    void finish_hardware(int serial)
+    {
+        for (int i = 0; i < kMaxHwSilence; ++i)
+        {
+            HwPicture picture;
+            if (hw_->drain(&picture) != HwDecoder::Result::picture || !hand_over(picture, serial))
+                break;
+        }
+        Lock lock(mutex_);
+        while (!stop_ && serial == serial_.load() && (!hw_frames_.empty() || hw_converting_))
+            pthread_cond_wait(&wake_, &mutex_);
+        if (serial == serial_.load())
+            video_eof_ = true;
+        pthread_cond_broadcast(&wake_);
+    }
+
+    static void *convert_entry(void *self)
+    {
+        static_cast<Session *>(self)->convert_frames();
+        return nullptr;
+    }
+
+    void convert_frames()
+    {
+        for (;;)
+        {
+            HwFrame frame;
+            {
+                Lock lock(mutex_);
+                hw_converting_ = false;
+                pthread_cond_broadcast(&wake_);
+                while (!stop_ && !hw_finished_ && hw_frames_.empty())
+                    pthread_cond_wait(&wake_, &mutex_);
+                if (stop_ || hw_finished_)
+                    break;
+                frame = hw_frames_.front();
+                hw_frames_.pop_front();
+                hw_converting_ = true;
+                pthread_cond_broadcast(&wake_);
+            }
+            if (frame.serial == serial_.load())
+                convert_frame(frame);
+        }
+    }
+
+    void convert_frame(const HwFrame &frame)
+    {
+        if (frame.pts < discard_before_.load() - 0.001)
+            return;
+        if (frame.pts < clock_.load(std::memory_order_relaxed) - 0.3 && video_ready_.load())
+        {
+            late_.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        Picture picture;
+        if (!wait_for_room(frame.serial, &picture))
+            return;
+        picture.rgba.resize(static_cast<std::size_t>(hw_width_) *
+                            static_cast<std::size_t>(hw_height_) * 4);
+        if (frame.picture.wide && hw_shift_ < 0)
+        {
+            // One row across the middle of the first picture: it says where the bits are.
+            const std::size_t row = static_cast<std::size_t>(frame.picture.height / 2);
+            hw_shift_ = media::ten_bit_shift(reinterpret_cast<const std::uint16_t *>(
+                                                 frame.picture.luma + row * frame.picture.pitch),
+                                             static_cast<std::size_t>(frame.picture.width));
+            sys::log("[HUI] hw decoder: 10-bit samples shifted by %d", hw_shift_);
+        }
+        media::YuvPicture source;
+        source.luma = frame.picture.luma;
+        source.chroma = frame.picture.chroma;
+        source.pitch = frame.picture.pitch;
+        source.width = std::min(hw_visible_width_, frame.picture.width);
+        source.height = std::min(hw_visible_height_, frame.picture.height);
+        source.wide = frame.picture.wide;
+        source.shift = frame.picture.wide ? std::max(hw_shift_, 0) : 0;
+        const std::int64_t converting = sys::monotonic_us();
+        media::yuv_to_rgba(source, hw_matrix_, hw_full_range_, picture.rgba.data(), hw_width_,
+                           hw_height_);
+        const std::int64_t took = sys::monotonic_us() - converting;
+        convert_us_.fetch_add(took, std::memory_order_relaxed);
+        if (took > kSlowStepUs)
+            sys::log("[HUI] hw decoder: slow conversion %lld ms at %.2fs",
+                     static_cast<long long>(took / 1000), frame.pts);
+        converted_.fetch_add(1, std::memory_order_relaxed);
+        picture.width = hw_width_;
+        picture.height = hw_height_;
+        picture.pts = frame.pts;
+        picture.serial = frame.serial;
+        queue_picture(std::move(picture));
     }
 
     // -------------------------------------------------------------- sound
@@ -905,7 +1443,7 @@ class Session
     {
         if (video_stream_ < 0)
             return true;
-        for (int waited = 0; waited < 400; ++waited) // 2 s at most
+        for (int waited = 0; waited < kFirstPictureWaitMs; waited += kFirstPicturePollMs)
         {
             {
                 Lock lock(mutex_);
@@ -914,7 +1452,7 @@ class Session
                 if (video_ready_.load() || video_eof_)
                     return true;
             }
-            usleep(5000);
+            usleep(kFirstPicturePollMs * 1000);
         }
         return true;
     }
@@ -939,6 +1477,7 @@ class Session
 
     std::string path_;
     audio::StreamRing *ring_;
+    const bool hardware_;
     double start_ = 0.0;
 
     pthread_mutex_t mutex_;
@@ -960,14 +1499,27 @@ class Session
     std::string error_;
     std::string summary_;
     std::atomic<int> opened_{0}; // 0 opening, 1 ready, 2 failed
+    // For the log: when the file was open and the first picture ready, from the start.
+    const std::int64_t began_us_ = sys::monotonic_us();
+    std::atomic<std::int64_t> opened_us_{0};
+    std::atomic<std::int64_t> first_picture_us_{0};
+    // Where the video thread spends its time, for the log.
+    std::atomic<std::int64_t> packet_wait_us_{0};
+    std::atomic<std::int64_t> room_wait_us_{0};
+    std::atomic<std::int64_t> convert_us_{0};
+    std::atomic<std::int64_t> converted_{0};
+    // Used by the video thread only.
+    media::DecodePace pace_;
 
     // Guarded by mutex_.
     std::deque<Item> video_queue_;
     std::deque<Item> audio_queue_;
     std::size_t video_bytes_ = 0;
     std::size_t audio_bytes_ = 0;
-    const std::size_t video_limit_ = max_video_bytes();
-    const std::size_t audio_limit_ = max_audio_bytes();
+    std::size_t video_limit_ = max_video_bytes(); // lowered at open for big pictures
+    std::size_t audio_limit_ = max_audio_bytes();
+    std::size_t picture_limit_ = kMaxPictures;
+    std::size_t slack_ = kSlack; // heap kept free for everything the player does not count
     std::deque<Picture> pictures_;
     std::vector<std::vector<std::uint8_t>> spare_;
     bool stop_ = false;
@@ -992,6 +1544,31 @@ class Session
     // Video thread only.
     SwsContext *sws_ = nullptr;
     double last_video_pts_ = 0.0;
+    AVBSFContext *annexb_ = nullptr;
+    media::HevcEntry hw_entry_;
+    media::PendingStamps hw_stamps_;
+    int hw_errors_ = 0;
+    int hw_silence_ = 0;
+    bool hw_jumping_ = false;
+    bool jump_logged_ = false;
+
+    // The hardware decoder: set up at open, used by the video and converter threads,
+    // and gone once they have left it.
+    std::unique_ptr<HwDecoder> hw_;
+    std::atomic<bool> on_hardware_{false}; // for the log, which runs on the frame thread
+    bool hevc_ = false;
+    int hw_visible_width_ = 0;
+    int hw_visible_height_ = 0;
+    int hw_width_ = 0;
+    int hw_height_ = 0;
+    bool hw_full_range_ = false;
+    media::YuvMatrix hw_matrix_ = media::YuvMatrix::bt709;
+    double hw_frame_time_ = 0.04;
+    int hw_shift_ = -1; // converter thread: not known yet
+    // Guarded by mutex_.
+    std::deque<HwFrame> hw_frames_;
+    bool hw_converting_ = false;
+    bool hw_finished_ = false;
     // Frame thread only.
     Picture upload_;
 };
@@ -1000,8 +1577,8 @@ class FfmpegPlayer final : public media::Player
 {
   public:
     FfmpegPlayer(const media::VideoSurface &surface, audio::StreamRing *ring,
-                 std::function<void(bool)> sound)
-        : surface_(surface), ring_(ring), sound_(std::move(sound))
+                 std::function<void(bool)> sound, bool hardware)
+        : surface_(surface), ring_(ring), sound_(std::move(sound)), hardware_(hardware)
     {
     }
     ~FfmpegPlayer() override
@@ -1023,7 +1600,7 @@ class FfmpegPlayer final : public media::Player
         shown_ = 0;
         skipped_ = 0;
         scrub_ = false;
-        session_ = std::make_unique<Session>(path, clock_, ring_);
+        session_ = std::make_unique<Session>(path, clock_, ring_, hardware_);
         state_ = PlayerState::opening;
     }
 
@@ -1079,6 +1656,12 @@ class FfmpegPlayer final : public media::Player
 
         if (state_ == PlayerState::buffering)
         {
+            // The sound plays on while the picture catches up, so the clock does too:
+            // frozen, it made the decoder work toward a time the sound had left long
+            // ago, and every picture it then produced was already too late to show.
+            double audio = 0.0;
+            if (session_->audio_clock(&audio))
+                clock_ = audio;
             if (status.pictures > 0 || !video || status.video_done)
             {
                 if (status.pictures > 0)
@@ -1274,6 +1857,7 @@ class FfmpegPlayer final : public media::Player
 
     audio::StreamRing *ring_;
     std::function<void(bool)> sound_;
+    bool hardware_;
     std::unique_ptr<Session> session_;
     PlayerState state_ = PlayerState::idle;
     double clock_ = 0.0;
@@ -1296,9 +1880,9 @@ class FfmpegPlayer final : public media::Player
 
 std::unique_ptr<media::Player> make_ffmpeg_player(const media::VideoSurface &surface,
                                                   audio::StreamRing *ring,
-                                                  std::function<void(bool)> sound)
+                                                  std::function<void(bool)> sound, bool hardware)
 {
-    return std::make_unique<FfmpegPlayer>(surface, ring, std::move(sound));
+    return std::make_unique<FfmpegPlayer>(surface, ring, std::move(sound), hardware);
 }
 
 } // namespace hui::ps5
