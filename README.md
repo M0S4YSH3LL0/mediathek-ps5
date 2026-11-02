@@ -77,14 +77,15 @@ and `/user/appmeta/PPSA66120`, and copy it again.
 
 ## Your files
 
-Put films anywhere below a `movies` (or `Movies`) folder, up to six levels deep:
+Put films anywhere below a `movies` or `mediathek/movies` folder (`Movies` works too), up to
+six levels deep:
 
 ```
 /data/movies/Blue Harbor (2011)/Blue Harbor (2011).mkv
-/mnt/usb0/movies/Space Sagas/Orbital Dawn (2010).mkv
+/mnt/usb0/mediathek/movies/Space Sagas/Orbital Dawn (2010).mkv
 ```
 
-It searches `/data/movies`, `/movies`, `/mnt/usb0-7/movies` and `/mnt/ext0-1/movies`.
+It searches `movies` and `mediathek/movies` on `/data`, `/`, `/mnt/usb0-7` and `/mnt/ext0-1`.
 Press **Options** to scan again.
 
 - **Collections:** a subfolder with two or more films becomes its own shelf.
@@ -193,7 +194,7 @@ Circle to go back. Changes apply at once and save themselves.
 
 **The app starts but shows no films.**
 The ELF loader on `127.0.0.1:9021` is not running, or no searched drive has a `movies`
-folder. Start the loader and press **Options**.
+or `mediathek/movies` folder. Start the loader and press **Options**.
 
 **Nothing appears after I copy the folder.**
 Wait ten seconds after the copy ends. If it still does not show, delete the title and

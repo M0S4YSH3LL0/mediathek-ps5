@@ -189,6 +189,20 @@ scan_root(FILE *out, const char *root) {
   walk(out, root, 1);
 }
 
+#ifndef MT_TEST_ROOT
+/* The movies folders looked for on every drive: 12 drives of 4 stay within MAX_ROOTS. */
+static const char *const MOVIE_FOLDERS[] = {"movies", "Movies", "mediathek/movies", "mediathek/Movies", 0};
+
+static void
+scan_drive(FILE *out, const char *drive) {
+  for (int i = 0; MOVIE_FOLDERS[i]; i++) {
+    char root[64];
+    snprintf(root, sizeof root, "%s/%s", drive, MOVIE_FOLDERS[i]);
+    scan_root(out, root);
+  }
+}
+#endif
+
 int
 main(void) {
   mkdir(MT_HOME, 0777);
@@ -207,21 +221,17 @@ main(void) {
 #endif
 #else
   /* the same folders, in the same order, as default_roots() in src/media/library.cpp */
-  static const char *const fixed[] = {"/data/movies", "/data/Movies", "/movies", 0};
-  for (int i = 0; fixed[i]; i++) scan_root(out, fixed[i]);
+  scan_drive(out, "/data");
+  scan_drive(out, "");
   for (int i = 0; i < 8; i++) {
-    char root[64];
-    snprintf(root, sizeof root, "/mnt/usb%d/movies", i);
-    scan_root(out, root);
-    snprintf(root, sizeof root, "/mnt/usb%d/Movies", i);
-    scan_root(out, root);
+    char drive[32];
+    snprintf(drive, sizeof drive, "/mnt/usb%d", i);
+    scan_drive(out, drive);
   }
   for (int i = 0; i < 2; i++) {
-    char root[64];
-    snprintf(root, sizeof root, "/mnt/ext%d/movies", i);
-    scan_root(out, root);
-    snprintf(root, sizeof root, "/mnt/ext%d/Movies", i);
-    scan_root(out, root);
+    char drive[32];
+    snprintf(drive, sizeof drive, "/mnt/ext%d", i);
+    scan_drive(out, drive);
   }
 #endif
   fprintf(out, "end\n");

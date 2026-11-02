@@ -196,17 +196,16 @@ bool parse_index(std::string_view text, ScanResult *out)
 
 std::vector<std::string> default_roots()
 {
-    std::vector<std::string> roots = {"/data/movies", "/data/Movies", "/movies"};
+    // The same drives and folders, in the same order, as main() in helper/mt-scan.c.
+    std::vector<std::string> drives = {"/data", ""};
     for (int i = 0; i < 8; ++i)
-    {
-        roots.push_back("/mnt/usb" + std::to_string(i) + "/movies");
-        roots.push_back("/mnt/usb" + std::to_string(i) + "/Movies");
-    }
+        drives.push_back("/mnt/usb" + std::to_string(i));
     for (int i = 0; i < 2; ++i)
-    {
-        roots.push_back("/mnt/ext" + std::to_string(i) + "/movies");
-        roots.push_back("/mnt/ext" + std::to_string(i) + "/Movies");
-    }
+        drives.push_back("/mnt/ext" + std::to_string(i));
+    std::vector<std::string> roots;
+    for (const std::string &drive : drives)
+        for (const char *folder : {"movies", "Movies", "mediathek/movies", "mediathek/Movies"})
+            roots.push_back(drive + "/" + folder);
     return roots;
 }
 

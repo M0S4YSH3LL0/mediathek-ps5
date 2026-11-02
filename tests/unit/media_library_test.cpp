@@ -10,8 +10,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <fstream>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -265,6 +267,48 @@ TEST(MovieLibrary, FindsSubtitlesInASubsFolder)
             EXPECT_TRUE(movie.subtitles.empty()); // "Two" has none
         }
     }
+}
+
+TEST(MovieLibrary, SearchesMoviesAndMediathekMoviesOnEveryDrive)
+{
+    const std::vector<std::string> roots = default_roots();
+    const auto has = [&](const std::string &root)
+    { return std::find(roots.begin(), roots.end(), root) != roots.end(); };
+    for (const std::string drive :
+         {"/data", "", "/mnt/usb0", "/mnt/usb7", "/mnt/ext0", "/mnt/ext1"})
+    {
+        EXPECT_TRUE(has(drive + "/movies")) << drive;
+        EXPECT_TRUE(has(drive + "/Movies")) << drive;
+        EXPECT_TRUE(has(drive + "/mediathek/movies")) << drive;
+        EXPECT_TRUE(has(drive + "/mediathek/Movies")) << drive;
+    }
+    EXPECT_EQ(roots.size(), 48u); // helper/mt-scan.c keeps at most 64
+}
+
+// A collection folder is the first one under the root, also when the root is
+// mediathek/movies, and the drive is still named from the path.
+TEST(MovieLibrary, AMediathekMoviesFolderWorksLikeAMoviesFolder)
+{
+    ScanResult scan;
+    scan.roots = {"/mnt/usb0/movies", "/mnt/usb0/mediathek/movies"};
+    for (const char *path : {"/mnt/usb0/mediathek/movies/Space Sagas/Part One (2001).mkv",
+                             "/mnt/usb0/mediathek/movies/Space Sagas/Part Two (2003).mkv",
+                             "/mnt/usb0/movies/Blue Harbor (2011).mkv"})
+    {
+        FoundFile file;
+        file.path = path;
+        file.readable = path;
+        scan.videos.push_back(file);
+    }
+    const Library library = Library::from_scan(scan);
+    ASSERT_EQ(library.size(), 3u);
+    int in_collection = 0;
+    for (const Movie &movie : library.movies())
+        if (movie.collection == "Space Sagas")
+            ++in_collection;
+    EXPECT_EQ(in_collection, 2);
+    EXPECT_EQ(drive_label("/mnt/usb0/mediathek/movies/a.mkv"), "USB 1");
+    EXPECT_EQ(drive_label("/data/mediathek/movies/a.mkv"), "Internal");
 }
 
 TEST(MovieLibrary, NamesTheDrives)

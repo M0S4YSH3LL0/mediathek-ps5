@@ -7,7 +7,7 @@ repository is, where to look, how to work in it, and what "done" means here.
 
 **Mediathek**: a Netflix-style movie library and player for the PS5, a native
 C++20 app drawn with OpenGL 4.6 (title id `PPSA66120`, version in
-`sce_sys/param.json`). It finds films in `movies` folders on the internal drive,
+`sce_sys/param.json`). It finds films in `movies` and `mediathek/movies` folders on the internal drive,
 USB and extended storage, shows a billboard, shelves and a grid, fetches covers,
 wallpapers and descriptions from TMDB, plays files with FFmpeg and remembers
 where you stopped. The UI is English or German.
@@ -164,7 +164,8 @@ folder's git repository and takes more than two minutes; use a long timeout.
 ## Things that are not obvious
 
 **A sandboxed title cannot list a folder.** The app sends `mt-scan.elf` to an ELF
-loader on `127.0.0.1:9021`; it walks the `movies` folders, copies small pictures
+loader on `127.0.0.1:9021`; it walks the `movies` and `mediathek/movies` folders of each
+drive (the same list as `default_roots()` in `library.cpp`; change both), copies small pictures
 and subtitles next to the app and writes `mediathek-index.txt`, which the app
 reads as `/app0/mediathek-index.txt`. Without a loader the app starts and finds
 nothing. The install folder `/data/homebrew/PPSA66120` is `/app0` inside the app.

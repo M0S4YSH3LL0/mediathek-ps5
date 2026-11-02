@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Films are also found below a `mediathek/movies` folder (or `mediathek/Movies`) on the
+  internal drive, USB drives and extended storage, beside the `movies` folder as before. Its
+  subfolders become collections in the same way.
+
 ## 0.6.4 (01.000.064)
 
 - *Shelves on Home* gains a fourth option, *Decades only*, and *Genres* is now *Genres only*: it
