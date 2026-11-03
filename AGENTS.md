@@ -396,4 +396,6 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   the settings page (categories and settings panes, UI sounds, debug info, reload all with its progress message, shelves on Home) and internal and external drives on firmware 12.70. 4K HEVC films, HDR
   included, play smoothly on the hardware decoder with tone mapping (two checked, 0.7.0). HDR up to
   1080p with tone mapping, Force subtitles and Subtitle language, the regrouped Settings and the
-  one-shelf Home and details page were checked in 0.8.0.
+  one-shelf Home and details page were checked in 0.8.0. Since then (unreleased): series (scan,
+  TMDB seasons and episodes, season and episode choice, next episode in the player, the up-next
+  card), Recently Added by first-seen date (`added.txt`) and the wider *Abspielen* button.
