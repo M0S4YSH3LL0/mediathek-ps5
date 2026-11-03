@@ -468,7 +468,6 @@ class Session
         hevc_ = codec == media::HwCodec::hevc;
         hw_visible_width_ = parameters->width;
         hw_visible_height_ = parameters->height;
-        hw_colour_ = colour_of(parameters);
         AVStream *stream = format_->streams[video_stream_];
         fit_to_screen(av_guess_sample_aspect_ratio(format_, stream, nullptr), parameters->width,
                       parameters->height, &hw_width_, &hw_height_);
@@ -648,6 +647,7 @@ class Session
         if (video_stream_ >= 0)
         {
             const AVCodecParameters *parameters = format_->streams[video_stream_]->codecpar;
+            colour_ = colour_of(parameters);
             if (!open_hardware(parameters) && !open_software(parameters))
                 return false;
             char text[96];
@@ -997,6 +997,10 @@ class Session
         fit_to_screen(av_guess_sample_aspect_ratio(format_, const_cast<AVStream *>(stream),
                                                    const_cast<AVFrame *>(frame)),
                       frame->width, frame->height, &width, &height);
+        if (colour_.transfer != media::Transfer::sdr &&
+            gpu_pictures_.load(std::memory_order_relaxed) &&
+            show_planes(frame, pts, serial, width, height))
+            return;
 
         sws_ = sws_getCachedContext(sws_, frame->width, frame->height,
                                     static_cast<AVPixelFormat>(frame->format), width, height,
@@ -1029,6 +1033,48 @@ class Session
         picture.pts = pts;
         picture.serial = serial;
         queue_picture(std::move(picture));
+    }
+
+    // HDR goes to the graphics chip as planes, like the hardware decoder's pictures,
+    // because swscale cannot tone-map: its RGBA of a PQ or HLG film is grey and pale.
+    // False for a layout copy_planes() does not know; swscale then does what it can.
+    bool show_planes(const AVFrame *frame, double pts, int serial, int width, int height)
+    {
+        const auto format = static_cast<AVPixelFormat>(frame->format);
+        if (format != AV_PIX_FMT_YUV420P10LE && format != AV_PIX_FMT_YUV420P)
+        {
+            if (!planes_refused_)
+                sys::log("[HUI] hdr picture in %s: converted without tone mapping",
+                         av_get_pix_fmt_name(format));
+            planes_refused_ = true;
+            return false;
+        }
+        Picture picture;
+        if (!wait_for_room(serial, &picture))
+            return true; // not wanted any more, which is not the layout's fault
+        media::YuvPicture source;
+        source.luma = frame->data[0];
+        source.pitch = static_cast<std::size_t>(frame->linesize[0]);
+        source.chroma = frame->data[1];
+        source.chroma_v = frame->data[2];
+        source.chroma_pitch = static_cast<std::size_t>(frame->linesize[1]);
+        source.width = frame->width;
+        source.height = frame->height;
+        source.wide = format == AV_PIX_FMT_YUV420P10LE; // its 10 bits at the bottom: shift 0
+        const std::int64_t converting = sys::monotonic_us();
+        picture.yuv = true;
+        picture.layout = media::yuv_layout(source, width, height);
+        picture.colour = colour_;
+        picture.rgba.resize(media::yuv_bytes(picture.layout));
+        media::copy_planes(source, picture.layout, picture.rgba.data());
+        convert_us_.fetch_add(sys::monotonic_us() - converting, std::memory_order_relaxed);
+        converted_.fetch_add(1, std::memory_order_relaxed);
+        picture.width = width;
+        picture.height = height;
+        picture.pts = pts;
+        picture.serial = serial;
+        queue_picture(std::move(picture));
+        return true;
     }
 
     // Pictures are never scaled up, and always fit the screen's canvas.
@@ -1409,7 +1455,7 @@ class Session
         {
             // Only a copy here: the graphics chip converts, and tone maps HDR on the way.
             picture.layout = media::yuv_layout(source, hw_width_, hw_height_);
-            picture.colour = hw_colour_;
+            picture.colour = colour_;
             picture.rgba.resize(media::yuv_bytes(picture.layout));
             media::copy_planes(source, picture.layout, picture.rgba.data());
         }
@@ -1417,8 +1463,8 @@ class Session
         {
             picture.rgba.resize(static_cast<std::size_t>(hw_width_) *
                                 static_cast<std::size_t>(hw_height_) * 4);
-            media::yuv_to_rgba(source, hw_colour_.matrix, hw_colour_.full_range,
-                               picture.rgba.data(), hw_width_, hw_height_);
+            media::yuv_to_rgba(source, colour_.matrix, colour_.full_range, picture.rgba.data(),
+                               hw_width_, hw_height_);
         }
         const std::int64_t took = sys::monotonic_us() - converting;
         convert_us_.fetch_add(took, std::memory_order_relaxed);
@@ -1610,8 +1656,11 @@ class Session
     std::string path_;
     audio::StreamRing *ring_;
     const bool hardware_;
-    // Pictures from the hardware decoder go to the graphics chip as planes.
+    // Pictures from the hardware decoder, and HDR pictures from FFmpeg, go to the
+    // graphics chip as planes.
     std::atomic<bool> gpu_pictures_;
+    // The film's colours and light, for the graphics chip; set before the threads start.
+    media::YuvColour colour_;
     double start_ = 0.0;
 
     pthread_mutex_t mutex_;
@@ -1677,6 +1726,7 @@ class Session
 
     // Video thread only.
     SwsContext *sws_ = nullptr;
+    bool planes_refused_ = false; // video thread: logged once
     double last_video_pts_ = 0.0;
     AVBSFContext *annexb_ = nullptr;
     media::HevcEntry hw_entry_;
@@ -1699,7 +1749,6 @@ class Session
     int hw_visible_height_ = 0;
     int hw_width_ = 0;
     int hw_height_ = 0;
-    media::YuvColour hw_colour_;
     double hw_frame_time_ = 0.04;
     int hw_shift_ = -1; // converter thread: not known yet
     // Guarded by mutex_.

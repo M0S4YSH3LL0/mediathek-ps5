@@ -18,21 +18,25 @@ enum class YuvMatrix
 };
 
 // A 4:2:0 picture as the hardware decoder writes it: the luma plane, then the chroma
-// plane with U and V taking turns, both `pitch` bytes per row.
+// plane with U and V taking turns, both `pitch` bytes per row. FFmpeg's own decoders
+// keep U and V in planes of their own instead: then `chroma` is U, `chroma_v` is V,
+// and both are `chroma_pitch` bytes per row.
 struct YuvPicture
 {
     const std::uint8_t *luma = nullptr;
     const std::uint8_t *chroma = nullptr;
     std::size_t pitch = 0;
+    const std::uint8_t *chroma_v = nullptr; // planar pictures only
+    std::size_t chroma_pitch = 0;
     int width = 0; // what the film shows, which can be less than the rows hold
     int height = 0;
     bool wide = false; // 16-bit samples rather than 8
     int shift = 0;     // for 16-bit samples: how far up the 10 bits sit in them
 };
 
-// Scales `picture` down to width x height RGBA, four bytes a pixel, no gaps. Each pixel
-// averages four luma samples: at exactly half the size, which is 4K on a 1080p screen,
-// that is a proper box filter, and the chroma plane already has the size wanted.
+// Scales `picture` (two planes, not three) down to width x height RGBA, four bytes a pixel, no
+// gaps. Each pixel averages four luma samples: at exactly half the size, which is 4K on a 1080p
+// screen, that is a proper box filter, and the chroma plane already has the size wanted.
 void yuv_to_rgba(const YuvPicture &picture, YuvMatrix matrix, bool full_range, std::uint8_t *rgba,
                  int width, int height);
 
@@ -78,7 +82,7 @@ struct YuvLayout
 YuvLayout yuv_layout(const YuvPicture &source, int width, int height);
 std::size_t yuv_luma_bytes(const YuvLayout &layout);
 std::size_t yuv_bytes(const YuvLayout &layout);
-// Writes yuv_bytes(layout) bytes to `out`.
+// Writes yuv_bytes(layout) bytes to `out`; a planar picture's U and V are interleaved.
 void copy_planes(const YuvPicture &source, const YuvLayout &layout, std::uint8_t *out);
 
 // A picture on its way to the graphics chip.

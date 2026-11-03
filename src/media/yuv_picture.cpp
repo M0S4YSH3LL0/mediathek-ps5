@@ -229,9 +229,21 @@ void copy_chroma(const YuvPicture &source, const YuvLayout &layout, Sample *out)
     const int samples = 2 * layout.chroma_width;
     for (int row = 0; row < layout.chroma_height; ++row)
     {
+        Sample *line = out + static_cast<std::size_t>(row) * samples;
+        if (source.chroma_v != nullptr)
+        {
+            const std::size_t offset = static_cast<std::size_t>(row) * source.chroma_pitch;
+            const auto *u = reinterpret_cast<const Sample *>(source.chroma + offset);
+            const auto *v = reinterpret_cast<const Sample *>(source.chroma_v + offset);
+            for (int x = 0; x < layout.chroma_width; ++x)
+            {
+                line[2 * x] = stored<Sample>(u[x], source.shift);
+                line[2 * x + 1] = stored<Sample>(v[x], source.shift);
+            }
+            continue;
+        }
         const auto *in = reinterpret_cast<const Sample *>(
             source.chroma + static_cast<std::size_t>(row) * source.pitch);
-        Sample *line = out + static_cast<std::size_t>(row) * samples;
         if constexpr (sizeof(Sample) == 1)
             std::memcpy(line, in, static_cast<std::size_t>(samples));
         else

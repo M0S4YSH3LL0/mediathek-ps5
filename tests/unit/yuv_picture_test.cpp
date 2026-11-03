@@ -252,6 +252,72 @@ TEST(CopyPlanes, TenBitSamplesEndUpAtTheTopOfTheWordWhereverTheyWere)
     }
 }
 
+TEST(CopyPlanes, APlanarPictureHasItsUAndVInterleavedAndRaised)
+{
+    // FFmpeg's 10-bit 4:2:0: three planes, 10 bits at the bottom of each word, rows
+    // longer than the picture.
+    constexpr int kWidth = 4;
+    constexpr int kHeight = 4;
+    constexpr int kLumaStride = 6;
+    constexpr int kChromaStride = 4;
+    std::vector<std::uint16_t> luma(kLumaStride * kHeight, 0);
+    std::vector<std::uint16_t> u(kChromaStride * kHeight / 2, 0);
+    std::vector<std::uint16_t> v(kChromaStride * kHeight / 2, 0);
+    for (int row = 0; row < kHeight; ++row)
+        for (int x = 0; x < kWidth; ++x)
+            luma[static_cast<std::size_t>(row * kLumaStride + x)] = 500;
+    for (int row = 0; row < kHeight / 2; ++row)
+        for (int x = 0; x < kWidth / 2; ++x)
+        {
+            u[static_cast<std::size_t>(row * kChromaStride + x)] =
+                static_cast<std::uint16_t>(100 + x);
+            v[static_cast<std::size_t>(row * kChromaStride + x)] =
+                static_cast<std::uint16_t>(900 + row);
+        }
+    YuvPicture source;
+    source.luma = reinterpret_cast<const std::uint8_t *>(luma.data());
+    source.pitch = kLumaStride * 2;
+    source.chroma = reinterpret_cast<const std::uint8_t *>(u.data());
+    source.chroma_v = reinterpret_cast<const std::uint8_t *>(v.data());
+    source.chroma_pitch = kChromaStride * 2;
+    source.width = kWidth;
+    source.height = kHeight;
+    source.wide = true;
+    const YuvLayout layout = yuv_layout(source, kWidth, kHeight);
+    std::vector<std::uint8_t> out(yuv_bytes(layout), 0);
+    copy_planes(source, layout, out.data());
+    std::vector<std::uint16_t> samples(out.size() / 2);
+    std::memcpy(samples.data(), out.data(), out.size());
+    ASSERT_EQ(samples.size(), 16u + 8u);
+    for (int i = 0; i < 16; ++i)
+        EXPECT_EQ(samples[static_cast<std::size_t>(i)], 500 << 6);
+    const std::vector<std::uint16_t> chroma(samples.begin() + 16, samples.end());
+    EXPECT_EQ(chroma, (std::vector<std::uint16_t>{100 << 6, 900 << 6, 101 << 6, 900 << 6, 100 << 6,
+                                                  901 << 6, 101 << 6, 901 << 6}));
+}
+
+TEST(CopyPlanes, APlanar4kPictureHasItsLumaHalvedForA1080pScreen)
+{
+    Flat<std::uint8_t> flat(8, 4, 60, 0, 0);
+    std::vector<std::uint8_t> u(8, 70);
+    std::vector<std::uint8_t> v(8, 80);
+    flat.picture.chroma = u.data();
+    flat.picture.chroma_v = v.data();
+    flat.picture.chroma_pitch = 4;
+    const YuvLayout layout = yuv_layout(flat.picture, 4, 2);
+    ASSERT_EQ(layout.luma_width, 4);
+    ASSERT_EQ(layout.chroma_width, 4);
+    std::vector<std::uint8_t> out(yuv_bytes(layout), 0);
+    copy_planes(flat.picture, layout, out.data());
+    for (std::size_t i = 0; i < 8; ++i)
+        EXPECT_EQ(out[i], 60);
+    for (std::size_t i = 8; i < out.size(); i += 2)
+    {
+        EXPECT_EQ(out[i], 70);
+        EXPECT_EQ(out[i + 1], 80);
+    }
+}
+
 TEST(HdrPeak, TheContentLightLevelThenTheMasteringPeakThenAThousandNits)
 {
     EXPECT_FLOAT_EQ(hdr_peak_nits(1500.0f, 4000.0f), 1500.0f);
