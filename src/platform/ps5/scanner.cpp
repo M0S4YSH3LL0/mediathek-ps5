@@ -6,6 +6,8 @@
 
 #include "core/i18n.hpp"
 #include "core/save_file.hpp"
+#include "media/scan_folders.hpp"
+#include "platform/ps5/system.hpp"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -49,7 +51,7 @@ bool Scanner::load_cached(media::ScanResult *out)
     return save::read_file(kIndexPath, &text, 64u << 20) && media::parse_index(text, out);
 }
 
-bool Scanner::start()
+bool Scanner::start(const std::vector<std::string> &extra_roots)
 {
     status_ = Status::failed;
     std::string elf;
@@ -58,6 +60,10 @@ bool Scanner::start()
         note_ = i18n::tr(i18n::Text::scan_missing);
         return false;
     }
+    // Written every time, also with no folders: the block is then empty.
+    const bool embedded = media::embed_helper_roots(&elf, extra_roots);
+    sys::log("[HUI] scan extra roots=%zu %s", extra_roots.size(),
+             embedded ? "embedded" : "NOT embedded (old helper or too many)");
     const int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
     {

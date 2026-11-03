@@ -194,16 +194,22 @@ bool parse_index(std::string_view text, ScanResult *out)
     return header && complete;
 }
 
-std::vector<std::string> default_roots()
+std::vector<std::string> scan_drives()
 {
-    // The same drives and folders, in the same order, as main() in helper/mt-scan.c.
+    // The same drives, in the same order, as main() in helper/mt-scan.c.
     std::vector<std::string> drives = {"/data", ""};
     for (int i = 0; i < 8; ++i)
         drives.push_back("/mnt/usb" + std::to_string(i));
     for (int i = 0; i < 2; ++i)
         drives.push_back("/mnt/ext" + std::to_string(i));
+    return drives;
+}
+
+std::vector<std::string> default_roots()
+{
+    // The same folders, in the same order, as main() in helper/mt-scan.c.
     std::vector<std::string> roots;
-    for (const std::string &drive : drives)
+    for (const std::string &drive : scan_drives())
         for (const char *folder : {"movies", "Movies", "mediathek/movies", "mediathek/Movies"})
             roots.push_back(drive + "/" + folder);
     return roots;
@@ -321,6 +327,17 @@ Library Library::from_scan(const ScanResult &scan)
     for (const FoundFile &file : scan.videos)
         ++videos_per_folder[directory_of(file.path)];
 
+    // The root a file is under: the deepest one, as an extra folder may sit inside
+    // another ("/mnt/usb0" and "/mnt/usb0/movies"), and the collection is named from it.
+    const auto root_of = [&](const std::string &path) -> const std::string *
+    {
+        const std::string *found = nullptr;
+        for (const std::string &root : scan.roots)
+            if (path.compare(0, root.size() + 1, root + "/") == 0 &&
+                (found == nullptr || root.size() > found->size()))
+                found = &root;
+        return found;
+    };
     std::set<std::string> seen; // the same file reachable through two roots
     std::map<std::string, int> collection_sizes;
     for (const FoundFile &file : scan.videos)
@@ -401,18 +418,15 @@ Library Library::from_scan(const ScanResult &scan)
 
         // The first folder under a movies root names a collection, if it is
         // shared: "movies/Space Sagas/Part 1.mkv" and "…/Part 2.mkv".
-        for (const std::string &root : scan.roots)
+        if (const std::string *root = root_of(file.path); root != nullptr)
         {
-            if (file.path.compare(0, root.size() + 1, root + "/") != 0)
-                continue;
-            const std::string rest = file.path.substr(root.size() + 1);
+            const std::string rest = file.path.substr(root->size() + 1);
             const std::size_t slash = rest.find('/');
             if (slash != std::string::npos)
             {
                 movie.collection = rest.substr(0, slash);
-                ++collection_sizes[root + "/" + movie.collection];
+                ++collection_sizes[*root + "/" + movie.collection];
             }
-            break;
         }
         library.movies_.push_back(std::move(movie));
     }
@@ -422,14 +436,9 @@ Library Library::from_scan(const ScanResult &scan)
     {
         if (movie.collection.empty())
             continue;
-        for (const std::string &root : scan.roots)
-        {
-            if (movie.path.compare(0, root.size() + 1, root + "/") != 0)
-                continue;
-            if (collection_sizes[root + "/" + movie.collection] < 2)
-                movie.collection.clear();
-            break;
-        }
+        if (const std::string *root = root_of(movie.path);
+            root != nullptr && collection_sizes[*root + "/" + movie.collection] < 2)
+            movie.collection.clear();
     }
 
     library.sort();

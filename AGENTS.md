@@ -171,6 +171,18 @@ and subtitles next to the app and writes `mediathek-index.txt`, which the app
 reads as `/app0/mediathek-index.txt`. Without a loader the app starts and finds
 nothing. The install folder `/data/homebrew/PPSA66120` is `/app0` inside the app.
 
+**Extra folders reach the helper inside its own bytes.** The loader runs a payload with no
+arguments, so `mt-scan.c` has a 20 KB `volatile` block `extra_roots` in its data that starts with
+the mark `MT-EXTRA-ROOTS-1\n`; before sending, `Scanner::start` finds the mark and writes the roots
+there, one a line (`media::embed_helper_roots`; the mark and the size are written in both files,
+change both). The helper scans them after its own folders. The viewer's list (Settings > Library,
+`Services::scan_folders`, at most 8) is kept in `/download0/hui/scan-folders.txt`, one a line: a
+path starting with `/` is that folder, any other name is looked for on every drive
+(`scan_folder_roots`). Two helpers at once would write the same index, so a change during a scan
+waits for it. The log says `[HUI] scan extra roots=N embedded`; `NOT embedded` means an old helper.
+A film's collection is named from the deepest root it is under, as an extra folder may hold a
+`movies` folder.
+
 **The scan helper is silent.** It posts a console notification only when it fails. The "Found N
 movies" message after a scan is the app's own toast at the bottom (`Services::scan_found`).
 
@@ -178,7 +190,8 @@ movies" message after a scan is the app's own toast at the bottom (`Services::sc
 wallpapers and descriptions in `covers/` (a description is `<id>.txt`; an empty
 one is stored as `"\n"` so TMDB is not asked again, because `CoverStore::exists`
 needs size > 0; likewise `<id>.rating` is `"0"` and `<id>.genres` is `"-"` when TMDB has
-none, and `<id>.title` is `"\n"`), what a file contains in `info/<id>.info`, resume points beside them. Settings are read from
+none, and `<id>.title` is `"\n"`), what a file contains in `info/<id>.info`, the extra scan folders in `scan-folders.txt`,
+resume points beside them. Settings are read from
 `/app0/mediathek.env`.
 
 **The settings page.** The gear tab (`Tab::settings` in `mediathek.cpp`) is a `ui::ListView` of

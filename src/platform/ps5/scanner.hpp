@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace hui::ps5
 {
@@ -30,9 +31,11 @@ class Scanner
     // The index the last scan left behind, so the library is there at once.
     static bool load_cached(media::ScanResult *out);
 
-    // Sends the payload. False (with a sentence in note()) when it cannot:
-    // the payload file is missing, or nothing answers on the loader's port.
-    bool start();
+    // Sends the payload, with `extra_roots` (the viewer's folders, as
+    // media::scan_folder_roots gives them) written into it. False (with a
+    // sentence in note()) when it cannot: the payload file is missing, or
+    // nothing answers on the loader's port.
+    bool start(const std::vector<std::string> &extra_roots);
     // Once per frame while running: looks for the new index every half second.
     Status poll(float dt, media::ScanResult *out);
 

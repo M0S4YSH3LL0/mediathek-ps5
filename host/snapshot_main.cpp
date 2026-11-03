@@ -276,6 +276,9 @@ int main(int argc, char **argv)
     hui::media::Services services;
     // The console fetches covers; the preview only needs the action to show.
     services.refetch_cover = [](const std::string &) { return std::string(); };
+    // Extra folders as the viewer might have added them (invented); the preview keeps none.
+    services.scan_folders = {"/mnt/usb1/Films", "Documentaries"};
+    services.scan_folders_changed = [] {};
     {
         const char *movies = std::getenv("HUI_MOVIES");
         const std::string folder = movies != nullptr ? movies : "build/sample-movies/movies";

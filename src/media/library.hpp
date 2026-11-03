@@ -107,6 +107,8 @@ bool parse_index(std::string_view text, ScanResult *out);
 // Walks the folders directly (a PC, or a console that allows listing).
 ScanResult walk_folders(const std::vector<std::string> &roots);
 
+// The drives a console has, in order: "/data", "" (the system's root), "/mnt/usb0" ...
+std::vector<std::string> scan_drives();
 // The folders searched on a console, in order.
 std::vector<std::string> default_roots();
 

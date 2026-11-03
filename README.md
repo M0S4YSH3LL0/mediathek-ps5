@@ -80,6 +80,10 @@ six levels deep:
 It searches `movies` and `mediathek/movies` on `/data`, `/`, `/mnt/usb0-7` and `/mnt/ext0-1`.
 Press **Options** to scan again.
 
+Films somewhere else? Add the folder in **Settings > Library > Add folder**: a full path
+such as `/mnt/usb0/Films`, or just a name such as `Films`, which is then looked for on
+every drive. Up to eight; choose one in the list to remove it.
+
 - **Collections:** a subfolder with two or more films becomes its own shelf.
 - **Pictures:** `<film>-poster.jpg` and `<film>-fanart.jpg` beside the film. A film
   alone in its folder can also use `poster.jpg`, `folder.jpg` or `cover.jpg`, and
@@ -189,6 +193,7 @@ Circle to go back. Changes apply at once and save themselves.
 | General | App language | Automatic, English or Deutsch. |
 | General | UI sounds | Menu sounds on or off. |
 | Library | Reload all covers and infos | Fetches everything from TMDB again, with a message that counts the progress. |
+| Library | Movie folders | Folders searched besides `movies` and `mediathek/movies`: add a path or a name, or choose one to remove it. Each change scans again. |
 | About | Version | The version and when this build was made. |
 | About | Author | Who made the app. |
 | About | Debug info | Frame rate in the corner. |
@@ -210,7 +215,8 @@ Circle to go back. Changes apply at once and save themselves.
 
 **The app starts but shows no films.**
 The ELF loader on `127.0.0.1:9021` is not running, or no searched drive has a `movies`
-or `mediathek/movies` folder. Start the loader and press **Options**.
+or `mediathek/movies` folder, nor one you added in Settings. Start the loader and press
+**Options**.
 
 **Nothing appears after I copy the folder.**
 Wait ten seconds after the copy ends. If it still does not show, delete the title and

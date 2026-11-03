@@ -27,6 +27,7 @@
 #include "core/tween.hpp"
 #include "media/library.hpp"
 #include "media/mediainfo.hpp"
+#include "media/scan_folders.hpp"
 #include "media/services.hpp"
 #include "media/subtitles.hpp"
 #include "ui/components/dialog.hpp"
@@ -85,6 +86,9 @@ enum SettingsRow : int
     kRowDebug,
     kRowVersion,
     kRowAuthor,
+    kRowFoldersAlways,
+    kRowAddFolder,
+    kRowFolderFirst = 100, // the viewer's folder i is kRowFolderFirst + i
 };
 
 // What Settings::home_shelves holds, in the order of the row's options.
@@ -210,6 +214,13 @@ constexpr app::TourStep kTour[] = {
     {0.3f, action_bit(Action::confirm)},
     {0.2f, action_bit(Action::confirm)},
     {0.9f, 0, Direction::none, "reload"},
+    {0.3f, action_bit(Action::back)},
+    {0.3f, 0, Direction::down},
+    {0.3f, 0, Direction::down},
+    {0.3f, 0, Direction::down},
+    {0.9f, 0, Direction::none, "settings-library"},
+    {0.2f, action_bit(Action::confirm)},
+    {0.9f, 0, Direction::none, "folder-prompt"},
     {0.3f, action_bit(Action::back)},
     {0.3f, action_bit(Action::back)},
     {0.3f, 0, Direction::down},
@@ -634,7 +645,13 @@ class Mediathek final : public app::Concept
             update_search(input, feedback);
             return;
         }
-        if (reload_dialog_.is_open())
+        if (folder_prompt_.is_open())
+        {
+            if (folder_prompt_.handle(input, feedback) == ui::Event::activated)
+                add_folder(folder_prompt_.text(), feedback);
+            return;
+        }
+        if (reload_dialog_.is_open() || folder_dialog_.is_open())
         {
             update_settings(input, feedback);
             return;
@@ -826,6 +843,45 @@ class Mediathek final : public app::Concept
         reload_dialog_.style.theme = app_theme();
         reload_dialog_.style.frosted = false;
         reload_dialog_.style.reduced_motion = calm;
+        folder_dialog_.style = reload_dialog_.style;
+        setup_folder_prompt();
+    }
+
+    // The keyboard for a folder: the letters, with / - _ . where a path needs them instead of
+    // the punctuation a search wants (that stays one layout further, on R2).
+    static ui::KeyboardLayout path_keys()
+    {
+        ui::KeyboardLayout layout = ui::KeyboardLayout::letters();
+        const auto put = [&](std::size_t row, std::size_t column, const char *text)
+        {
+            ui::KeyboardKey &key = layout.rows[row][column];
+            key.text = text;
+            key.shifted.clear();
+        };
+        put(2, 9, "/");
+        put(3, 7, "-");
+        put(3, 8, "_");
+        put(3, 9, ".");
+        return layout;
+    }
+
+    void setup_folder_prompt()
+    {
+        folder_prompt_.style.theme = app_theme();
+        folder_prompt_.style.max_length = static_cast<int>(media::kMaxScanFolderLength);
+        folder_prompt_.style.frosted = false;
+        folder_prompt_.style.reduced_motion = context_.settings.reduced_motion;
+        folder_prompt_.style.auto_capital = false; // "/mnt/usb0": a path starts in lower case
+        folder_prompt_.style.done_label = tr(Text::folder_add);
+        folder_prompt_.style.cancel_label = tr(Text::folder_cancel);
+        folder_prompt_.style.empty_error = tr(Text::folder_invalid);
+        folder_prompt_.set_title(tr(Text::folder_prompt_title));
+        folder_prompt_.field.set_placeholder(tr(Text::folder_prompt_placeholder));
+        folder_prompt_.keyboard.style.bindings = ui::KeyboardBindings::standard();
+        folder_prompt_.keyboard.style.bindings.done = Action::menu;
+        folder_prompt_.keyboard.style.space_label = tr(Text::search_space);
+        folder_prompt_.keyboard.style.done_label = tr(Text::folder_add);
+        folder_prompt_.keyboard.set_layouts({path_keys(), ui::KeyboardLayout::symbols()});
     }
 
     // The rows of the category the list has its focus on.
@@ -866,6 +922,26 @@ class Mediathek final : public app::Concept
         case kCategoryLibrary:
             settings_form_.add_action(kRowReload, tr(Text::settings_reload)).description =
                 tr(Text::settings_reload_hint);
+            settings_form_.add_header(tr(Text::settings_folders));
+            settings_form_.add_value(kRowFoldersAlways, tr(Text::settings_folders_always),
+                                     tr(Text::settings_folders_default));
+            for (std::size_t i = 0; i < svc_->scan_folders.size(); ++i)
+            {
+                const std::string &folder = svc_->scan_folders[i];
+                ui::FormRow &row =
+                    settings_form_.add_action(kRowFolderFirst + static_cast<int>(i), folder);
+                // A path names its drive; a name is looked for on all of them.
+                row.text = folder.front() == '/' ? media::drive_label(folder + "/")
+                                                 : tr(Text::settings_folder_everywhere);
+                row.description = tr(Text::settings_folder_hint);
+            }
+            if (svc_->scan_folders_changed)
+            {
+                ui::FormRow &add =
+                    settings_form_.add_action(kRowAddFolder, tr(Text::settings_add_folder));
+                add.description = tr(Text::settings_add_folder_hint);
+                add.chevron = true;
+            }
             break;
         default:
             // Says which build this is: whether the console runs the one you just made. The
@@ -927,6 +1003,13 @@ class Mediathek final : public app::Concept
                 reload_everything(feedback);
             return;
         }
+        if (folder_dialog_.is_open())
+        {
+            if (folder_dialog_.handle(input, feedback) == ui::Event::activated &&
+                folder_dialog_.choice() == 1)
+                remove_folder(feedback);
+            return;
+        }
         const bool sideways = input.nav == Direction::left || input.nav == Direction::right;
         if (!settings_in_form_)
         {
@@ -967,8 +1050,83 @@ class Mediathek final : public app::Concept
         const ui::Event event = settings_form_.handle(input, feedback);
         if (event == ui::Event::changed)
             apply_setting(settings_form_.changed_id());
-        else if (event == ui::Event::activated && settings_form_.changed_id() == kRowReload)
+        else if (event == ui::Event::activated)
+            activate_setting(settings_form_.changed_id(), feedback);
+    }
+
+    void activate_setting(int row, app::Feedback &feedback)
+    {
+        if (row == kRowReload)
+        {
             ask_reload(feedback);
+        }
+        else if (row == kRowAddFolder)
+        {
+            if (svc_->scan_folders.size() >= media::kMaxScanFolders)
+                notify(feedback,
+                       i18n::format(Text::folder_full, std::to_string(media::kMaxScanFolders)),
+                       audio::Cue::error);
+            else
+                folder_prompt_.open(feedback);
+        }
+        else if (row >= kRowFolderFirst &&
+                 static_cast<std::size_t>(row - kRowFolderFirst) < svc_->scan_folders.size())
+        {
+            folder_removing_ = static_cast<std::size_t>(row - kRowFolderFirst);
+            ui::DialogContent content;
+            content.icon = ui::StatusKind::question;
+            content.title = tr(Text::folder_remove_title);
+            content.body =
+                i18n::format(Text::folder_remove_body, svc_->scan_folders[folder_removing_]);
+            content.buttons = {{tr(Text::folder_cancel)},
+                               {tr(Text::folder_remove_do), ui::ButtonKind::primary}};
+            content.default_button = 0;
+            folder_dialog_.open(content, feedback);
+        }
+    }
+
+    // Done in the folder prompt: the folder joins the list, which is saved, and the drives
+    // are scanned again so its films come in.
+    void add_folder(const std::string &typed, app::Feedback &feedback)
+    {
+        const std::string folder = media::clean_scan_folder(typed);
+        std::vector<std::string> &folders = svc_->scan_folders;
+        if (folder.empty())
+        {
+            notify(feedback, tr(Text::folder_invalid), audio::Cue::error);
+            return;
+        }
+        if (std::find(folders.begin(), folders.end(), folder) != folders.end())
+        {
+            notify(feedback, tr(Text::folder_known), audio::Cue::error);
+            return;
+        }
+        folders.push_back(folder);
+        folders_changed();
+        settings_form_.focus_row(kRowFolderFirst + static_cast<int>(folders.size()) - 1, true);
+        notify(feedback, tr(Text::folder_added), audio::Cue::notify);
+    }
+
+    void remove_folder(app::Feedback &feedback)
+    {
+        std::vector<std::string> &folders = svc_->scan_folders;
+        if (folder_removing_ >= folders.size())
+            return;
+        folders.erase(folders.begin() + static_cast<std::ptrdiff_t>(folder_removing_));
+        folders_changed();
+        // The focus stays where the removed folder was: on the next one, or on Add.
+        settings_form_.focus_row(folder_removing_ < folders.size()
+                                     ? kRowFolderFirst + static_cast<int>(folder_removing_)
+                                     : kRowAddFolder,
+                                 true);
+        notify(feedback, tr(Text::folder_removed), audio::Cue::notify);
+    }
+
+    void folders_changed()
+    {
+        if (svc_->scan_folders_changed)
+            svc_->scan_folders_changed();
+        build_settings_form();
     }
 
     // The texts are looked up as they are drawn, but some were put into components and shelves
@@ -1632,6 +1790,8 @@ class Mediathek final : public app::Concept
         settings_list_.update(dt);
         settings_form_.update(dt);
         reload_dialog_.update(dt);
+        folder_dialog_.update(dt);
+        folder_prompt_.update(dt);
 
         // The billboard is open on the first shelf, or on every one when it is pinned.
         hero_.target =
@@ -1847,6 +2007,16 @@ class Mediathek final : public app::Concept
         {
             ui::Canvas canvas{frame.overlay, context_.fonts, 0, clock_};
             reload_dialog_.draw(canvas);
+        }
+        if (folder_dialog_.visible())
+        {
+            ui::Canvas canvas{frame.overlay, context_.fonts, 0, clock_};
+            folder_dialog_.draw(canvas);
+        }
+        if (folder_prompt_.visible())
+        {
+            ui::Canvas canvas{frame.overlay, context_.fonts, 0, clock_};
+            folder_prompt_.draw(canvas);
         }
     }
 
@@ -2860,6 +3030,9 @@ class Mediathek final : public app::Concept
     bool settings_in_form_ = false; // which of the two has the focus
     bool settings_held_ = false;    // no fresh direction since the focus entered the form
     ui::Dialog reload_dialog_;
+    ui::Dialog folder_dialog_;
+    ui::InputPrompt folder_prompt_;
+    std::size_t folder_removing_ = 0; // the folder the open folder_dialog_ asks about
     int grid_focus_ = 0;
     ui::Scroller grid_scroll_;
 

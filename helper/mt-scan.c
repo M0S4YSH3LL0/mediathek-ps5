@@ -17,6 +17,9 @@
  *     S<TAB>path<TAB>readable           a subtitle file beside a video
  *     end
  *
+ * The folders the viewer added in Settings come inside this file: the app
+ * writes them into extra_roots (below) before it sends the payload.
+ *
  * "readable" is a copy under MT_HOME/art: a USB drive's pictures are not
  * necessarily readable from the sandbox, so the small files are copied in.
  * The videos are read in place; whether the sandbox allows that on a given
@@ -169,7 +172,7 @@ walk(FILE *out, const char *dir, int depth) {
 /* A USB or extended drive ignores letter case, so ".../movies" and
  * ".../Movies" can be one folder; scanning it twice would list every film
  * twice (and count it twice). Roots are told apart by device and inode. */
-#define MAX_ROOTS 64
+#define MAX_ROOTS 256 /* 48 of our own, and up to 8 extra folders on 12 drives */
 static dev_t g_root_dev[MAX_ROOTS];
 static ino_t g_root_ino[MAX_ROOTS];
 static int g_roots;
@@ -187,6 +190,36 @@ scan_root(FILE *out, const char *root) {
   }
   fprintf(out, "R\t%s\n", root);
   walk(out, root, 1);
+}
+
+/* The extra folders, one a line after the mark, then a zero. The app finds
+ * the mark in this file's bytes and writes the lines (embed_helper_roots() in
+ * src/media/scan_folders.cpp; the mark and the size are the same there). It is
+ * volatile so the compiler cannot take the empty block as a constant: it is
+ * changed after the build. */
+#define EXTRA_MARK "MT-EXTRA-ROOTS-1\n"
+#define EXTRA_SIZE 20480
+volatile char extra_roots[EXTRA_SIZE] = EXTRA_MARK;
+
+static void
+scan_extra(FILE *out) {
+  char root[1024];
+  size_t n = 0;
+  int too_long = 0;
+  for (size_t i = sizeof EXTRA_MARK - 1; i < EXTRA_SIZE; i++) {
+    const char c = extra_roots[i];
+    if (c == '\n' || c == 0) {
+      root[n] = 0;
+      if (n && !too_long) scan_root(out, root);
+      n = 0;
+      too_long = 0;
+      if (!c) break;
+    } else if (n < sizeof root - 1) {
+      root[n++] = c;
+    } else {
+      too_long = 1;
+    }
+  }
 }
 
 #ifndef MT_TEST_ROOT
@@ -234,6 +267,7 @@ main(void) {
     scan_drive(out, drive);
   }
 #endif
+  scan_extra(out);
   fprintf(out, "end\n");
   fclose(out);
   chmod(INDEX_TMP, 0666);

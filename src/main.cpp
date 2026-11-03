@@ -25,6 +25,7 @@
 #include "media/library.hpp"
 #include "media/poster_cache.hpp"
 #include "media/progress.hpp"
+#include "media/scan_folders.hpp"
 #include "media/services.hpp"
 #include "media/tmdb.hpp"
 #include "platform/ps5/audio_out.hpp"
@@ -71,6 +72,8 @@ constexpr const char *kEnvPath = "/app0/mediathek.env";
 constexpr const char *kCoverDir = "/download0/hui/covers";
 // What each film file contains, read once (length, codecs, languages).
 constexpr const char *kInfoDir = "/download0/hui/info";
+// The folders the viewer added in Settings > Library, one a line; a PC may edit it too.
+constexpr const char *kScanFoldersPath = "/download0/hui/scan-folders.txt";
 // New pictures reach the screen at most this often: each one rebuilds the shelves.
 constexpr double kCoverApplySeconds = 1.5;
 // Saved at most this often while something changes; the player also marks its
@@ -375,9 +378,17 @@ int main()
     };
     // Looks for the movies: the folders directly (a console that allows
     // listing), else through the helper payload, whose answer arrives later.
+    {
+        std::string text;
+        if (save::read_file(kScanFoldersPath, &text, 64u << 10))
+            services.scan_folders = media::parse_scan_folders(text);
+        sys::log("[HUI] scan folders=%zu", services.scan_folders.size());
+    }
+    bool scan_again = false; // the folders changed while a scan was running
     const auto scan = [&]()
     {
-        const media::ScanResult direct = media::walk_folders(media::default_roots());
+        const media::ScanResult direct =
+            media::walk_folders(media::scan_roots(services.scan_folders));
         if (!direct.videos.empty())
         {
             adopt(direct);
@@ -385,12 +396,24 @@ int main()
             services.scan_note.clear();
             return;
         }
-        services.scanning = scanner.start();
+        services.scanning = scanner.start(media::scan_folder_roots(services.scan_folders));
         services.scan_note = scanner.note();
         sys::log("[HUI] scan helper started=%d %s", services.scanning ? 1 : 0,
                  scanner.note().c_str());
     };
     services.rescan = scan;
+    services.scan_folders_changed = [&]()
+    {
+        const std::string failure =
+            save::write_atomic(kScanFoldersPath, media::format_scan_folders(services.scan_folders));
+        sys::log("[HUI] scan folders=%zu saved %s", services.scan_folders.size(),
+                 failure.empty() ? "ok" : failure.c_str());
+        // Two helpers at once would write the same index file: wait for the one running.
+        if (services.scanning)
+            scan_again = true;
+        else
+            scan();
+    };
     {
         media::ScanResult cached;
         if (ps5::Scanner::load_cached(&cached))
@@ -506,6 +529,11 @@ int main()
                 services.scanning = false;
                 services.scan_note = scanner.note();
                 sys::log("[HUI] scan failed: %s", scanner.note().c_str());
+            }
+            if (!services.scanning && scan_again)
+            {
+                scan_again = false;
+                scan();
             }
         }
         posters.poll();
