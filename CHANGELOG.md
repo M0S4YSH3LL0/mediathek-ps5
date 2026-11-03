@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The controller's light bar is red. It took the screen's coral accent, which the LED showed
+  as pink.
+
 ## 0.8.0 (01.000.080)
 
 - HDR films up to 1080p (and any that FFmpeg decodes, such as VP9 or a film the hardware

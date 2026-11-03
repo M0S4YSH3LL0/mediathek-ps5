@@ -58,6 +58,9 @@ using i18n::tr; // the text in the language of the console
 const Color kInk = Color::rgb(0xf5f5f7);
 const Color kBlack = Color::rgb(0x07070b);
 const Color kAccent = Color::rgb(0xff4d5e);
+// The controller's light bar is an LED, not a screen: the green and blue in the
+// accent turn it pink there, so it gets pure red of its own.
+const Color kLightBar = Color::rgb(0xff0000);
 
 constexpr float kMargin = 96.0f;
 constexpr float kGearRadius = 17.0f;
@@ -365,7 +368,7 @@ class Mediathek final : public app::Concept
             "Movies from the console's drives, shelved like a streaming service",
             "src/concepts/mediathek.cpp",
             audio::SoundSet::glass,
-            kAccent,
+            kLightBar,
             kTechniques,
         };
         return kInfo;
