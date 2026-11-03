@@ -6,6 +6,7 @@
   `mediathek/movies`, either a path (`/mnt/usb0/Films`) or a name looked for on every drive
   (`Films`), up to eight; choose one to remove it. Every change scans again. The list is kept
   in `/download0/hui/scan-folders.txt`, and the scan helper gets it written into its own bytes.
+- The "No movies found" screen points to Settings > Library, and Cross there opens *Add folder*.
 - Films are shown with their title from TMDB, colons, commas and dashes included, instead of
   the one read from the file name, which loses them. The file
   name's title is still what TMDB is asked for, what shows until TMDB has answered or when it

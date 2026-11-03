@@ -134,6 +134,8 @@ HUI_TEXT(place_internal, "/data/movies  (internal)", "/data/movies  (intern)")
 HUI_TEXT(place_usb, "/mnt/usb0/movies  (USB drive)", "/mnt/usb0/movies  (USB-Laufwerk)")
 HUI_TEXT(place_extended, "/mnt/ext0/movies  (extended storage)",
          "/mnt/ext0/movies  (erweiterter Speicher)")
+HUI_TEXT(other_folder, "Movies in another folder? Add it in {}.",
+         "Filme in einem anderen Ordner? F\xC3\xBCge ihn unter {} hinzu.")
 HUI_TEXT(name_them,
          "Name them like \"Blue Harbor (2011).mkv\"; a poster.jpg next to a movie becomes its "
          "cover.",
@@ -177,6 +179,7 @@ HUI_TEXT(unknown_movie, "Unknown movie", "Unbekannter Film")
 HUI_TEXT(hint_choose, "Choose", "Ausw\xC3\xA4hlen")
 HUI_TEXT(hint_back, "Back", "Zur\xC3\xBC" "ck")
 HUI_TEXT(hint_look_again, "Look again", "Neu suchen")
+HUI_TEXT(hint_add_folder, "Add folder", "Ordner hinzuf\xC3\xBCgen")
 HUI_TEXT(hint_details, "Details", "Details")
 HUI_TEXT(hint_play, "Play", "Abspielen")
 HUI_TEXT(hint_watched, "Watched", "Gesehen")

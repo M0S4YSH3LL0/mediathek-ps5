@@ -703,7 +703,11 @@ class Mediathek final : public app::Concept
 
         const int focused = focused_movie();
         if (focused < 0)
+        {
+            if (library().size() == 0 && input.is_pressed(Action::confirm))
+                open_add_folder(feedback);
             return; // nothing to move over
+        }
 
         if (tab_ == Tab::home)
             update_shelves(input, feedback);
@@ -984,6 +988,19 @@ class Mediathek final : public app::Concept
         settings_list_.set_focus(kCategoryAppearance, true);
         settings_list_.enter();
         build_settings_form();
+    }
+
+    // From the empty screen: Settings > Library, on "Add folder", one Cross away from the keys.
+    void open_add_folder(app::Feedback &feedback)
+    {
+        tab_ = Tab::settings;
+        tab_age_ = 0.0f;
+        open_settings();
+        settings_list_.set_focus(kCategoryLibrary, true);
+        build_settings_form();
+        focus_settings_form(true);
+        settings_form_.focus_row(kRowAddFolder, true);
+        feedback.play(audio::Cue::tab, 1.08f);
     }
 
     void focus_settings_form(bool in_form)
@@ -2450,8 +2467,14 @@ class Mediathek final : public app::Concept
                      kInk.with_alpha(0.9f), gfx::Align::center);
         ui::text(list, fonts.regular, tr(Text::name_them), cx, cy + 300, 22, kInk.with_alpha(0.55f),
                  gfx::Align::center);
+        // Films kept elsewhere need not be moved: the folder can be added (Cross goes there).
+        // A plain ">": the baked fonts have no single angle quote.
+        ui::text(list, fonts.regular,
+                 i18n::format(Text::other_folder, std::string(tr(Text::settings_title)) + " > " +
+                                                      tr(Text::settings_library)),
+                 cx, cy + 340, 22, kInk.with_alpha(0.55f), gfx::Align::center);
         if (!svc_->scan_note.empty())
-            ui::text(list, fonts.regular, svc_->scan_note, cx, cy + 346, 22, kAccent,
+            ui::text(list, fonts.regular, svc_->scan_note, cx, cy + 392, 22, kAccent,
                      gfx::Align::center);
         list.pop_opacity();
     }
@@ -2824,8 +2847,9 @@ class Mediathek final : public app::Concept
         }
         else if (library().size() == 0)
         {
-            const ui::Hint hints[] = {{ui::Button::options, tr(Text::hint_look_again)}};
-            ui::draw_hints(list, context_.fonts, style, hints, 1, 1824, true, hint_layout());
+            const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_add_folder)},
+                                      {ui::Button::options, tr(Text::hint_look_again)}};
+            ui::draw_hints(list, context_.fonts, style, hints, 2, 1824, true, hint_layout());
         }
         else if (tab_ == Tab::home)
         {

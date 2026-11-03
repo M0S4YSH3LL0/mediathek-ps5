@@ -82,7 +82,8 @@ Press **Options** to scan again.
 
 Films somewhere else? Add the folder in **Settings > Library > Add folder**: a full path
 such as `/mnt/usb0/Films`, or just a name such as `Films`, which is then looked for on
-every drive. Up to eight; choose one in the list to remove it.
+every drive. Up to eight; choose one in the list to remove it. Cross on the "No movies
+found" screen goes straight there.
 
 - **Collections:** a subfolder with two or more films becomes its own shelf.
 - **Pictures:** `<film>-poster.jpg` and `<film>-fanart.jpg` beside the film. A film
