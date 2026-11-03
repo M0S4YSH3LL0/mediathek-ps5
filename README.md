@@ -7,7 +7,7 @@
 **A Netflix-style movie library for your PS5.**<br>
 Put your films in a `movies` folder. Mediathek finds them, fetches their posters and plays them.
 
-[![Version 0.7.0](https://img.shields.io/badge/version-0.7.0-blue)](CHANGELOG.md)
+[![Version 0.8.0](https://img.shields.io/badge/version-0.8.0-blue)](CHANGELOG.md)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
 [![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Languages: English, German](https://img.shields.io/badge/languages-EN%20%7C%20DE-green)](#settings-and-language)
@@ -258,13 +258,15 @@ rules for changes. A release tag is the exact `contentVersion` of `sce_sys/param
 
 ## Status
 
-Version 0.7.0 (`contentVersion` 01.000.070).
+Version 0.8.0 (`contentVersion` 01.000.080).
 
 **Checked on the author's console, firmware 12.70:** the scan, covers and descriptions,
 the details page, a large 1080p H.264 MKV with sound, seeking, audio and subtitle
 switching, language detection, genre shelves, search, sorting, Settings, menu sounds
-and controller feedback, with films on internal and external drives, and 4K HEVC HDR
-films on the hardware decoder with tone mapping. The loader
+and controller feedback, with films on internal and external drives, 4K HEVC HDR
+films on the hardware decoder with tone mapping, and (0.8.0) HDR films up to 1080p with tone
+mapping, forced subtitles and the subtitle language, the regrouped Settings, and the simpler
+Home and details page. The loader
 version was not recorded. Reports from other firmware are welcome.
 
 **Not checked on a console:** 4K H.264, HLG and Dolby Vision films, and the fallback to the

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 (01.000.080)
 
 - HDR films up to 1080p (and any that FFmpeg decodes, such as VP9 or a film the hardware
   decoder will not take) are now tone-mapped like those on the hardware decoder, instead of

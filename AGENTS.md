@@ -157,7 +157,7 @@ folder's git repository and takes more than two minutes; use a long timeout.
   commit, the tag, the push and the GitHub release (zip and `.sha256` from `dist/release`).
   When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.070` is the app's 0.7.0); the app shows the short form (`kAppVersion` in
+  (`01.000.080` is the app's 0.8.0); the app shows the short form (`kAppVersion` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -346,4 +346,6 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   owner has checked language detection, subtitle and audio switching, Back/exit,
   menu sounds, controller feedback, stepping between films, genre shelves, search,
   the settings page (categories and settings panes, UI sounds, debug info, reload all with its progress message, shelves on Home) and internal and external drives on firmware 12.70. 4K HEVC films, HDR
-  included, play smoothly on the hardware decoder with tone mapping (two checked, 0.7.0).
+  included, play smoothly on the hardware decoder with tone mapping (two checked, 0.7.0). HDR up to
+  1080p with tone mapping, Force subtitles and Subtitle language, the regrouped Settings and the
+  one-shelf Home and details page were checked in 0.8.0.
