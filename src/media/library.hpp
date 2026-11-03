@@ -25,9 +25,13 @@ struct SubtitleFile
 
 struct Movie
 {
-    std::string id;      // stable across drive letters: name and size, hashed
-    std::string path;    // the video file
-    std::string title;   // "The Long Walk Home"
+    std::string id;    // stable across drive letters: name and size, hashed
+    std::string path;  // the video file
+    std::string title; // what is shown: TMDB's title once fetched, else file_title
+    // "The Long Walk Home": the title the file name gives, which drops the punctuation a
+    // file name cannot carry. TMDB is searched with it, and it is the title while TMDB
+    // has none.
+    std::string file_title;
     int year = 0;        // 0 = unknown
     std::string quality; // "4K", "1080p", "720p", "SD" or ""
     std::uint64_t size = 0;
@@ -136,6 +140,9 @@ class Library
     int find(std::string_view id) const;
     // Lets `edit` change every movie (artwork fetched after the scan).
     void edit_all(const std::function<void(Movie *)> &edit);
+    // Orders the films by title again, after `edit_all` gave them TMDB's titles. Indices
+    // into the library change; ids do not.
+    void sort();
 
   private:
     std::vector<Movie> movies_;

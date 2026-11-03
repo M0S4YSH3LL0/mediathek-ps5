@@ -178,7 +178,7 @@ movies" message after a scan is the app's own toast at the bottom (`Services::sc
 wallpapers and descriptions in `covers/` (a description is `<id>.txt`; an empty
 one is stored as `"\n"` so TMDB is not asked again, because `CoverStore::exists`
 needs size > 0; likewise `<id>.rating` is `"0"` and `<id>.genres` is `"-"` when TMDB has
-none), what a file contains in `info/<id>.info`, resume points beside them. Settings are read from
+none, and `<id>.title` is `"\n"`), what a file contains in `info/<id>.info`, resume points beside them. Settings are read from
 `/app0/mediathek.env`.
 
 **The settings page.** The gear tab (`Tab::settings` in `mediathek.cpp`) is a `ui::ListView` of
@@ -292,7 +292,11 @@ wallpaper and the description (`overview`), and only for a film with no cover:
 so a rescan or restart asks TMDB about new films only; "Refresh cover and info"
 is the way to fetch the rest. A film's genres are TMDB's list, up to four, in no
 order of importance; the details page and the Home shelves use the first two
-(`main_genres`). Fetched pictures never replace
+(`main_genres`). A film's title is TMDB's (`<id>.title`, filled in by `CoverStore::fill`, which
+re-sorts nothing: `main.cpp` calls `Library::sort` after it, and the design finds the focused and
+the playing film again by id); `Movie::file_title`, from the file name, is what TMDB is searched
+with, what is shown until TMDB has answered or when it knows no title, and what search also
+matches. Fetched pictures never replace
 pictures the user put beside the film. The language follows the app unless
 `TMDB_LANGUAGE` says otherwise. The app has its own DNS client and a CA bundle
 in `assets/certs`; `DNS_SERVER` helps behind a router that blocks public DNS.

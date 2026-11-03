@@ -263,6 +263,68 @@ TEST(Covers, StoresTheScoreAndGenresAndFillsTheMovie)
     EXPECT_FALSE(store.has_genres("ff66"));
 }
 
+TEST(Covers, StoresTmdbsTitleAndTheFileTitleIsTheFallback)
+{
+    FakeWeb web;
+    const CoverStore store(temp_directory());
+    TmdbConfig config;
+    config.key = "k";
+    std::string note;
+    EXPECT_EQ(fetch_cover(config, web.get(), store, dune_job("tt01"), &note), FetchOutcome::stored);
+    EXPECT_TRUE(store.has_title("tt01"));
+    Movie movie;
+    movie.id = "tt01";
+    movie.title = "Dune Part Two"; // what the file name "Dune.Part.Two.2024.mkv" gives
+    movie.file_title = "Dune Part Two";
+    store.fill(&movie);
+    EXPECT_EQ(movie.title, "Dune: Part Two");
+    EXPECT_EQ(movie.file_title, "Dune Part Two");
+
+    // Forgotten for a new fetch, the file's title is back until TMDB answers again.
+    store.forget("tt01");
+    EXPECT_FALSE(store.has_title("tt01"));
+    store.fill(&movie);
+    EXPECT_EQ(movie.title, "Dune Part Two");
+
+    // TMDB had no title (an empty line), or one no film has: the file's stays.
+    std::ofstream(store.title_path("tt01")) << "\n";
+    store.fill(&movie);
+    EXPECT_EQ(movie.title, "Dune Part Two");
+    std::ofstream(store.title_path("tt01")) << std::string(400, 'x');
+    store.fill(&movie);
+    EXPECT_EQ(movie.title, "Dune Part Two");
+    std::ofstream(store.title_path("tt01")) << "  Dune:\n\tPart\x07 Two ";
+    store.fill(&movie);
+    EXPECT_EQ(movie.title, "Dune: Part Two"); // one line, no controls
+}
+
+TEST(Covers, AFilmWithoutAStoredTitleIsAskedOnceWithItsFileTitle)
+{
+    ScanResult scan;
+    scan.roots = {"/data/movies"};
+    FoundFile file;
+    file.path = "/data/movies/Dune.Part.Two.2024.mkv";
+    scan.videos = {file};
+    Library library = Library::from_scan(scan);
+    const CoverStore store(temp_directory());
+    const std::string id = library[0].id;
+    // Fetched before titles were kept: a cover, a score and genres, but no title.
+    std::ofstream(store.poster_path(id)) << "jpeg";
+    std::ofstream(store.rating_path(id)) << "8.2";
+    std::ofstream(store.genres_path(id)) << "878";
+    std::ofstream(store.title_path(id)) << "Dune: Part Two";
+    library.edit_all([&](Movie *movie) { store.fill(movie); });
+    EXPECT_EQ(library[0].title, "Dune: Part Two");
+    EXPECT_TRUE(missing_covers(library, store).empty());
+
+    unlink(store.title_path(id).c_str());
+    const std::vector<CoverJob> jobs = missing_covers(library, store);
+    ASSERT_EQ(jobs.size(), 1u);
+    EXPECT_TRUE(jobs[0].want_facts);
+    EXPECT_FALSE(jobs[0].want_poster);
+    EXPECT_EQ(jobs[0].title, "Dune Part Two"); // TMDB is searched with the file's title
+}
+
 TEST(Covers, ABrokenScoreFileMeansNoScore)
 {
     const CoverStore store(temp_directory());

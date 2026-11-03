@@ -411,6 +411,45 @@ TEST(MediaSearch, EveryWordMustMatchTheTitleAndNothingElse)
     EXPECT_FALSE(matches_search(movie, "comedy"));
 }
 
+TEST(MediaSearch, TheFileTitleStillFindsAFilmTmdbNamedOtherwise)
+{
+    Movie movie;
+    movie.title = "Die Verurteilten";
+    movie.file_title = "Shawshank";
+    EXPECT_TRUE(matches_search(movie, "verurteilten"));
+    EXPECT_TRUE(matches_search(movie, "shawshank"));
+    EXPECT_FALSE(matches_search(movie, "redemption"));
+}
+
+TEST(MediaLibrary, KeepsTheFileTitleAndSortsAgainByNewTitles)
+{
+    ScanResult scan;
+    scan.roots = {"/data/movies"};
+    FoundFile a;
+    a.path = "/data/movies/Alpha.mkv";
+    a.size = 1;
+    FoundFile b;
+    b.path = "/data/movies/Beta.mkv";
+    b.size = 2;
+    scan.videos = {b, a};
+    Library library = Library::from_scan(scan);
+    ASSERT_EQ(library.size(), 2u);
+    EXPECT_EQ(library[0].file_title, "Alpha");
+    EXPECT_EQ(library[0].title, "Alpha");
+    const std::string alpha = library[0].id;
+    library.edit_all(
+        [](Movie *movie)
+        {
+            if (movie->file_title == "Alpha")
+                movie->title = "Zulu: The Return";
+        });
+    library.sort();
+    EXPECT_EQ(library[0].title, "Beta");
+    EXPECT_EQ(library[1].title, "Zulu: The Return");
+    EXPECT_EQ(library[1].file_title, "Alpha");
+    EXPECT_EQ(library.find(alpha), 1);
+}
+
 TEST(MediaGenreShelves, AFilmIsOnTheShelvesOfItsFirstTwoGenresAndNoOther)
 {
     // Genre numbers: 18 Drama, 35 Comedy, 878 Science Fiction, 27 Horror, 28 Action.

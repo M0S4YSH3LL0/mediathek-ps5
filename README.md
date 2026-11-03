@@ -139,6 +139,11 @@ The same file takes a few optional settings:
 | `UI_LANGUAGE=de` | `en`, `de` or `auto`, the default. See [below](#settings-and-language). |
 | `DNS_SERVER=192.168.0.1` | Your router's address, if your network blocks public DNS. |
 
+Films are shown with TMDB's title, with the colons, commas and dashes a file name drops:
+`Blue Harbor Part Two (2014).mkv` becomes *Blue Harbor: Part Two*. Until TMDB has
+answered, or when it does not know the film, the title comes from the file name, and
+search finds a film by either title.
+
 A film that has a cover, or that TMDB does not know, is not looked up again. To fetch
 again, use **Refresh cover and info** on the details page, or **Reload all covers and
 infos** in Settings.

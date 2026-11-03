@@ -72,7 +72,8 @@ using HttpGet = std::function<bool(const Request &request, std::size_t max_bytes
 // What was fetched so far: <dir>/<id>.jpg (cover), <id>-wallpaper.jpg,
 // <id>.txt (the description; empty when TMDB has none, so it is not asked
 // again), <id>.rating (the user score, "0" when TMDB has none), <id>.genres
-// (genre numbers separated by commas, "-" when there are none) and <id>.none
+// (genre numbers separated by commas, "-" when there are none), <id>.title (TMDB's
+// title in the configured language, an empty line when it has none) and <id>.none
 // for a film TMDB does not know.
 class CoverStore
 {
@@ -88,12 +89,14 @@ class CoverStore
     bool has_rating(const std::string &id) const;
     std::string genres_path(const std::string &id) const;
     bool has_genres(const std::string &id) const;
+    std::string title_path(const std::string &id) const;
+    bool has_title(const std::string &id) const;
     bool no_match(const std::string &id) const;
     void mark_no_match(const std::string &id) const;
     // Forgets the film: the next fetch starts from nothing.
     void forget(const std::string &id) const;
     // Gives a movie the pictures held here where it has none of its own, and
-    // the description held here.
+    // the description and title held here; with no title held, the file's.
     void fill(Movie *movie) const;
     const std::string &directory() const
     {
@@ -107,20 +110,20 @@ class CoverStore
 struct CoverJob
 {
     std::string id;
-    std::string title;
+    std::string title; // what TMDB is searched for: the title from the file name
     int year = 0;
     bool want_poster = true;
     bool want_wallpaper = true;
     bool want_overview = true;
-    bool want_facts = true; // the user score and the genres
+    bool want_facts = true; // the user score, the genres and the title
     bool again = false;     // fetched on request: pictures shown before must be reloaded
 };
 
 // What a library still lacks: films with no cover that TMDB has not already
 // turned down. Each is asked for its poster, and for the wallpaper, description
-// and score and genres it has none of. A film that has a cover is asked for
-// nothing, except once for its score and genres if it was fetched before they
-// were kept.
+// and score, genres and title it has none of. A film that has a cover is asked for
+// nothing, except once for its score, genres and title if it was fetched before
+// they were kept.
 std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &store);
 
 enum class FetchOutcome : unsigned char

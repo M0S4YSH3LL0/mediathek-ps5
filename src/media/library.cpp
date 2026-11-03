@@ -294,7 +294,11 @@ bool matches_search(const Movie &movie, std::string_view query)
     const std::string wanted = search_fold(query);
     if (wanted.empty())
         return true;
-    const std::string haystack = search_fold(movie.title);
+    // TMDB's title and the file's: a film is found by either, so the words of a name the
+    // viewer gave the file still find it after TMDB named it in another language.
+    std::string haystack = search_fold(movie.title);
+    if (!movie.file_title.empty() && movie.file_title != movie.title)
+        haystack += " " + search_fold(movie.file_title);
     for (const std::string_view word : split(wanted, ' '))
         if (!word.empty() && haystack.find(word) == std::string::npos)
             return false;
@@ -345,6 +349,7 @@ Library Library::from_scan(const ScanResult &scan)
                 parsed.year = from_folder.year;
         }
         movie.title = parsed.title;
+        movie.file_title = parsed.title;
         movie.year = parsed.year;
         movie.quality = parsed.quality;
 
@@ -427,14 +432,19 @@ Library Library::from_scan(const ScanResult &scan)
         }
     }
 
-    std::stable_sort(library.movies_.begin(), library.movies_.end(),
+    library.sort();
+    return library;
+}
+
+void Library::sort()
+{
+    std::stable_sort(movies_.begin(), movies_.end(),
                      [](const Movie &a, const Movie &b)
                      {
                          const std::string ka = sort_key(a.title);
                          const std::string kb = sort_key(b.title);
                          return ka != kb ? ka < kb : a.year < b.year;
                      });
-    return library;
 }
 
 void Library::edit_all(const std::function<void(Movie *)> &edit)

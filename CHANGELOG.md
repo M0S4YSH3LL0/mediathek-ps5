@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Films are shown with their title from TMDB, colons, commas and dashes included, instead of
+  the one read from the file name, which loses them. The file
+  name's title is still what TMDB is asked for, what shows until TMDB has answered or when it
+  does not know the film, and what search also finds. Films fetched before are asked once more,
+  for their title only (`<id>.title` beside the covers). Cards without a poster wrap the
+  title over three lines at most, so a long one no longer runs into the year.
 - The controller's light bar is red. It took the screen's coral accent, which the LED showed
   as pink.
 

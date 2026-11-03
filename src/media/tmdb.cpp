@@ -26,6 +26,7 @@ constexpr const char *kImages = "https://image.tmdb.org/t/p";
 constexpr std::size_t kMaxAnswer = 256u << 10;
 constexpr std::size_t kMaxPicture = 4u << 20;
 constexpr std::size_t kMaxOverview = 3000; // a description is a paragraph, not an essay
+constexpr std::size_t kMaxTitle = 200;     // the longest film titles have about 180 characters
 constexpr int kPosterWidth = 500;
 constexpr int kWallpaperWidth = 1280;
 
@@ -158,6 +159,16 @@ std::string clean_overview(std::string_view raw, bool shorten = true)
         text.resize(word != std::string::npos && word > cut / 2 ? word : cut);
         text += "\xE2\x80\xA6";
     }
+    return text;
+}
+
+// A title as the screen gets it: one line, no controls. One longer than any film's is no
+// title (an answer that is not what it claims), and the file's is shown instead.
+std::string clean_title(std::string_view raw)
+{
+    std::string text = clean_overview(raw, false);
+    if (text.size() > kMaxTitle)
+        text.clear();
     return text;
 }
 
@@ -340,6 +351,14 @@ bool CoverStore::has_genres(const std::string &id) const
 {
     return exists(genres_path(id));
 }
+std::string CoverStore::title_path(const std::string &id) const
+{
+    return directory_ + "/" + id + ".title";
+}
+bool CoverStore::has_title(const std::string &id) const
+{
+    return exists(title_path(id));
+}
 bool CoverStore::no_match(const std::string &id) const
 {
     struct stat info{};
@@ -356,6 +375,7 @@ void CoverStore::forget(const std::string &id) const
     unlink(overview_path(id).c_str());
     unlink(rating_path(id).c_str());
     unlink(genres_path(id).c_str());
+    unlink(title_path(id).c_str());
     unlink((directory_ + "/" + id + ".none").c_str());
 }
 void CoverStore::fill(Movie *movie) const
@@ -372,6 +392,15 @@ void CoverStore::fill(Movie *movie) const
         movie->rating = parse_rating(text);
     if (has_genres(movie->id) && save::read_file(genres_path(movie->id), &text, 128))
         movie->genres = parse_genres(text);
+    // TMDB's title keeps the colons, commas and dashes a file name loses. Without one (not
+    // fetched yet, TMDB has none, or it was forgotten for a new fetch) the file's stands.
+    std::string title;
+    if (has_title(movie->id) && save::read_file(title_path(movie->id), &text, kMaxTitle + 16))
+        title = clean_title(text);
+    if (!title.empty())
+        movie->title = std::move(title);
+    else if (!movie->file_title.empty())
+        movie->title = movie->file_title;
 }
 
 std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &store)
@@ -383,16 +412,17 @@ std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &s
             continue;
         CoverJob job;
         job.id = movie.id;
-        job.title = movie.title;
+        job.title = movie.file_title.empty() ? movie.title : movie.file_title;
         job.year = movie.year;
-        job.want_facts = !store.has_rating(movie.id) || !store.has_genres(movie.id);
+        job.want_facts = !store.has_rating(movie.id) || !store.has_genres(movie.id) ||
+                         !store.has_title(movie.id);
         if (!movie.poster.empty())
         {
             // A film that has a cover (its own, or one fetched earlier and filled in by
             // CoverStore::fill) is done: asking TMDB again on every scan and start would
             // cost a request per film that lacks a wallpaper or description TMDB never
-            // had. Only the score, kept since 0.3.0, is asked for once, whether TMDB has
-            // one or not (the file says "0" then).
+            // had. Only the score, kept since 0.3.0, and the title, kept after 0.8.0, are
+            // asked for once, whether TMDB has them or not (the files say so then).
             if (!job.want_facts)
                 continue;
             job.want_poster = false;
@@ -508,9 +538,13 @@ FetchOutcome fetch_cover(const TmdbConfig &config, const HttpGet &get, const Cov
         std::string genres;
         for (const int genre : match.genre_ids)
             genres += (genres.empty() ? "" : ",") + std::to_string(genre);
+        // An empty line records that TMDB has no title the app can show: the file's stays.
+        const std::string title = clean_title(match.title);
         std::string failure = save::write_atomic(store.rating_path(job.id), text);
         if (failure.empty())
             failure = save::write_atomic(store.genres_path(job.id), genres.empty() ? "-" : genres);
+        if (failure.empty())
+            failure = save::write_atomic(store.title_path(job.id), title.empty() ? "\n" : title);
         if (!failure.empty())
         {
             *note = i18n::format(i18n::Text::tmdb_cannot_save_description, failure);

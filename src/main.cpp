@@ -349,7 +349,7 @@ int main()
         { return path.empty() || path.compare(0, directory.size(), directory) == 0; };
         media::CoverJob job;
         job.id = movie.id;
-        job.title = movie.title;
+        job.title = movie.file_title;
         job.year = movie.year;
         job.want_poster = ours(movie.poster);
         job.want_wallpaper = ours(movie.backdrop);
@@ -367,6 +367,7 @@ int main()
     {
         services.library = media::Library::from_scan(scan);
         services.library.edit_all([&](media::Movie *movie) { covers.store().fill(movie); });
+        services.library.sort(); // by TMDB's titles where they are known
         covers.enqueue(media::missing_covers(services.library, covers.store()));
         posters.clear();
         ++services.revision;
@@ -519,6 +520,9 @@ int main()
                 for (const media::CoverService::Done &done : arrived)
                     replaced = replaced || done.replaced;
                 services.library.edit_all([&](media::Movie *movie) { covers.store().fill(movie); });
+                // A title that arrived moves its film; the design finds its places again by
+                // id when the revision changes.
+                services.library.sort();
                 if (replaced)
                     posters.clear(); // a texture of the old picture may be cached
                 ++services.revision;

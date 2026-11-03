@@ -483,6 +483,10 @@ class Mediathek final : public app::Concept
     void rebuild()
     {
         revision_ = svc_->revision;
+        // The library may have been re-sorted (a TMDB title arrived) or rescanned: the film
+        // playing keeps playing under its new index.
+        if (const int index = library().find(playing_id_); index >= 0)
+            playing_ = index;
         const std::string keep = focus_id_;
         shelves_.clear();
         const media::Library &lib = library();
@@ -1349,6 +1353,7 @@ class Mediathek final : public app::Concept
         const double start = resume ? svc_->progress.resume_position(m.id) : 0.0;
         svc_->player->open(m.path, start);
         playing_ = index;
+        playing_id_ = m.id;
         screen_ = Screen::player;
         osd_ = kOsdSeconds;
         paused_ = false;
@@ -1774,8 +1779,10 @@ class Mediathek final : public app::Concept
                     Color{0, 0, 0, 0.12f * alpha});
         const float size = rect.w * 0.125f;
         const float pad = rect.w * 0.1f;
+        // Three lines end above the year; a fourth would sit on it (a long TMDB title,
+        // "Name: The Subtitle of It", ends with an ellipsis instead).
         ui::paragraph(list, context_.fonts.display, m.title, rect.x + pad, rect.y + rect.h * 0.62f,
-                      size, rect.w - 2.0f * pad, size * 1.22f, kInk.with_alpha(alpha), 4);
+                      size, rect.w - 2.0f * pad, size * 1.22f, kInk.with_alpha(alpha), 3);
         if (m.year > 0)
         {
             char year[16];
@@ -2876,6 +2883,7 @@ class Mediathek final : public app::Concept
     tween::Spring action_position_;
 
     int playing_ = -1;
+    std::string playing_id_; // what playing_ points at, found again after a re-sort
     bool paused_ = false;
     bool info_ = false;
     std::map<std::string, std::string> sniffed_subtitles_; // file -> language its text says, or ""
