@@ -22,6 +22,11 @@
   `<id>.txt` and `<id>.title` for an episode, `<id>.tmdb` for TMDB's number, so a season added
   later is fetched without searching again). TV genres become the film genres they mean
   (*Action & Adventure* is both, *Sci-Fi & Fantasy* both), so series and films share shelves.
+- Fixed: *Recently Added* (and the grid's date sort) followed the files' modification times,
+  which a copy usually keeps, so a film copied today could sort among the oldest. The app now
+  remembers when a scan first found each film and episode (`/download0/hui/added.txt`) and
+  orders by that; a moved file keeps its date. At the first start with this version every file
+  keeps its own time, as before; what arrives after that is new.
 - Fixed: a long title on the Home billboard lost its end ("The Clockmaker's Gui...") although it
   had been shrunk to fit; captions turn umlauts and accents into capitals too ("KOMÖDIE",
   "ALS NÄCHSTES", which read "KOMöDIE").

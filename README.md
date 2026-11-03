@@ -272,7 +272,9 @@ the folders, copies small pictures and subtitles next to the app and writes
 `mediathek-index.txt`. The app reads the last index at start-up, which is why the
 library opens at once.
 
-Covers, descriptions and file facts live in `/download0/hui` and survive a rescan.
+Covers, descriptions and file facts live in `/download0/hui` and survive a rescan, as
+does the day each film and episode was first found (`added.txt`), which is what
+*Recently Added* goes by: a copied file often keeps its old modification time.
 
 ## Build from source
 

@@ -36,7 +36,7 @@ struct Episode
     std::string overview;   // TMDB's description, or ""
     std::string quality;
     std::uint64_t size = 0;
-    std::int64_t added = 0;
+    std::int64_t added = 0; // as Movie::added
     std::string drive;
     std::vector<SubtitleFile> subtitles;
 };
@@ -63,7 +63,7 @@ struct Movie
     int year = 0;        // 0 = unknown
     std::string quality; // "4K", "1080p", "720p", "SD" or ""
     std::uint64_t size = 0;
-    std::int64_t added = 0; // modification time, seconds since the epoch
+    std::int64_t added = 0; // first seen (AddedStore), else modification time; epoch seconds
     std::string poster;     // image file, or ""
     std::string backdrop;   // wide image file, or ""
     // Sidecar .srt / .vtt files, English first, then in the order they were found; the first is

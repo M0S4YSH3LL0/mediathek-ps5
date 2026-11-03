@@ -197,7 +197,10 @@ needs size > 0; likewise `<id>.rating` is `"0"` and `<id>.genres` is `"-"` when 
 none, and `<id>.title` is `"\n"`; a series adds `<id>.tmdb`, TMDB's number for it, and
 `<id>-s<N>.txt` per season, its episodes `<episode id>.txt` and `.title`), what a file contains in
 `info/<id>.info` (an episode's under its own id), the extra scan folders in `scan-folders.txt`,
-resume points beside them. Settings are read from
+resume points beside them, and in `added.txt` when a scan first found each film and episode
+(`media::AddedStore`, by id; `Movie::added` is that, not the file's time, which a copy keeps; the
+first start with no file seeds it from the files' times, and entries are never dropped, so a
+drive plugged in again is not "new"). Settings are read from
 `/app0/mediathek.env`.
 
 **The settings page.** The gear tab (`Tab::settings` in `mediathek.cpp`) is a `ui::ListView` of

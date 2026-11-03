@@ -21,6 +21,7 @@
 #include "gfx/canvas.hpp"
 #include "gfx/renderer.hpp"
 #include "gfx/video_converter.hpp"
+#include "media/added.hpp"
 #include "media/cover_service.hpp"
 #include "media/library.hpp"
 #include "media/poster_cache.hpp"
@@ -74,6 +75,8 @@ constexpr const char *kCoverDir = "/download0/hui/covers";
 constexpr const char *kInfoDir = "/download0/hui/info";
 // The folders the viewer added in Settings > Library, one a line; a PC may edit it too.
 constexpr const char *kScanFoldersPath = "/download0/hui/scan-folders.txt";
+// When each film and episode was first found, one "id seconds" a line: Recently Added.
+constexpr const char *kAddedPath = "/download0/hui/added.txt";
 // New pictures reach the screen at most this often: each one rebuilds the shelves.
 constexpr double kCoverApplySeconds = 1.5;
 // Saved at most this often while something changes; the player also marks its
@@ -373,9 +376,21 @@ int main()
     };
 
     ps5::Scanner scanner;
+    media::AddedStore added;
+    {
+        std::string text;
+        if (save::read_file(kAddedPath, &text, 16u << 20) && !added.decode(text))
+            sys::log("[HUI] added unreadable, starting from the files' times");
+    }
     const auto adopt = [&](const media::ScanResult &scan)
     {
         services.library = media::Library::from_scan(scan);
+        if (added.apply(&services.library, services.clock()))
+        {
+            const std::string failure = save::write_atomic(kAddedPath, added.encode());
+            sys::log("[HUI] added entries=%zu saved %s", added.size(),
+                     failure.empty() ? "ok" : failure.c_str());
+        }
         services.library.edit_all([&](media::Movie *movie) { covers.store().fill(movie); });
         services.library.sort(); // by TMDB's titles where they are known
         covers.enqueue(media::missing_covers(services.library, covers.store()));
