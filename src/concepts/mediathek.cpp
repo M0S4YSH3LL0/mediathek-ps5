@@ -2566,9 +2566,12 @@ class Mediathek final : public app::Concept
                     ? i18n::format(resuming ? Text::resume_episode : Text::play_episode,
                                    episode_code(*episode))
                     : std::string(tr(resuming ? Text::button_resume : Text::button_play));
-            const float width = episode != nullptr ? fonts.semibold.measure(label, 28) + 110.0f
-                                : resuming         ? 250.0f
-                                                   : 214.0f;
+            // Sized to its label (74 to the text, 36 after it), never narrower than the fixed
+            // widths the English words were drawn at: "Abspielen" filled 214 to the edge.
+            const float width = std::max(episode != nullptr ? 0.0f
+                                         : resuming         ? 250.0f
+                                                            : 214.0f,
+                                         fonts.semibold.measure(label, 28) + 110.0f);
             const Rect play{x, by, width, 64};
             list.glow(play, 32, 20, kAccent.with_alpha(0.32f));
             list.rounded_rect(play, 32, kInk);

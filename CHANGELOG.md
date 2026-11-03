@@ -29,7 +29,8 @@
   keeps its own time, as before; what arrives after that is new.
 - Fixed: a long title on the Home billboard lost its end ("The Clockmaker's Gui...") although it
   had been shrunk to fit; captions turn umlauts and accents into capitals too ("KOMÖDIE",
-  "ALS NÄCHSTES", which read "KOMöDIE").
+  "ALS NÄCHSTES", which read "KOMöDIE"); the billboard's *Abspielen* button is wide enough
+  for its word.
 - New in Settings, under Library: *Movie folders*. Add folders to search besides `movies` and
   `mediathek/movies`, either a path (`/mnt/usb0/Films`) or a name looked for on every drive
   (`Films`), up to eight; choose one to remove it. Every change scans again. The list is kept
