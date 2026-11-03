@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+- HDR films up to 1080p (and any that FFmpeg decodes, such as VP9 or a film the hardware
+  decoder will not take) are now tone-mapped like those on the hardware decoder, instead of
+  looking grey and washed out. Their pictures go to the graphics chip as planes rather than
+  through swscale, which cannot tone-map. Films in a layout other than 8- or 10-bit 4:2:0 are
+  converted as before; the klog line `[HUI] hdr picture in ...` names them.
+- New in Settings, under Playback: *Force subtitles* (off by default) starts a film that has
+  subtitles with them on, and *Subtitle language* (None, German, English) picks which ones,
+  forced or switched on with Triangle. The settings file gains two bytes (format version 6);
+  earlier files load with both off.
+- Changed: Settings has new categories. Appearance (Fixed billboard, Shelves on Home, Wallpaper on
+  the details page), Playback (the subtitle settings), General (App language, UI sounds), Library
+  and About (Version, Author, Debug info); Language, Sound and Developer are gone.
+- The details page counts where it is, at the top right ("2 / 4"), like the shelves on Home:
+  which film of the shelf or of the Movies grid it shows, the films L1 and R1 step through.
+- Changed: Home shows one shelf at a time. The shelf below no longer peeks in, and the chosen
+  shelf has no title of its own while *Fixed billboard* is on, as the billboard's red line names
+  it; with the setting off the title stays. A d-pad hint, *Shelves*, leads the button
+  row; its up or down arm is dimmed at the first or last shelf.
+- Changed: the Home billboard gives only the film's year under its title; quality, size and drive
+  are on the details page and in the player as before.
+- Changed: the button hints at the bottom of every screen sit 12 px lower.
+- Changed: the red line above a film's title on its details page shows only its genres. The
+  drive the film is on has moved to the line under FILE: "FILE · USB 1 · 7.7 GB". The
+  collection name is no longer shown there; its shelf on Home still has it.
+- Changed: a film no longer starts with its first subtitle file showing. Subtitles are off
+  until Triangle switches them on, unless *Force subtitles* is on.
+
 ## 0.7.0 (01.000.070)
 
 - Films are also found below a `mediathek/movies` folder (or `mediathek/Movies`) on the

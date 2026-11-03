@@ -248,6 +248,23 @@ std::string drive_label(std::string_view path)
     return i18n::tr(i18n::Text::drive_library);
 }
 
+std::vector<int> subtitle_order(const std::vector<std::string> &languages,
+                                std::string_view preferred)
+{
+    std::vector<int> order;
+    order.reserve(languages.size());
+    const int count = static_cast<int>(languages.size());
+    for (int pass = 0; pass < 2; ++pass)
+        for (int i = 0; i < count; ++i)
+        {
+            const bool wanted =
+                !preferred.empty() && languages[static_cast<std::size_t>(i)] == preferred;
+            if (wanted == (pass == 0))
+                order.push_back(i);
+        }
+    return order;
+}
+
 std::vector<int> main_genres(const Movie &movie)
 {
     std::vector<int> out;

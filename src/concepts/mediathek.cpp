@@ -63,6 +63,9 @@ constexpr float kMargin = 96.0f;
 constexpr float kGearRadius = 17.0f;
 constexpr int kTabCount = 3; // Tab::home .. Tab::settings
 constexpr float kExitConfirmSeconds = 2.5f;
+// The centre line of the button hints at the bottom of every screen: lower than the kit's 1010,
+// closer to the edge, where they take less from the page.
+constexpr float kHintY = 1022.0f;
 constexpr int kSearchLength = 40;
 
 // The rows of the settings page; the form hands these back when one changes.
@@ -73,6 +76,8 @@ enum SettingsRow : int
     kRowDetailsWallpaper,
     kRowHomeShelves,
     kRowLanguage,
+    kRowForceSubtitles,
+    kRowSubtitleLanguage,
     kRowReload,
     kRowDebug,
     kRowVersion,
@@ -92,10 +97,11 @@ enum HomeShelves : int
 enum SettingsCategory : int
 {
     kCategoryAppearance,
-    kCategoryLanguage,
-    kCategorySound,
+    kCategoryPlayback,
+    kCategoryGeneral,
     kCategoryLibrary,
-    kCategoryDeveloper,
+    kCategoryAbout,
+    kCategoryCount,
 };
 constexpr float kSettingsTop = 244.0f;
 constexpr float kSettingsHeight = 712.0f; // ends above the hint row
@@ -187,15 +193,16 @@ constexpr app::TourStep kTour[] = {
     {0.3f, 0, Direction::right},
     {0.2f, action_bit(Action::confirm)},
     {0.9f, 0, Direction::none, "settings-changed"},
-    {0.3f, 0, Direction::down},
-    {0.9f, 0, Direction::none, "settings-appearance"},
+    {0.2f, action_bit(Action::confirm)}, // back on, as it ships, for the pictures that follow
     {0.3f, 0, Direction::down},
     {0.9f, 0, Direction::none, "settings-shelves"},
+    {0.3f, 0, Direction::down},
+    {0.9f, 0, Direction::none, "settings-appearance"},
     {0.3f, action_bit(Action::back)},
     {0.3f, 0, Direction::down},
-    {0.9f, 0, Direction::none, "settings-language"},
+    {0.9f, 0, Direction::none, "settings-playback"},
     {0.3f, 0, Direction::down},
-    {0.9f, 0, Direction::none, "settings-sound"},
+    {0.9f, 0, Direction::none, "settings-general"},
     {0.3f, 0, Direction::down},
     {0.3f, action_bit(Action::confirm)},
     {0.2f, action_bit(Action::confirm)},
@@ -204,7 +211,7 @@ constexpr app::TourStep kTour[] = {
     {0.3f, action_bit(Action::back)},
     {0.3f, 0, Direction::down},
     {0.3f, 0, Direction::right},
-    {0.9f, 0, Direction::none, "settings-developer"},
+    {0.9f, 0, Direction::none, "settings-about"},
     {0.4f, action_bit(Action::page_prev)},
     {0.8f, action_bit(Action::page_prev)},
 };
@@ -800,12 +807,12 @@ class Mediathek final : public app::Concept
         settings_list_.style.row_height = settings_form_.style.row_height;
         settings_list_.style.title_size = settings_form_.style.label_size;
         settings_list_.set_bounds({kMargin, kSettingsTop, kSettingsListWidth, kSettingsHeight});
-        std::vector<ui::ListItem> categories(5);
-        categories[kCategorySound].title = tr(Text::settings_sound);
+        std::vector<ui::ListItem> categories(kCategoryCount);
         categories[kCategoryAppearance].title = tr(Text::settings_appearance);
-        categories[kCategoryLanguage].title = tr(Text::settings_language);
+        categories[kCategoryPlayback].title = tr(Text::settings_playback);
+        categories[kCategoryGeneral].title = tr(Text::settings_general);
         categories[kCategoryLibrary].title = tr(Text::settings_library);
-        categories[kCategoryDeveloper].title = tr(Text::settings_developer);
+        categories[kCategoryAbout].title = tr(Text::settings_about);
         settings_list_.set_items(std::move(categories));
         build_settings_form();
 
@@ -820,15 +827,9 @@ class Mediathek final : public app::Concept
         settings_form_.clear();
         switch (settings_list_.focus())
         {
-        case kCategorySound:
-            settings_form_.add_toggle(kRowUiSounds, tr(Text::settings_ui_sounds)).description =
-                tr(Text::settings_ui_sounds_hint);
-            break;
         case kCategoryAppearance:
             settings_form_.add_toggle(kRowPinBillboard, tr(Text::settings_pin_billboard))
                 .description = tr(Text::settings_pin_billboard_hint);
-            settings_form_.add_toggle(kRowDetailsWallpaper, tr(Text::settings_details_wallpaper))
-                .description = tr(Text::settings_details_wallpaper_hint);
             settings_form_
                 .add_choice(kRowHomeShelves, tr(Text::settings_home_shelves),
                             {tr(Text::settings_home_shelves_all),
@@ -836,21 +837,36 @@ class Mediathek final : public app::Concept
                              tr(Text::settings_home_shelves_genres),
                              tr(Text::settings_home_shelves_decades)})
                 .description = tr(Text::settings_home_shelves_hint);
+            settings_form_.add_toggle(kRowDetailsWallpaper, tr(Text::settings_details_wallpaper))
+                .description = tr(Text::settings_details_wallpaper_hint);
             break;
-        case kCategoryLanguage:
+        case kCategoryPlayback:
+            settings_form_.add_toggle(kRowForceSubtitles, tr(Text::settings_force_subtitles))
+                .description = tr(Text::settings_force_subtitles_hint);
+            // In the order of Settings::subtitle_language.
+            settings_form_
+                .add_choice(
+                    kRowSubtitleLanguage, tr(Text::settings_subtitle_language),
+                    {tr(Text::settings_subtitle_none), tr(Text::lang_ger), tr(Text::lang_eng)})
+                .description = tr(Text::settings_subtitle_language_hint);
+            break;
+        case kCategoryGeneral:
             settings_form_.add_choice(kRowLanguage, tr(Text::settings_ui_language),
                                       {tr(Text::settings_language_auto), "English", "Deutsch"});
+            settings_form_.add_toggle(kRowUiSounds, tr(Text::settings_ui_sounds)).description =
+                tr(Text::settings_ui_sounds_hint);
             break;
         case kCategoryLibrary:
             settings_form_.add_action(kRowReload, tr(Text::settings_reload)).description =
                 tr(Text::settings_reload_hint);
             break;
         default:
-            settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug)).description =
-                tr(Text::settings_debug_hint);
-            // Says which build this is: whether the console runs the one you just made.
+            // Says which build this is: whether the console runs the one you just made. The
+            // two read-only rows take no focus, so the form opens on Debug info.
             settings_form_.add_value(kRowVersion, tr(Text::settings_version), version_text());
             settings_form_.add_value(kRowAuthor, tr(Text::settings_author), "m0");
+            settings_form_.add_toggle(kRowDebug, tr(Text::settings_debug)).description =
+                tr(Text::settings_debug_hint);
             break;
         }
         sync_settings_form();
@@ -875,6 +891,8 @@ class Mediathek final : public app::Concept
         settings_form_.set_toggle(kRowDebug, context_.settings.show_fps);
         settings_form_.set_choice(kRowHomeShelves, context_.settings.home_shelves);
         settings_form_.set_choice(kRowLanguage, context_.settings.ui_language);
+        settings_form_.set_toggle(kRowForceSubtitles, context_.settings.force_subtitles);
+        settings_form_.set_choice(kRowSubtitleLanguage, context_.settings.subtitle_language);
     }
 
     void open_settings()
@@ -983,6 +1001,14 @@ class Mediathek final : public app::Concept
         {
             settings.ui_language = settings_form_.choice_index(row);
             change_language();
+        }
+        else if (row == kRowForceSubtitles)
+        {
+            settings.force_subtitles = settings_form_.toggle_value(row);
+        }
+        else if (row == kRowSubtitleLanguage)
+        {
+            settings.subtitle_language = settings_form_.choice_index(row);
         }
         else if (row == kRowDebug)
         {
@@ -1187,10 +1213,7 @@ class Mediathek final : public app::Concept
     {
         int *column =
             tab_ == Tab::home ? &shelves_[static_cast<std::size_t>(row_)].column : &grid_focus_;
-        const int count =
-            tab_ == Tab::home
-                ? static_cast<int>(shelves_[static_cast<std::size_t>(row_)].movies.size())
-                : static_cast<int>(grid_.size());
+        const int count = details_count();
         const int next = *column + step;
         if (next < 0 || next >= count)
         {
@@ -1208,6 +1231,20 @@ class Mediathek final : public app::Concept
             sniff_subtitle_languages(movie(index));
         }
         feedback.play(audio::Cue::focus, step > 0 ? 1.1f : 0.9f, step > 0 ? 0.3f : -0.3f);
+    }
+
+    // How many films the details page steps through: the shelf or the grid it was opened from.
+    int details_count() const
+    {
+        return tab_ == Tab::home
+                   ? static_cast<int>(shelves_[static_cast<std::size_t>(row_)].movies.size())
+                   : static_cast<int>(grid_.size());
+    }
+
+    // Which of them the page shows, counted from 0.
+    int details_position() const
+    {
+        return tab_ == Tab::home ? shelves_[static_cast<std::size_t>(row_)].column : grid_focus_;
     }
 
     std::vector<SheetAction> sheet_actions() const
@@ -1316,7 +1353,10 @@ class Mediathek final : public app::Concept
         seek_flash_ = 0.0f;
         subtitle_track_ = -1;
         sniff_subtitle_languages(m);
-        select_subtitle(m, 0);
+        order_subtitles(m);
+        select_subtitle(m, context_.settings.force_subtitles && !subtitle_order_.empty()
+                               ? subtitle_order_.front()
+                               : -1);
         feedback.play(audio::Cue::launch);
         feedback.rumble(0.6f, 0.15f);
     }
@@ -1463,6 +1503,31 @@ class Mediathek final : public app::Concept
         }
     }
 
+    // The subtitle language Settings::subtitle_language names, "" for none.
+    std::string preferred_subtitle_language() const
+    {
+        switch (context_.settings.subtitle_language)
+        {
+        case 1:
+            return "ger";
+        case 2:
+            return "eng";
+        default:
+            return {};
+        }
+    }
+
+    // The order Triangle steps through the playing film's subtitles in: the preferred language
+    // first, so that switching them on finds it too, not only forcing them on.
+    void order_subtitles(const media::Movie &m)
+    {
+        std::vector<std::string> languages;
+        languages.reserve(m.subtitles.size());
+        for (const media::SubtitleFile &sub : m.subtitles)
+            languages.push_back(subtitle_language(sub));
+        subtitle_order_ = media::subtitle_order(languages, preferred_subtitle_language());
+    }
+
     void select_subtitle(const media::Movie &m, int track)
     {
         subtitle_track_ = track;
@@ -1479,8 +1544,12 @@ class Mediathek final : public app::Concept
     void cycle_subtitles(app::Feedback &feedback)
     {
         const media::Movie &m = movie(playing_);
-        const int count = static_cast<int>(m.subtitles.size());
-        const int next = subtitle_track_ + 1 < count ? subtitle_track_ + 1 : -1;
+        const int count = static_cast<int>(subtitle_order_.size());
+        // Where the current track is in the order; -1 (off) is before the first.
+        const auto at = std::find(subtitle_order_.begin(), subtitle_order_.end(), subtitle_track_);
+        const int step =
+            at == subtitle_order_.end() ? 0 : static_cast<int>(at - subtitle_order_.begin()) + 1;
+        const int next = step < count ? subtitle_order_[static_cast<std::size_t>(step)] : -1;
         select_subtitle(m, next);
         if (next < 0)
         {
@@ -1491,7 +1560,7 @@ class Mediathek final : public app::Concept
             media::language_names({subtitle_language(m.subtitles[static_cast<std::size_t>(next)])})
                 .front();
         if (count > 1)
-            label += " (" + std::to_string(next + 1) + "/" + std::to_string(count) + ")";
+            label += " (" + std::to_string(step + 1) + "/" + std::to_string(count) + ")";
         notify(feedback, i18n::format(Text::subtitles_track, label), audio::Cue::toggle);
     }
 
@@ -1905,8 +1974,11 @@ class Mediathek final : public app::Concept
         ui::text(list, fonts.display, fit(fonts.display, m.title, size, max_width), x - 3, title_y,
                  size, kInk);
         const float meta_y = title_y + tween::lerp(40.0f, 52.0f, h);
-        ui::text(list, fonts.regular, meta_line(m), x, meta_y, tween::lerp(23.0f, 26.0f, h),
-                 kInk.with_alpha(0.78f));
+        // The billboard keeps to the year; quality, size and drive are on the details page and
+        // in the player (meta_line).
+        if (m.year > 0)
+            ui::text(list, fonts.regular, std::to_string(m.year), x, meta_y,
+                     tween::lerp(23.0f, 26.0f, h), kInk.with_alpha(0.78f));
 
         if (h > 0.02f)
         {
@@ -2039,17 +2111,20 @@ class Mediathek final : public app::Concept
         {
             const Shelf &shelf = shelves_[static_cast<std::size_t>(r)];
             const float distance = static_cast<float>(r) - row_position_.value;
-            // Shelves above the focused one are gone; the one below peeks in.
-            const float visible =
-                tween::clamp01(1.0f + distance * 2.5f) *
-                (distance > 0.0f ? 1.0f - 0.35f * tween::clamp01(distance) : 1.0f);
+            // Only the focused shelf shows; its neighbours fade out on the way (the d-pad hint says
+            // there are more).
+            const float visible = tween::clamp01(1.0f - std::fabs(distance) * 2.5f);
             if (visible <= 0.01f)
                 continue;
             const float in = tween::stagger(age_, 3 + r, 0.09f, 0.6f);
             list.push_opacity(visible * in);
             const float y = shelf_top(r) + 40.0f * (1.0f - in);
-            ui::text(list, fonts.semibold, shelf.title, kMargin, y - 46, 25,
-                     kInk.with_alpha(r == row_ ? 0.96f : 0.62f));
+            // A fixed billboard names the shelf in its red line all the time, so the shelf need
+            // not; without it the billboard closes below the first shelf, and the shelf names
+            // itself.
+            if (!context_.settings.pin_billboard)
+                ui::text(list, fonts.semibold, shelf.title, kMargin, y - 46, 25,
+                         kInk.with_alpha(0.96f));
             if (r == row_)
             {
                 char count[24];
@@ -2279,10 +2354,17 @@ class Mediathek final : public app::Concept
             svc_->info != nullptr ? svc_->info->peek(m.id) : media::InfoService::Lookup{};
         const media::MediaInfo *content = lookup.info.get();
 
-        // Where the film lives, and what kind of film it is.
-        std::string label = m.collection.empty() ? m.drive : m.collection;
+        // Which film of the shelf (or the grid) this is, as the shelf on Home counts it: L1 and
+        // R1 step through the same films.
+        char counter[24];
+        std::snprintf(counter, sizeof(counter), "%d / %d", details_position() + 1, details_count());
+        ui::text(list, fonts.mono, counter, gfx::kVirtualWidth - kMargin, top + 36, 20,
+                 kInk.with_alpha(0.45f), gfx::Align::right);
+
+        // What kind of film it is; where it lives is under FILE below.
+        std::string label;
         for (const int genre : media::main_genres(m))
-            label += "  \xC2\xB7  " + media::genre_name(genre);
+            label += (label.empty() ? "" : "  \xC2\xB7  ") + media::genre_name(genre);
         ui::text(list, fonts.semibold,
                  fit(fonts.semibold, ui::upper(label), 19, kColumnWidth - 120), kColumn, top + 36,
                  19, kAccent, gfx::Align::left, 4.0f);
@@ -2434,10 +2516,13 @@ class Mediathek final : public app::Concept
         for (const media::SubtitleFile &sub : m.subtitles)
             media::add_language(&subtitle_languages, subtitle_language(sub));
         languages(media::language_names(subtitle_languages), kSecond, 1360.0f - kSecond, false);
-        caption(m.size > 0
-                    ? std::string(tr(Text::label_file)) + "  \xC2\xB7  " + format_size(m.size)
-                    : std::string(tr(Text::label_file)),
-                kColumn, facts_y - 30);
+        // FILE, the drive it is on and its size.
+        std::string file_caption = tr(Text::label_file);
+        if (!m.drive.empty())
+            file_caption += "  \xC2\xB7  " + ui::upper(m.drive);
+        if (m.size > 0)
+            file_caption += "  \xC2\xB7  " + format_size(m.size);
+        caption(file_caption, kColumn, facts_y - 30);
         ui::text(list, fonts.mono, fit(fonts.mono, file, 20, 400), kColumn, facts_y, 20,
                  kInk.with_alpha(0.9f));
         caption(tr(Text::label_status), kSecond, facts_y - 30);
@@ -2502,6 +2587,43 @@ class Mediathek final : public app::Concept
         list.pop_opacity();
     }
 
+    // Up and down on the d-pad, as the first hint of Home's row ending at `right`: only one shelf
+    // shows, so this is what says there are more. An arm with no shelf that way is dimmed.
+    static ui::HintLayout hint_layout()
+    {
+        ui::HintLayout layout;
+        layout.cy = kHintY;
+        return layout;
+    }
+
+    void draw_shelf_hint(gfx::DrawList &list, const ui::GlyphStyle &style, float right) const
+    {
+        const int rows = static_cast<int>(shelves_.size());
+        if (rows < 2)
+            return;
+        const ui::HintLayout layout = hint_layout();
+        const ui::FontRef &face = context_.fonts.regular;
+        const char *label = tr(Text::hint_shelves);
+        const float glyph = ui::button_width(ui::Button::dpad, layout.size);
+        const float x = right - glyph - 12.0f - face.measure(label, layout.text_size);
+        ui::draw_button(list, context_.fonts, style, ui::Button::dpad, x, layout.cy, layout.size);
+        // The arms as ui::draw_button draws them (see ui::draw_action_glyph), veiled.
+        const float cx = x + layout.size * 0.5f;
+        const float cy = layout.cy;
+        const float arm = layout.size * 0.3f;
+        const float thick = layout.size * 0.2f;
+        const float half = thick * 0.5f;
+        const Color veil{style.body.r, style.body.g, style.body.b, 0.72f};
+        if (row_ <= 0)
+            list.rounded_rect({cx - half, cy - arm, thick, arm - half}, 0.0f, veil);
+        if (row_ >= rows - 1)
+            list.rounded_rect({cx - half, cy + half, thick, arm - half}, 0.0f, veil);
+        list.rounded_rect({cx - arm, cy - half, arm - half, thick}, 0.0f, veil);
+        list.rounded_rect({cx + half, cy - half, arm - half, thick}, 0.0f, veil);
+        ui::text(list, face, label, x + glyph + 12.0f, cy + layout.text_size * 0.35f,
+                 layout.text_size, style.label);
+    }
+
     void draw_hints(gfx::DrawList &list) const
     {
         const ui::GlyphStyle style = ui::GlyphStyle::dark();
@@ -2510,7 +2632,7 @@ class Mediathek final : public app::Concept
             const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_choose)},
                                       {ui::Button::l1, tr(Text::hint_movie), ui::Button::r1},
                                       {ui::Button::circle, tr(Text::hint_back)}};
-            ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true);
+            ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true, hint_layout());
         }
         else if (tab_ == Tab::settings)
         {
@@ -2518,12 +2640,12 @@ class Mediathek final : public app::Concept
                                                                             : tr(Text::hint_open)},
                                       {ui::Button::circle, tr(Text::hint_back)},
                                       {ui::Button::l1, tr(Text::hint_tab), ui::Button::r1}};
-            ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true);
+            ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true, hint_layout());
         }
         else if (library().size() == 0)
         {
             const ui::Hint hints[] = {{ui::Button::options, tr(Text::hint_look_again)}};
-            ui::draw_hints(list, context_.fonts, style, hints, 1, 1824, true);
+            ui::draw_hints(list, context_.fonts, style, hints, 1, 1824, true, hint_layout());
         }
         else if (tab_ == Tab::home)
         {
@@ -2531,7 +2653,9 @@ class Mediathek final : public app::Concept
                                       {ui::Button::square, tr(Text::hint_play)},
                                       {ui::Button::triangle, tr(Text::hint_watched)},
                                       {ui::Button::l1, tr(Text::hint_tab), ui::Button::r1}};
-            ui::draw_hints(list, context_.fonts, style, hints, 4, 1824, true);
+            const float width =
+                ui::draw_hints(list, context_.fonts, style, hints, 4, 1824, true, hint_layout());
+            draw_shelf_hint(list, style, 1824 - width - hint_layout().item_gap);
         }
         else
         {
@@ -2540,7 +2664,7 @@ class Mediathek final : public app::Concept
                                       {ui::Button::triangle, tr(Text::hint_search)},
                                       {ui::Button::right_stick, tr(Text::hint_sort)},
                                       {ui::Button::l1, tr(Text::hint_tab), ui::Button::r1}};
-            ui::draw_hints(list, context_.fonts, style, hints, 5, 1824, true);
+            ui::draw_hints(list, context_.fonts, style, hints, 5, 1824, true, hint_layout());
         }
     }
 
@@ -2585,7 +2709,8 @@ class Mediathek final : public app::Concept
                           card.x + 60, card.y + 150, 24, card.w - 120, 34, kInk.with_alpha(0.75f),
                           3);
             const ui::Hint hints[] = {{ui::Button::circle, tr(Text::hint_back)}};
-            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, 1, 1824, true);
+            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, 1, 1824, true,
+                           hint_layout());
             return;
         }
         if (state == media::PlayerState::opening || state == media::PlayerState::idle ||
@@ -2653,7 +2778,8 @@ class Mediathek final : public app::Concept
                 {ui::Button::square, tr(Text::hint_audio)},
                 {ui::Button::triangle, tr(Text::hint_subtitles)},
                 {ui::Button::circle, tr(Text::hint_stop)}};
-            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, 5, 1824, true);
+            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, 5, 1824, true,
+                           hint_layout());
             list.pop_opacity();
         }
         if (seek_flash_ > 0.0f)
@@ -2751,6 +2877,8 @@ class Mediathek final : public app::Concept
     bool info_ = false;
     std::map<std::string, std::string> sniffed_subtitles_; // file -> language its text says, or ""
     int subtitle_track_ = -1; // index into the playing film's subtitles, -1 = off
+    std::vector<int>
+        subtitle_order_; // the playing film's subtitles in the order Triangle shows them
     float osd_ = 0.0f;
     tween::Spring osd_show_;
     float last_save_ = 0.0f;

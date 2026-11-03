@@ -438,3 +438,13 @@ TEST(MediaGenreShelves, AFilmIsOnTheShelvesOfItsFirstTwoGenresAndNoOther)
     EXPECT_EQ(shelves[3].movies, (std::vector<int>{0, 1}));
     EXPECT_TRUE(genre_shelves({}).empty());
 }
+
+TEST(SubtitleOrder, ThePreferredLanguageComesFirstAndTheRestKeepTheirOrder)
+{
+    const std::vector<std::string> languages{"eng", "ger", "fre", "ger"};
+    EXPECT_EQ(subtitle_order(languages, "ger"), (std::vector<int>{1, 3, 0, 2}));
+    EXPECT_EQ(subtitle_order(languages, "eng"), (std::vector<int>{0, 1, 2, 3}));
+    EXPECT_EQ(subtitle_order(languages, ""), (std::vector<int>{0, 1, 2, 3}));
+    EXPECT_EQ(subtitle_order(languages, "spa"), (std::vector<int>{0, 1, 2, 3})) << "none in it";
+    EXPECT_TRUE(subtitle_order({}, "ger").empty());
+}

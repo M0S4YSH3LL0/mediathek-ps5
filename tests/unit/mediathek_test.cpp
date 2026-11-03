@@ -147,6 +147,34 @@ class MediathekTest : public hui::testing::ConceptFixture
         ++services_.revision;
     }
 
+    // One film with an English and a German subtitle file, in that order.
+    void fill_library_with_subtitles()
+    {
+        media::ScanResult scan;
+        scan.roots = {"/data/movies"};
+        media::FoundFile video;
+        video.path = "/data/movies/Blue Harbor (2011).mkv";
+        video.readable = video.path;
+        video.size = 1ull << 30;
+        scan.videos.push_back(video);
+        for (const char *name : {"Blue Harbor (2011).en.srt", "Blue Harbor (2011).de.srt"})
+        {
+            media::FoundFile sub;
+            sub.path = std::string("/data/movies/") + name;
+            sub.readable = sub.path;
+            scan.subtitles.push_back(sub);
+        }
+        services_.library = media::Library::from_scan(scan);
+        ++services_.revision;
+    }
+
+    // What Triangle's message says for subtitle file `language`, number `step` of two.
+    float subtitle_toast(Text language, int step)
+    {
+        const std::string label = std::string(tr(language)) + " (" + std::to_string(step) + "/2)";
+        return toast_width_of(hui::i18n::format(Text::subtitles_track, label));
+    }
+
     // The toast as drawn: its pill is 56 high with its top at 906 once it has arrived. -1: none.
     float toast_width(const app::Concept &design)
     {
@@ -175,11 +203,11 @@ class MediathekTest : public hui::testing::ConceptFixture
     }
 
     // The settings list, top to bottom (SettingsCategory in mediathek.cpp).
-    static constexpr int kAppearance = 0;
-    static constexpr int kLanguage = 1;
-    static constexpr int kSound = 2;
-    static constexpr int kLibrary = 3;
-    static constexpr int kDeveloper = 4;
+    static constexpr int kAppearance = 0; // Fixed billboard, Shelves on Home, Wallpaper
+    static constexpr int kPlayback = 1;   // Force subtitles, Subtitle language
+    static constexpr int kGeneral = 2;    // App language, UI sounds
+    static constexpr int kLibrary = 3;    // Reload all
+    static constexpr int kAbout = 4;      // Version, Author (read-only), Debug info
 
     // The settings tab with the focus in the form of this category (the order of the list).
     void open_category(app::Concept &design, int category)
@@ -263,22 +291,7 @@ TEST_F(MediathekTest, TheDetailsPageStepsToTheNeighbouringFilmAndRefusesAtTheEnd
 
 TEST_F(MediathekTest, TriangleCyclesThroughSubtitleFilesAndThenOff)
 {
-    media::ScanResult scan;
-    scan.roots = {"/data/movies"};
-    media::FoundFile video;
-    video.path = "/data/movies/Blue Harbor (2011).mkv";
-    video.readable = video.path;
-    video.size = 1ull << 30;
-    scan.videos.push_back(video);
-    for (const char *name : {"Blue Harbor (2011).en.srt", "Blue Harbor (2011).de.srt"})
-    {
-        media::FoundFile sub;
-        sub.path = std::string("/data/movies/") + name;
-        sub.readable = sub.path;
-        scan.subtitles.push_back(sub);
-    }
-    services_.library = media::Library::from_scan(scan);
-    ++services_.revision;
+    fill_library_with_subtitles();
     auto design = make();
     send(*design, press(Action::west), 2.0f);
     ASSERT_EQ(player_->state(), media::PlayerState::playing);
@@ -288,6 +301,61 @@ TEST_F(MediathekTest, TriangleCyclesThroughSubtitleFilesAndThenOff)
         EXPECT_TRUE(played(audio::Cue::toggle));
         expect_drawable(*design);
     }
+}
+
+TEST_F(MediathekTest, AFilmStartsWithoutSubtitlesAndTriangleFindsThePreferredLanguageFirst)
+{
+    settings_.subtitle_language = 1; // German
+    fill_library_with_subtitles();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    send(*design, press(Action::north), 0.5f); // off before: the first press switches them on
+    EXPECT_EQ(toast_width(*design), subtitle_toast(Text::lang_ger, 1));
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(toast_width(*design), subtitle_toast(Text::lang_eng, 2));
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(toast_width(*design), toast_width_of(tr(Text::subtitles_off)));
+}
+
+TEST_F(MediathekTest, ForcedSubtitlesStartInThePreferredLanguage)
+{
+    settings_.force_subtitles = true;
+    settings_.subtitle_language = 1; // German
+    fill_library_with_subtitles();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    send(*design, press(Action::north), 0.5f); // German was on: the next one is English
+    EXPECT_EQ(toast_width(*design), subtitle_toast(Text::lang_eng, 2));
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(toast_width(*design), toast_width_of(tr(Text::subtitles_off)));
+}
+
+TEST_F(MediathekTest, ForcedSubtitlesWithoutAPreferenceStartOnTheFirstFile)
+{
+    settings_.force_subtitles = true;
+    fill_library_with_subtitles();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    send(*design, press(Action::north), 0.5f); // English (the library's first) was on
+    EXPECT_EQ(toast_width(*design), subtitle_toast(Text::lang_ger, 2));
+}
+
+TEST_F(MediathekTest, TheSubtitleSettingsAreAFormOfTheirOwn)
+{
+    auto design = make();
+    open_category(*design, kPlayback);
+    context_.settings_changed = false;
+    send(*design, press(Action::confirm), 0.4f); // Force subtitles
+    EXPECT_TRUE(settings_.force_subtitles);
+    EXPECT_TRUE(context_.settings_changed);
+    send(*design, nav(Direction::down), 0.3f); // Preferred language: None
+    send(*design, nav(Direction::right), 0.3f);
+    EXPECT_EQ(settings_.subtitle_language, 1); // German
+    send(*design, nav(Direction::right), 0.3f);
+    EXPECT_EQ(settings_.subtitle_language, 2); // English
 }
 
 TEST_F(MediathekTest, TheTabKeysSwitchBetweenHomeAndTheMovieGrid)
@@ -537,16 +605,19 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     EXPECT_FALSE(settings_.pin_billboard);
     EXPECT_TRUE(context_.settings_changed);
 
+    send(*design, nav(Direction::down), 0.3f); // Shelves on Home
     send(*design, nav(Direction::down), 0.3f);
     context_.settings_changed = false;
     send(*design, press(Action::confirm), 0.4f); // the wallpaper of the details page
     EXPECT_FALSE(settings_.details_wallpaper);
     EXPECT_TRUE(context_.settings_changed);
+    EXPECT_EQ(settings_.home_shelves, 0);
 
     send(*design, press(Action::back), 0.3f);  // to the list
-    send(*design, nav(Direction::down), 0.3f); // Language
-    send(*design, nav(Direction::down), 0.3f); // Sound
+    send(*design, nav(Direction::down), 0.3f); // Playback
+    send(*design, nav(Direction::down), 0.3f); // General
     send(*design, nav(Direction::right), 0.3f);
+    send(*design, nav(Direction::down), 0.3f); // past App language
     context_.settings_changed = false;
     send(*design, press(Action::confirm), 0.4f); // UI sounds
     EXPECT_EQ(settings_.ui_volume, 0);
@@ -556,7 +627,7 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
 
     send(*design, press(Action::back), 0.3f);
     send(*design, nav(Direction::down), 0.3f); // Library
-    send(*design, nav(Direction::down), 0.3f); // Developer
+    send(*design, nav(Direction::down), 0.3f); // About
     send(*design, nav(Direction::right), 0.3f);
     context_.settings_changed = false;
     send(*design, press(Action::confirm), 0.4f); // debug info
@@ -565,12 +636,14 @@ TEST_F(MediathekTest, TheTogglesChangeTheSettingsAtOnceAndSayThatTheyChanged)
     expect_drawable(*design);
 }
 
-TEST_F(MediathekTest, TheSettingsListStartsWithAppearanceAndHasSoundThird)
+TEST_F(MediathekTest, TheSettingsListStartsWithAppearanceAndHasUiSoundsUnderGeneral)
 {
     auto design = make();
-    open_category(*design, kSound);
+    open_category(*design, kGeneral);
+    send(*design, nav(Direction::down), 0.3f);   // App language, then UI sounds
     send(*design, press(Action::confirm), 0.4f); // UI sounds
     EXPECT_EQ(settings_.ui_volume, 0);
+    EXPECT_EQ(settings_.ui_language, 0);
     EXPECT_TRUE(settings_.pin_billboard);
 }
 
@@ -603,13 +676,15 @@ TEST_F(MediathekTest, LeftAndBackLeaveTheFormWithoutChangingASwitch)
     EXPECT_FALSE(context_.settings_changed);
 
     // Down moves the list, so the focus really is there, and the form follows it.
-    send(*design, nav(Direction::down), 0.3f); // Language
-    send(*design, nav(Direction::down), 0.3f); // Sound
+    send(*design, nav(Direction::down), 0.3f); // Playback
+    send(*design, nav(Direction::down), 0.3f); // General
     send(*design, nav(Direction::right), 0.3f);
-    send(*design, press(Action::back), 0.3f); // Back: to the list, not yet to Home
+    send(*design, nav(Direction::down), 0.3f); // UI sounds
+    send(*design, press(Action::back), 0.3f);  // Back: to the list, not yet to Home
     send(*design, press(Action::confirm), 0.3f);
     send(*design, press(Action::confirm), 0.3f);
-    EXPECT_EQ(settings_.ui_volume, 0); // Sound's first row: still on the page
+    EXPECT_EQ(settings_.ui_volume, 0); // the row the form was left on: still on the page
+    EXPECT_EQ(settings_.ui_language, 0);
     EXPECT_TRUE(settings_.pin_billboard);
 
     // A switch does not answer right either: Cross is the one way to change it.
@@ -737,8 +812,7 @@ TEST_F(MediathekTest, TheHomeShelvesRowChangesHomeAtOnce)
     fill_library_with_genres();
     auto design = make();
     open_category(*design, kAppearance);
-    send(*design, nav(Direction::down), 0.3f);
-    send(*design, nav(Direction::down), 0.3f);
+    send(*design, nav(Direction::down), 0.3f); // Shelves on Home
     context_.settings_changed = false;
     send(*design, nav(Direction::right), 0.3f); // All -> own collections
     EXPECT_EQ(settings_.home_shelves, 1);
@@ -753,7 +827,7 @@ TEST_F(MediathekTest, TheHomeShelvesRowChangesHomeAtOnce)
 TEST_F(MediathekTest, HoldingRightIntoTheFormDoesNotChangeTheLanguage)
 {
     auto design = make();
-    open_category(*design, kLanguage); // the press that opened it is still held
+    open_category(*design, kGeneral); // the press that opened it is still held
     InputFrame held = nav(Direction::right);
     held.nav_repeat = true;
     send(*design, held, 0.2f);
@@ -768,12 +842,15 @@ TEST_F(MediathekTest, HoldingRightIntoTheFormDoesNotChangeTheLanguage)
     hui::i18n::set_language(hui::i18n::Language::english);
 }
 
-TEST_F(MediathekTest, TheDeveloperFormSkipsItsReadOnlyVersionAndAuthorRows)
+TEST_F(MediathekTest, TheAboutFormSkipsItsReadOnlyVersionAndAuthorRows)
 {
     auto design = make();
-    open_category(*design, kDeveloper);
+    open_category(*design, kAbout); // opens on Debug info, below the two read-only rows
     expect_drawable(*design);
-    send(*design, nav(Direction::down), 0.3f); // nothing focusable below Debug info
+    send(*design, nav(Direction::up), 0.3f); // nothing focusable above Debug info
+    EXPECT_FALSE(played(audio::Cue::focus));
+    EXPECT_TRUE(played(audio::Cue::error));
+    send(*design, nav(Direction::down), 0.3f); // nor below
     EXPECT_FALSE(played(audio::Cue::focus));
     EXPECT_TRUE(played(audio::Cue::error));
     send(*design, press(Action::confirm), 0.3f);
@@ -831,7 +908,7 @@ TEST_F(MediathekTest, TheLanguageRowSwitchesTheAppAtOnce)
     services_.automatic_language = i18n::Language::german; // a German console
     i18n::set_language(i18n::Language::german);
     auto design = make();
-    open_category(*design, kLanguage);
+    open_category(*design, kGeneral);
     ASSERT_EQ(settings_.ui_language, 0);
 
     context_.settings_changed = false;
@@ -866,14 +943,15 @@ TEST_F(MediathekTest, TheSettingsPageShowsWhatWasSaved)
     send(*design, press(Action::confirm), 0.4f);
     EXPECT_FALSE(settings_.pin_billboard);
     send(*design, press(Action::back), 0.3f);
-    send(*design, nav(Direction::down), 0.3f); // Language
-    send(*design, nav(Direction::down), 0.3f); // Sound
+    send(*design, nav(Direction::down), 0.3f); // Playback
+    send(*design, nav(Direction::down), 0.3f); // General
     send(*design, nav(Direction::right), 0.3f);
+    send(*design, nav(Direction::down), 0.3f);   // UI sounds
     send(*design, press(Action::confirm), 0.4f); // flips "off" to on, not on to off
     EXPECT_EQ(settings_.ui_volume, hui::Settings{}.ui_volume);
     send(*design, press(Action::back), 0.3f);
     send(*design, nav(Direction::down), 0.3f); // Library
-    send(*design, nav(Direction::down), 0.3f); // Developer
+    send(*design, nav(Direction::down), 0.3f); // About
     send(*design, nav(Direction::right), 0.3f);
     send(*design, press(Action::confirm), 0.4f);
     EXPECT_FALSE(settings_.show_fps);

@@ -95,7 +95,8 @@ Press **Options** to scan again.
 - **Subtitles:** `.srt` files named after the film, beside it or in a `subs` folder (a
   film alone in its folder owns all of `subs`). Up to eight, English first. The
   language comes from the name (`Film.de.srt`, `English.srt`) or else from the words
-  inside.
+  inside. A film starts without subtitles unless *Force subtitles* is on; Triangle
+  switches them on, the preferred language first.
 - **Audio language:** if a file does not say, its name can: `Film (2011) German DL.mkv`
   is listed as German.
 
@@ -111,8 +112,9 @@ Press **Options** to scan again.
 
 Films up to 1080p are decoded in software on the CPU, by FFmpeg. Films beyond 1080p
 (H.264, HEVC Main and Main10, up to 3840 x 2176) go to the console's hardware decoder,
-with FFmpeg as the fallback. HDR films on the hardware decoder (HDR10 and HLG) are
-tone-mapped for an ordinary screen; HDR up to 1080p is not.
+with FFmpeg as the fallback. HDR films (HDR10 and HLG) are tone-mapped for an ordinary
+screen on both, as long as the software-decoded ones are 8- or 10-bit 4:2:0, which is
+what HDR films are.
 
 - **Plays smoothly:** a large 1080p H.264 MKV. It is the one video format tested at
   length.
@@ -183,14 +185,16 @@ Circle to go back. Changes apply at once and save themselves.
 | Category | Setting | What it does |
 | --- | --- | --- |
 | Appearance | Fixed billboard | Keeps the Play button on screen while you scroll the shelves. |
-| Appearance | Wallpaper on the details page | Shows the film's wallpaper behind its details. |
 | Appearance | Shelves on Home | *Continue Watching* always, then all shelves, your own collections only (*Recently Added*, collections, *All Movies*), genres only or decades only. |
-| Language | App language | Automatic, English or Deutsch. |
-| Sound | UI sounds | Menu sounds on or off. |
+| Appearance | Wallpaper on the details page | Shows the film's wallpaper behind its details. |
+| Playback | Force subtitles | A film with subtitles starts with them on. Off by default. |
+| Playback | Subtitle language | None, German or English: the subtitles chosen first, when forced on or switched on with Triangle. |
+| General | App language | Automatic, English or Deutsch. |
+| General | UI sounds | Menu sounds on or off. |
 | Library | Reload all covers and infos | Fetches everything from TMDB again, with a message that counts the progress. |
-| Developer | Debug info | Frame rate in the corner. |
-| Developer | Version | The version and when this build was made. |
-| Developer | Author | Who made the app. |
+| About | Version | The version and when this build was made. |
+| About | Author | Who made the app. |
+| About | Debug info | Frame rate in the corner. |
 
 *Automatic* follows the console, German on a German console and English otherwise. Set
 `UI_LANGUAGE` in `mediathek.env` to change what *Automatic* picks.

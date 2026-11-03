@@ -36,6 +36,11 @@ struct Settings
     // Mediathek: which shelves Home shows, Continue Watching always. 0 all of them; 1 the viewer's
     // own (Recently Added, collections, All Movies); 2 genres; 3 decades.
     int home_shelves = 0;
+    // Mediathek: a film with subtitle files starts with one showing, instead of none.
+    bool force_subtitles = false;
+    // Mediathek: the subtitle language chosen first, when subtitles are forced on or switched on.
+    // 0 none (the library's order, English first), 1 German, 2 English.
+    int subtitle_language = 0;
     // Display resolution, an index into kResolutions; applies at the next start.
     int resolution = 2;
     // How large on-screen controller hints are: 0 small, 1 medium, 2 large.

@@ -187,12 +187,15 @@ when the list's focus moves (`build_settings_form`). Right or Cross enters the f
 returns, except that a choice row keeps left and right for itself. Switches change with Cross only.
 It edits the kit's `Settings`: *UI sounds* is `ui_volume` (0 off, else the default), *Debug
 info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` (on by default; keeps
-`hero_` open on every shelf, `animate()`; the settings file is format version 5, older ones still
+`hero_` open on every shelf, `animate()`; the settings file is format version 6, older ones still
 load with the defaults; *App language* is `ui_language`, *Wallpaper on the details page* is
 `details_wallpaper`, read by `draw_details_art`; *Shelves on Home* is `home_shelves`, read by
 `rebuild`: Continue Watching always, then all, own (Recently Added, collections, All Movies), genres
-or decades, with the All Movies shelf as the fallback when the choice has no shelf of its own).
-A value is added within format version 5: an older build reading 3 clamps it to genres. A read-only *Version* row under Developer shows
+or decades, with the All Movies shelf as the fallback when the choice has no shelf of its own);
+*Force subtitles* is `force_subtitles` and *Subtitle language* `subtitle_language` (0 none,
+1 German, 2 English), both read by `start_playback`: a film starts with no subtitles unless forced,
+and Triangle steps through `media::subtitle_order`, the preferred language first.
+A value is added within format version 5: an older build reading 3 clamps it to genres. The categories are Appearance, Playback, General, Library and About (`SettingsCategory`). A read-only *Version* row under About shows
 the version and `build_time()` (`core/build_info.cpp`, `__DATE__`/`__TIME__`; `tools/build.sh` touches the file so every build
 stamps it). A change sets `context_.settings_changed`;
 the shell saves `/download0/hui/settings.bin` 0.75 s after the last one, and `main.cpp`
@@ -245,15 +248,18 @@ the default one. Evidence to ask for: `[HUI] heap` (`of=` shows whether the bigg
 
 **Playback.** Below that, software decode on up to 4 frame threads, an audio-clock-driven
 `StreamRing`, a 4 MB AVIO read buffer. Pausing and resuming re-seeks. 4K on this path is not
-expected to be smooth, and HDR here is not tone-mapped. Embedded subtitle tracks are not shown; `.srt`
-files are.
+expected to be smooth. HDR (PQ, HLG) leaves swscale out: `show_planes` copies FFmpeg's three planes
+(`yuv420p`, `yuv420p10le`) into the hardware decoder's layout (`media::copy_planes` interleaves U and
+V) and the same `gfx::VideoConverter` tone-maps it; SDR stays on swscale to RGBA, and so does HDR in
+any other layout (logged once as `[HUI] hdr picture in ...`). Embedded subtitle tracks are not
+shown; `.srt` files are.
 
 **AV1 does not play, at any size.** FFmpeg's `av1` decoder is only a front for hardware decoding,
 PacBrew's FFmpeg has no `libdav1d` or `libaom`, and no AV1 codec of `libSceVideodec2` is known (VLC's
 PS5 port sends H.264, HEVC and VP9 to it). The way planned, as VLC's port does it: build dav1d 1.5.4
 for the console (static, with its x86 assembly through nasm; `meson` is not installed on the author's
 PC), feed it the demuxed packets on a decoding path of its own, and hand its pictures to the GPU
-converter (its chroma comes in two planes; `copy_planes` would interleave them). 1080p should keep up;
+converter (its chroma comes in two planes, which `copy_planes` already interleaves for FFmpeg's HDR). 1080p should keep up;
 whether 4K does depends on the CPU and is open. The owner deferred it after 0.7.0.
 
 **Decoder memory.** Each frame thread holds frames of its own: 4K 10-bit HEVC needs about
