@@ -136,6 +136,13 @@ void CoverService::enqueue(std::vector<CoverJob> jobs)
 void CoverService::redo(const CoverJob &job)
 {
     impl_->store.forget(job.id);
+    for (const SeasonJob &season : job.seasons)
+    {
+        std::vector<std::string> episodes;
+        for (const auto &episode : season.episodes)
+            episodes.push_back(episode.second);
+        impl_->store.forget_season(job.id, season.number, episodes);
+    }
     pthread_mutex_lock(&impl_->mutex);
     impl_->queue.push_front(job);
     impl_->trouble.clear();

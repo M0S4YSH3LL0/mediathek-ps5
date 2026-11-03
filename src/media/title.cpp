@@ -218,6 +218,186 @@ ParsedName parse_file_name(std::string_view file_name)
     return parsed;
 }
 
+namespace
+{
+
+bool all_digits(std::string_view text)
+{
+    return !text.empty() && std::all_of(text.begin(), text.end(), [](char c)
+                                        { return std::isdigit(static_cast<unsigned char>(c)); });
+}
+
+int to_number(std::string_view digits)
+{
+    int value = 0;
+    for (const char c : digits.substr(0, 4))
+        value = value * 10 + (c - '0');
+    return value;
+}
+
+// "S01E02", "s1e2", "S01E01E02", "S01E01-E02" (the first episode counts): season and episode.
+bool season_episode_word(const std::string &word, int *season, int *episode)
+{
+    const std::string key = lower(word);
+    if (key.size() < 4 || key[0] != 's')
+        return false;
+    std::size_t at = 1;
+    while (at < key.size() && std::isdigit(static_cast<unsigned char>(key[at])))
+        ++at;
+    if (at == 1 || at > 3 || at >= key.size() || key[at] != 'e')
+        return false;
+    const std::size_t start = at + 1;
+    std::size_t end = start;
+    while (end < key.size() && std::isdigit(static_cast<unsigned char>(key[end])))
+        ++end;
+    if (end == start || end - start > 3)
+        return false;
+    // Only more episode marks may follow: "E02", "-E02", "-02".
+    for (std::size_t i = end; i < key.size(); ++i)
+        if (key[i] != 'e' && key[i] != '-' && !std::isdigit(static_cast<unsigned char>(key[i])))
+            return false;
+    *season = to_number(std::string_view(key).substr(1, at - 1));
+    *episode = to_number(std::string_view(key).substr(start, end - start));
+    return true;
+}
+
+// "1x02", "01x002": season and episode. A picture size ("1920x1080") is too long for it.
+bool cross_word(const std::string &word, int *season, int *episode)
+{
+    const std::size_t x = lower(word).find('x');
+    if (x == std::string::npos || x == 0 || x > 2 || word.size() - x - 1 < 2 ||
+        word.size() - x - 1 > 3)
+        return false;
+    const std::string_view left = std::string_view(word).substr(0, x);
+    const std::string_view right = std::string_view(word).substr(x + 1);
+    if (!all_digits(left) || !all_digits(right))
+        return false;
+    *season = to_number(left);
+    *episode = to_number(right);
+    return true;
+}
+
+// "S01" alone (an "E02" follows as its own word), or "E02" alone: the number, else -1.
+int prefixed_number(const std::string &word, char prefix)
+{
+    const std::string key = lower(word);
+    if (key.size() < 2 || key.size() > 4 || key[0] != prefix ||
+        !all_digits(std::string_view(key).substr(1)))
+        return -1;
+    return to_number(std::string_view(key).substr(1));
+}
+
+// The words of a name: split at dots, underscores, blanks and brackets; a word of dashes alone
+// ("Show - 1x02 - Title") is a separator too.
+std::vector<std::string> name_words(std::string_view stem)
+{
+    std::vector<std::string> words;
+    std::string word;
+    const auto flush = [&]()
+    {
+        if (!word.empty() && word.find_first_not_of('-') != std::string::npos)
+            words.push_back(word);
+        word.clear();
+    };
+    for (const char c : stem)
+    {
+        if (c == '.' || c == '_' || c == ' ' || c == '(' || c == ')' || c == '[' || c == ']' ||
+            c == '{' || c == '}')
+            flush();
+        else
+            word.push_back(c);
+    }
+    flush();
+    return words;
+}
+
+// Some words as a title, the way a film's name is read (release tags and the year go).
+std::string words_title(const std::vector<std::string> &words, std::size_t begin, std::size_t end)
+{
+    // Nothing but release tags ("S01E02.1080p.mkv") is no title; parse_file_name would make
+    // the first tag one.
+    if (begin >= end || begin >= words.size() || is_tag_word(lower(words[begin])))
+        return {};
+    std::string joined;
+    for (std::size_t i = begin; i < end && i < words.size(); ++i)
+        joined += (joined.empty() ? "" : " ") + words[i];
+    return parse_file_name(joined + ".mkv").title;
+}
+
+} // namespace
+
+EpisodeName parse_episode_name(std::string_view file_name)
+{
+    EpisodeName name;
+    const std::vector<std::string> words = name_words(base_name(file_name));
+    for (std::size_t i = 0; i < words.size(); ++i)
+    {
+        int season = -1;
+        int episode = 0;
+        std::size_t after = i + 1;
+        if (!season_episode_word(words[i], &season, &episode) &&
+            !cross_word(words[i], &season, &episode))
+        {
+            // "S01 E02" in two words.
+            const int alone = prefixed_number(words[i], 's');
+            const int next = i + 1 < words.size() ? prefixed_number(words[i + 1], 'e') : -1;
+            if (alone < 0 || next < 0)
+                continue;
+            season = alone;
+            episode = next;
+            after = i + 2;
+        }
+        name.marked = true;
+        name.season = season;
+        name.episode = episode;
+        name.show = words_title(words, 0, i);
+        name.title = words_title(words, after, words.size());
+        return name;
+    }
+    // No mark: a number on its own still counts the episode.
+    for (std::size_t i = 0; i < words.size(); ++i)
+    {
+        const std::string key = lower(words[i]);
+        int number = prefixed_number(words[i], 'e');
+        std::size_t after = i + 1;
+        if (number < 0 && (key == "episode" || key == "folge" || key == "ep") &&
+            i + 1 < words.size() && all_digits(words[i + 1]) && words[i + 1].size() <= 3)
+        {
+            number = to_number(words[i + 1]);
+            after = i + 2;
+        }
+        if (number < 0 && i == 0 && all_digits(key) && key.size() <= 3)
+            number = to_number(key);
+        if (number < 0)
+            continue;
+        name.episode = number;
+        name.show = words_title(words, 0, i);
+        name.title = words_title(words, after, words.size());
+        return name;
+    }
+    name.title = words_title(words, 0, words.size());
+    return name;
+}
+
+int season_of_folder(std::string_view folder_name)
+{
+    const std::string key = lower(folder_name);
+    if (key == "specials" || key == "special" || key == "extras")
+        return 0;
+    for (const std::string_view word : {"season", "staffel", "saison", "series", "s"})
+    {
+        if (key.size() <= word.size() || key.compare(0, word.size(), word) != 0)
+            continue;
+        std::string_view rest = std::string_view(key).substr(word.size());
+        while (!rest.empty() && (rest.front() == ' ' || rest.front() == '.' ||
+                                 rest.front() == '_' || rest.front() == '-'))
+            rest.remove_prefix(1);
+        if (all_digits(rest) && rest.size() <= 3)
+            return to_number(rest);
+    }
+    return -1;
+}
+
 std::string sort_key(std::string_view title)
 {
     std::string key;

@@ -29,6 +29,7 @@
 #include "media/library.hpp"
 #include "media/mediainfo.hpp"
 #include "media/services.hpp"
+#include "media/title.hpp"
 #include "ui/fonts.hpp"
 
 #include <EGL/egl.h>
@@ -40,8 +41,10 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace
@@ -143,6 +146,106 @@ class Recorder
     int fps_;
     FILE *pipe_ = nullptr;
     int frames_ = 0;
+};
+
+// A file in a series folder of the samples: an episode, 45 minutes long rather than a film's two
+// hours, so the player's times and the "Up next" card look as they would.
+bool is_sample_episode(const std::string &path)
+{
+    return path.find("/tvshows/") != std::string::npos ||
+           path.find("/series/") != std::string::npos;
+}
+constexpr double kFilmSeconds = 7200.0;
+constexpr double kEpisodeSeconds = 2700.0;
+
+// Two simulated players, one per length; each file goes to the one of its kind.
+class SamplePlayer final : public hui::media::Player
+{
+  public:
+    SamplePlayer(const hui::media::VideoSurface &surface, bool hdr)
+        : film_(hui::media::make_simulated_player(surface, kFilmSeconds, hdr)),
+          episode_(hui::media::make_simulated_player(surface, kEpisodeSeconds, hdr))
+    {
+    }
+    void open(const std::string &path, double start_seconds) override
+    {
+        now().close();
+        on_episode_ = is_sample_episode(path);
+        now().open(path, start_seconds);
+    }
+    void close() override
+    {
+        now().close();
+    }
+    void update(float dt) override
+    {
+        now().update(dt);
+    }
+    void pause(bool paused) override
+    {
+        now().pause(paused);
+    }
+    void seek_by(double seconds) override
+    {
+        now().seek_by(seconds);
+    }
+    void seek_to(double seconds) override
+    {
+        now().seek_to(seconds);
+    }
+    hui::media::PlayerState state() const override
+    {
+        return now().state();
+    }
+    double position() const override
+    {
+        return now().position();
+    }
+    double duration() const override
+    {
+        return now().duration();
+    }
+    std::uint32_t texture() const override
+    {
+        return now().texture();
+    }
+    int video_width() const override
+    {
+        return now().video_width();
+    }
+    int video_height() const override
+    {
+        return now().video_height();
+    }
+    const std::string &error() const override
+    {
+        return now().error();
+    }
+    const std::string &summary() const override
+    {
+        return now().summary();
+    }
+    const std::vector<hui::media::Track> &audio_tracks() const override
+    {
+        return now().audio_tracks();
+    }
+    int audio_track() const override
+    {
+        return now().audio_track();
+    }
+    void select_audio(int index) override
+    {
+        now().select_audio(index);
+    }
+
+  private:
+    hui::media::Player &now() const
+    {
+        return on_episode_ ? *episode_ : *film_;
+    }
+    std::unique_ptr<hui::media::Player> film_;
+    std::unique_ptr<hui::media::Player> episode_;
+    bool on_episode_ = false;
 };
 
 } // namespace
@@ -282,9 +385,12 @@ int main(int argc, char **argv)
     {
         const char *movies = std::getenv("HUI_MOVIES");
         const std::string folder = movies != nullptr ? movies : "build/sample-movies/movies";
-        services.library = hui::media::Library::from_scan(hui::media::walk_folders({folder}));
-        std::fprintf(stderr, "library: %zu movies from %s\n", services.library.size(),
-                     folder.c_str());
+        // The samples keep their series beside the films, as a drive would.
+        const std::string parent = hui::media::directory_of(folder);
+        services.library = hui::media::Library::from_scan(
+            hui::media::walk_folders({folder, parent + "/tvshows", parent + "/series"}));
+        std::fprintf(stderr, "library: %zu movies and %zu series from %s\n",
+                     services.library.film_count(), services.library.show_count(), folder.c_str());
         // Descriptions as the console would have fetched them (invented).
         struct Overview
         {
@@ -370,14 +476,198 @@ int main(int argc, char **argv)
                         services.progress.update(movie.id, entry.fraction * 7200.0, 7200.0, stamp);
                     stamp += 100;
                 }
+
+        // The series as TMDB would have described them (invented, like the films).
+        const struct
+        {
+            const char *folder; // the title the folder gives
+            const char *title;  // TMDB's
+            float rating;
+            std::vector<int> genres;
+            const char *english;
+            const char *german;
+        } shows[] = {
+            {"Tidewater County",
+             "Tidewater County",
+             7.9f,
+             {9648, 18},
+             "In a ferry town where the tide decides who comes and goes, a new harbour constable "
+             "finds that every family keeps its own tide table, and none of them agree on the "
+             "night the lighthouse went dark.",
+             "In einer F\xC3\xA4hrstadt, in der die Gezeiten bestimmen, wer kommt und geht, merkt "
+             "eine neue Hafenpolizistin, dass jede Familie ihren eigenen Gezeitenkalender "
+             "f\xC3\xBChrt, und keiner passt zu der Nacht, in der der Leuchtturm erlosch."},
+            {"Starfall Station",
+             "Starfall Station",
+             8.3f,
+             {878, 12},
+             "Four hundred people live on a station built around a dying star. When its oldest "
+             "engineer vanishes during a shift change, her apprentice starts reading the "
+             "maintenance logs nobody else reads.",
+             "Vierhundert Menschen leben auf einer Station rund um einen sterbenden Stern. Als "
+             "die \xC3\xA4lteste Ingenieurin beim Schichtwechsel verschwindet, liest ihr "
+             "Lehrling die Wartungsprotokolle, die sonst niemand liest."},
+            {"The Clockmakers Guild",
+             "The Clockmaker's Guild",
+             6.8f,
+             {35, 10751},
+             "An apprentice clockmaker in a city that runs exactly four minutes late.",
+             "Ein Uhrmacherlehrling in einer Stadt, die genau vier Minuten nachgeht."},
+        };
+        const struct
+        {
+            const char *show;
+            int season;
+            const char *english;
+            const char *german;
+        } season_texts[] = {
+            {"Tidewater County", 1,
+             "Constable Ines Marrow arrives on the last ferry of the year and inherits a case "
+             "nobody wants reopened.",
+             "Polizistin Ines Marrow kommt mit der letzten F\xC3\xA4hre des Jahres und erbt "
+             "einen Fall, den niemand wieder aufrollen will."},
+            {"Tidewater County", 2,
+             "Spring brings the visitors back, and with them a stranger who knows too much about "
+             "the old lighthouse.",
+             "Der Fr\xC3\xBChling bringt die Besucher zur\xC3\xBC"
+             "ck, und mit ihnen einen Fremden, der zu viel \xC3\xBC"
+             "ber den alten Leuchtturm wei\xC3\x9F."},
+            {"Starfall Station", 2,
+             "The station drifts off its orbit, and the crew has to choose what to keep running.",
+             "Die Station verl\xC3\xA4sst ihre Bahn, und die Besatzung muss w\xC3\xA4hlen, was "
+             "weiterl\xC3\xA4uft."},
+        };
+        const struct
+        {
+            const char *show;
+            int season;
+            int number;
+            const char *title; // "": the file name's
+            const char *english;
+            const char *german;
+        } episode_texts[] = {
+            {"Tidewater County", 1, 1, "",
+             "The new constable misses the ferry back and spends her first night in the harbour "
+             "master's spare room.",
+             "Die neue Polizistin verpasst die F\xC3\xA4hre zur\xC3\xBC"
+             "ck und verbringt die erste Nacht im G\xC3\xA4stezimmer des Hafenmeisters."},
+            {"Tidewater County", 1, 3, "",
+             "A birdwatcher's notebook turns up in the marsh, its last page torn out.",
+             "Im Marschland taucht das Notizbuch eines Vogelkundlers auf, die letzte Seite "
+             "herausgerissen."},
+            {"Tidewater County", 1, 4, "",
+             "Ines climbs the lighthouse at low tide and finds that the lamp was switched off "
+             "by hand.",
+             "Bei Ebbe steigt Ines auf den Leuchtturm und findet heraus, dass die Lampe von Hand "
+             "ausgeschaltet wurde."},
+            {"Tidewater County", 2, 1, "",
+             "The ferry timetable changes, and so does the harbour master's story.",
+             "Der F\xC3\xA4hrplan \xC3\xA4ndert sich, und mit ihm die Geschichte des "
+             "Hafenmeisters."},
+            {"Starfall Station", 1, 1, "Shift Change", "", ""},
+            {"Starfall Station", 1, 2, "Dead Reckoning", "", ""},
+            {"Starfall Station", 1, 3, "Cold Start", "", ""},
+            {"Starfall Station", 2, 1, "Perihelion", "", ""},
+            {"Starfall Station", 2, 2, "Ballast",
+             "With the reactor at half power, the apprentice has to decide which deck goes dark "
+             "first.",
+             "Mit dem Reaktor auf halber Leistung muss der Lehrling entscheiden, welches Deck "
+             "zuerst dunkel wird."},
+        };
+        services.library.edit_all(
+            [&](hui::media::Movie *movie)
+            {
+                if (!movie->show)
+                    return;
+                for (const auto &entry : shows)
+                    if (movie->file_title == entry.folder)
+                    {
+                        movie->title = entry.title;
+                        movie->rating = entry.rating;
+                        movie->genres = entry.genres;
+                        movie->overview = german ? entry.german : entry.english;
+                    }
+                for (hui::media::Season &season : movie->seasons)
+                {
+                    for (const auto &entry : season_texts)
+                        if (movie->file_title == entry.show && season.number == entry.season)
+                            season.overview = german ? entry.german : entry.english;
+                    for (hui::media::Episode &episode : season.episodes)
+                        for (const auto &entry : episode_texts)
+                            if (movie->file_title == entry.show && season.number == entry.season &&
+                                episode.number == entry.number)
+                            {
+                                if (entry.title[0] != '\0')
+                                    episode.title = entry.title;
+                                episode.overview = german ? entry.german : entry.english;
+                            }
+                }
+            });
+        services.library.sort();
+        const auto episode_id = [&](const char *show, int season, int number) -> std::string
+        {
+            for (const hui::media::Movie &movie : services.library.movies())
+                if (movie.show && movie.file_title == show)
+                    for (const hui::media::Season &part : movie.seasons)
+                        for (const hui::media::Episode &episode : part.episodes)
+                            if (part.number == season && episode.number == number)
+                                return episode.id;
+            return {};
+        };
+        // Where the viewer is: Tidewater County in its first season, Starfall Station after the
+        // first episode of the second.
+        const struct
+        {
+            const char *show;
+            int season;
+            int number;
+            double fraction; // 0: watched
+            std::int64_t stamp;
+        } episodes_seen[] = {
+            {"Tidewater County", 1, 1, 0.0, 1700000010},
+            {"Tidewater County", 1, 2, 0.0, 1700000020},
+            {"Tidewater County", 1, 3, 0.35, 1700000050},
+            {"Starfall Station", 1, 1, 0.0, 1700000110},
+            {"Starfall Station", 1, 2, 0.0, 1700000120},
+            {"Starfall Station", 1, 3, 0.0, 1700000130},
+            {"Starfall Station", 2, 1, 0.0, 1700000150},
+        };
+        for (const auto &entry : episodes_seen)
+        {
+            const std::string id = episode_id(entry.show, entry.season, entry.number);
+            if (entry.fraction <= 0.0)
+                services.progress.set_watched(id, true, entry.stamp);
+            else
+                services.progress.update(id, entry.fraction * kEpisodeSeconds, kEpisodeSeconds,
+                                         entry.stamp);
+        }
+        // Stopped in the closing titles of S1 E4, which the store would count as watched: the
+        // tour plays it from there to picture the "Up next" card of its last seconds.
+        const std::string credits = episode_id("Tidewater County", 1, 4);
+        if (!credits.empty())
+        {
+            char line[96];
+            std::snprintf(line, sizeof(line), "%s %.1f %.1f %lld 0\n", credits.c_str(),
+                          kEpisodeSeconds - 26.0, kEpisodeSeconds, 1700000005LL);
+            services.progress.decode(services.progress.encode() + line);
+        }
     }
     services.posters = &posters;
     services.clock = [] { return std::int64_t{1700000000}; };
     // What a probe of the files would have found (invented), asked for in advance so a
     // picture never shows the "reading" state by chance.
     const std::string info_directory = data_root + "/info";
+    // A series has no file of its own: its episodes are probed.
+    std::vector<std::pair<std::string, std::string>> files; // id, path
     for (const hui::media::Movie &movie : services.library.movies())
-        std::remove((info_directory + "/" + movie.id + ".info").c_str());
+        if (!movie.show)
+            files.emplace_back(movie.id, movie.path);
+        else
+            for (const hui::media::Season &season : movie.seasons)
+                for (const hui::media::Episode &episode : season.episodes)
+                    files.emplace_back(episode.id, episode.path);
+    for (const auto &[id, path] : files)
+        std::remove((info_directory + "/" + id + ".info").c_str());
     hui::media::InfoService info(
         [](const std::string &path, hui::media::MediaInfo *out)
         {
@@ -403,19 +693,30 @@ int main(int argc, char **argv)
                 sample.height = 1600;
                 sample.audio_languages = {"ger", "eng", "jpn"};
             }
+            if (is_sample_episode(path))
+            {
+                sample.duration = kEpisodeSeconds;
+                sample.width = 1920;
+                sample.height = 1080;
+                if (path.find("2160p") != std::string::npos)
+                {
+                    sample.width = 3840;
+                    sample.height = 2160;
+                }
+            }
             if (path.find("Quiet Orchard") != std::string::npos)
                 return false; // a file the probe cannot read
             *out = sample;
             return true;
         },
         info_directory);
-    for (const hui::media::Movie &movie : services.library.movies())
-        info.request(movie.id, movie.path);
+    for (const auto &[id, path] : files)
+        info.request(id, path);
     for (int waited = 0; waited < 500; ++waited)
     {
         bool all = true;
-        for (const hui::media::Movie &movie : services.library.movies())
-            all = all && info.peek(movie.id).state != hui::media::InfoService::State::pending;
+        for (const auto &file : files)
+            all = all && info.peek(file.first).state != hui::media::InfoService::State::pending;
         if (all)
             break;
         usleep(10 * 1000);
@@ -432,9 +733,8 @@ int main(int argc, char **argv)
     { return video_converter.convert(frame, t, w, h); };
     // HUI_SIM_HDR=1: the player screen shows an HDR test card through the GPU converter.
     const char *sim_hdr = std::getenv("HUI_SIM_HDR");
-    const std::unique_ptr<hui::media::Player> player = hui::media::make_simulated_player(
-        surface, 7200.0, sim_hdr != nullptr && std::string(sim_hdr) == "1");
-    services.player = player.get();
+    SamplePlayer player(surface, sim_hdr != nullptr && std::string(sim_hdr) == "1");
+    services.player = &player;
 
     hui::app::Shell shell(fonts, catalog, data_root, renderer.glass_texture(), &services);
     shell.set_version("host");

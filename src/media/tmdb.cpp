@@ -24,6 +24,8 @@ namespace
 constexpr const char *kApi = "https://api.themoviedb.org/3";
 constexpr const char *kImages = "https://image.tmdb.org/t/p";
 constexpr std::size_t kMaxAnswer = 256u << 10;
+// A season lists every episode with its cast and crew: a long one is far bigger than a search.
+constexpr std::size_t kMaxSeasonAnswer = 2u << 20;
 constexpr std::size_t kMaxPicture = 4u << 20;
 constexpr std::size_t kMaxOverview = 3000; // a description is a paragraph, not an essay
 constexpr std::size_t kMaxTitle = 200;     // the longest film titles have about 180 characters
@@ -234,18 +236,98 @@ TmdbConfig config_from_env(const Env &env)
     return config;
 }
 
-Request search_request(const TmdbConfig &config, const std::string &title, int year)
+namespace
+{
+
+void authorize(const TmdbConfig &config, Request *request)
+{
+    if (is_long_token(config.key))
+        request->headers = "Authorization: Bearer " + config.key + "\r\n";
+    else
+        request->url += "&api_key=" + config.key;
+}
+
+} // namespace
+
+Request search_request(const TmdbConfig &config, const std::string &title, int year, bool show)
 {
     Request request;
-    request.url = std::string(kApi) + "/search/movie?query=" + percent_encode(title) +
-                  "&language=" + config.language + "&include_adult=false";
+    request.url = std::string(kApi) + (show ? "/search/tv" : "/search/movie") +
+                  "?query=" + percent_encode(title) + "&language=" + config.language +
+                  "&include_adult=false";
     if (year > 0)
-        request.url += "&year=" + std::to_string(year);
-    if (is_long_token(config.key))
-        request.headers = "Authorization: Bearer " + config.key + "\r\n";
-    else
-        request.url += "&api_key=" + config.key;
+        request.url += (show ? "&first_air_date_year=" : "&year=") + std::to_string(year);
+    authorize(config, &request);
     return request;
+}
+
+Request season_request(const TmdbConfig &config, int tmdb_id, int season)
+{
+    Request request;
+    request.url = std::string(kApi) + "/tv/" + std::to_string(tmdb_id) + "/season/" +
+                  std::to_string(season) + "?language=" + config.language;
+    authorize(config, &request);
+    return request;
+}
+
+std::vector<int> tv_genres_as_films(const std::vector<int> &genres)
+{
+    std::vector<int> out;
+    const auto add = [&out](int genre)
+    {
+        if (std::find(out.begin(), out.end(), genre) == out.end())
+            out.push_back(genre);
+    };
+    for (const int genre : genres)
+    {
+        switch (genre)
+        {
+        case 10759: // Action & Adventure
+            add(28);
+            add(12);
+            break;
+        case 10765: // Sci-Fi & Fantasy
+            add(878);
+            add(14);
+            break;
+        case 10768: // War & Politics
+            add(10752);
+            break;
+        case 10762: // Kids
+            add(10751);
+            break;
+        default:
+            add(genre);
+            break;
+        }
+    }
+    return out;
+}
+
+bool parse_season(std::string_view answer, SeasonAnswer *out)
+{
+    json::Value root;
+    if (!json::parse(answer, &root) || root.kind != json::Value::Kind::object)
+        return false;
+    const json::Value *episodes = root.get("episodes");
+    if (episodes == nullptr || episodes->kind != json::Value::Kind::array)
+        return false;
+    *out = SeasonAnswer();
+    out->overview = root.text("overview");
+    for (const json::Value &episode : episodes->items)
+    {
+        const json::Value *number = episode.get("episode_number");
+        if (episode.kind != json::Value::Kind::object || number == nullptr ||
+            number->kind != json::Value::Kind::number || number->number < 0.0 ||
+            number->number > 9999.0)
+            continue;
+        SeasonAnswer::Item item;
+        item.number = static_cast<int>(number->number);
+        item.name = episode.text("name");
+        item.overview = episode.text("overview");
+        out->episodes.push_back(std::move(item));
+    }
+    return true;
 }
 
 Request image_request(const std::string &path, int width)
@@ -256,8 +338,10 @@ Request image_request(const std::string &path, int width)
     return request;
 }
 
-bool pick_match(std::string_view answer, int year, Match *out)
+bool pick_match(std::string_view answer, int year, Match *out, bool show)
 {
+    const char *title_key = show ? "name" : "title";
+    const char *date_key = show ? "first_air_date" : "release_date";
     json::Value root;
     if (!json::parse(answer, &root))
         return false;
@@ -278,7 +362,7 @@ bool pick_match(std::string_view answer, int year, Match *out)
         }
         if (best == nullptr)
             best = &hit;
-        if (year > 0 && hit.text("release_date").compare(0, 4, std::to_string(year)) == 0)
+        if (year > 0 && hit.text(date_key).compare(0, 4, std::to_string(year)) == 0)
         {
             best = &hit;
             break;
@@ -289,7 +373,11 @@ bool pick_match(std::string_view answer, int year, Match *out)
     if (best == nullptr)
         return false;
     *out = Match(); // nothing of an earlier answer stays
-    out->title = best->text("title");
+    if (const json::Value *id = best->get("id"); id != nullptr &&
+                                                 id->kind == json::Value::Kind::number &&
+                                                 id->number > 0.0 && id->number < 1e9)
+        out->id = static_cast<int>(id->number);
+    out->title = best->text(title_key);
     out->poster_path = best->text("poster_path");
     out->backdrop_path = best->text("backdrop_path");
     out->overview = best->text("overview");
@@ -304,6 +392,8 @@ bool pick_match(std::string_view answer, int year, Match *out)
     if (const json::Value *votes = best->get("vote_count");
         votes != nullptr && votes->kind == json::Value::Kind::number)
         out->vote_count = votes->number;
+    if (show)
+        out->genre_ids = tv_genres_as_films(out->genre_ids);
     return true;
 }
 
@@ -359,6 +449,26 @@ bool CoverStore::has_title(const std::string &id) const
 {
     return exists(title_path(id));
 }
+std::string CoverStore::season_path(const std::string &id, int season) const
+{
+    return directory_ + "/" + id + "-s" + std::to_string(season) + ".txt";
+}
+bool CoverStore::has_season(const std::string &id, int season) const
+{
+    return exists(season_path(id, season));
+}
+std::string CoverStore::tmdb_id_path(const std::string &id) const
+{
+    return directory_ + "/" + id + ".tmdb";
+}
+int CoverStore::tmdb_id(const std::string &id) const
+{
+    std::string text;
+    if (!save::read_file(tmdb_id_path(id), &text, 32))
+        return 0;
+    const long value = std::strtol(text.c_str(), nullptr, 10);
+    return value > 0 && value < 1000000000 ? static_cast<int>(value) : 0;
+}
 bool CoverStore::no_match(const std::string &id) const
 {
     struct stat info{};
@@ -376,7 +486,18 @@ void CoverStore::forget(const std::string &id) const
     unlink(rating_path(id).c_str());
     unlink(genres_path(id).c_str());
     unlink(title_path(id).c_str());
+    unlink(tmdb_id_path(id).c_str());
     unlink((directory_ + "/" + id + ".none").c_str());
+}
+void CoverStore::forget_season(const std::string &id, int season,
+                               const std::vector<std::string> &episodes) const
+{
+    unlink(season_path(id, season).c_str());
+    for (const std::string &episode : episodes)
+    {
+        unlink(overview_path(episode).c_str());
+        unlink(title_path(episode).c_str());
+    }
 }
 void CoverStore::fill(Movie *movie) const
 {
@@ -401,6 +522,37 @@ void CoverStore::fill(Movie *movie) const
         movie->title = std::move(title);
     else if (!movie->file_title.empty())
         movie->title = movie->file_title;
+    for (Season &season : movie->seasons)
+    {
+        if (has_season(movie->id, season.number) &&
+            save::read_file(season_path(movie->id, season.number), &text, kMaxOverview + 16))
+            season.overview = clean_overview(text, false);
+        for (Episode &episode : season.episodes)
+        {
+            if (has_overview(episode.id) &&
+                save::read_file(overview_path(episode.id), &text, kMaxOverview + 16))
+                episode.overview = clean_overview(text, false);
+            std::string name;
+            if (has_title(episode.id) &&
+                save::read_file(title_path(episode.id), &text, kMaxTitle + 16))
+                name = clean_title(text);
+            episode.title = name.empty() ? episode.file_title : std::move(name);
+        }
+    }
+}
+
+std::vector<SeasonJob> season_jobs(const Movie &show)
+{
+    std::vector<SeasonJob> jobs;
+    for (const Season &season : show.seasons)
+    {
+        SeasonJob job;
+        job.number = season.number;
+        for (const Episode &episode : season.episodes)
+            job.episodes.emplace_back(episode.number, episode.id);
+        jobs.push_back(std::move(job));
+    }
+    return jobs;
 }
 
 std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &store)
@@ -414,8 +566,19 @@ std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &s
         job.id = movie.id;
         job.title = movie.file_title.empty() ? movie.title : movie.file_title;
         job.year = movie.year;
+        job.show = movie.show;
         job.want_facts = !store.has_rating(movie.id) || !store.has_genres(movie.id) ||
                          !store.has_title(movie.id);
+        // A season is asked for when it, or one of its episodes, has no description yet:
+        // a season or an episode that came after the last fetch.
+        for (SeasonJob &season : season_jobs(movie))
+        {
+            bool wanted = !store.has_season(movie.id, season.number);
+            for (const auto &episode : season.episodes)
+                wanted = wanted || !store.has_overview(episode.second);
+            if (wanted)
+                job.seasons.push_back(std::move(season));
+        }
         if (!movie.poster.empty())
         {
             // A film that has a cover (its own, or one fetched earlier and filled in by
@@ -423,7 +586,7 @@ std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &s
             // cost a request per film that lacks a wallpaper or description TMDB never
             // had. Only the score, kept since 0.3.0, and the title, kept after 0.8.0, are
             // asked for once, whether TMDB has them or not (the files say so then).
-            if (!job.want_facts)
+            if (!job.want_facts && job.seasons.empty())
                 continue;
             job.want_poster = false;
             job.want_wallpaper = false;
@@ -470,6 +633,53 @@ bool download_picture(const HttpGet &get, const std::string &tmdb_path, int widt
     return true;
 }
 
+// The descriptions of one season and of its episodes, and the episodes' names. What TMDB
+// does not have (a season it does not list, an episode it does not know) is stored as an
+// empty line, so it is not asked for again.
+FetchOutcome fetch_season(const TmdbConfig &config, const HttpGet &get, const CoverStore &store,
+                          const std::string &id, int tmdb_id, const SeasonJob &season,
+                          std::string *note)
+{
+    std::string answer;
+    std::string error;
+    SeasonAnswer found;
+    if (get(season_request(config, tmdb_id, season.number), kMaxSeasonAnswer, &answer, &error))
+    {
+        if (!parse_season(answer, &found))
+        {
+            *note = i18n::tr(i18n::Text::tmdb_bad_answer);
+            return FetchOutcome::network;
+        }
+    }
+    else if (error.find("404") == std::string::npos)
+    {
+        *note = error;
+        return FetchOutcome::network;
+    }
+    const auto save_text = [&](const std::string &path, const std::string &text) -> bool
+    {
+        const std::string failure = save::write_atomic(path, text.empty() ? "\n" : text);
+        if (!failure.empty())
+            *note = i18n::format(i18n::Text::tmdb_cannot_save_description, failure);
+        return failure.empty();
+    };
+    if (!save_text(store.season_path(id, season.number), clean_overview(found.overview)))
+        return FetchOutcome::network;
+    for (const auto &episode : season.episodes)
+    {
+        const SeasonAnswer::Item *item = nullptr;
+        for (const SeasonAnswer::Item &candidate : found.episodes)
+            if (candidate.number == episode.first)
+                item = &candidate;
+        if (!save_text(store.title_path(episode.second),
+                       item != nullptr ? clean_title(item->name) : std::string()) ||
+            !save_text(store.overview_path(episode.second),
+                       item != nullptr ? clean_overview(item->overview) : std::string()))
+            return FetchOutcome::network;
+    }
+    return FetchOutcome::stored;
+}
+
 } // namespace
 
 FetchOutcome fetch_cover(const TmdbConfig &config, const HttpGet &get, const CoverStore &store,
@@ -481,24 +691,38 @@ FetchOutcome fetch_cover(const TmdbConfig &config, const HttpGet &get, const Cov
         return FetchOutcome::no_key;
     }
     Match match;
-    bool found = false;
-    // A wrong year in a file name must not hide the film: ask again without it.
-    const int years[2] = {job.year, 0};
-    for (int attempt = 0; attempt < (job.year > 0 ? 2 : 1) && !found; ++attempt)
+    // A series whose seasons alone are wanted is not searched again: TMDB's number for it
+    // was kept the first time.
+    const bool search = !job.show || job.want_poster || job.want_wallpaper || job.want_overview ||
+                        job.want_facts || store.tmdb_id(job.id) == 0;
+    if (search)
     {
-        std::string answer;
-        std::string error;
-        if (!get(search_request(config, job.title, years[attempt]), kMaxAnswer, &answer, &error))
+        bool found = false;
+        // A wrong year in a file name must not hide the film: ask again without it.
+        const int years[2] = {job.year, 0};
+        for (int attempt = 0; attempt < (job.year > 0 ? 2 : 1) && !found; ++attempt)
         {
-            *note = error;
-            return FetchOutcome::network;
+            std::string answer;
+            std::string error;
+            if (!get(search_request(config, job.title, years[attempt], job.show), kMaxAnswer,
+                     &answer, &error))
+            {
+                *note = error;
+                return FetchOutcome::network;
+            }
+            found = pick_match(answer, years[attempt], &match, job.show);
         }
-        found = pick_match(answer, years[attempt], &match);
+        if (!found)
+        {
+            store.mark_no_match(job.id);
+            return FetchOutcome::no_match;
+        }
+        if (job.show && match.id > 0)
+            save::write_atomic(store.tmdb_id_path(job.id), std::to_string(match.id));
     }
-    if (!found)
+    else
     {
-        store.mark_no_match(job.id);
-        return FetchOutcome::no_match;
+        match.id = store.tmdb_id(job.id);
     }
     bool stored = false;
     if (job.want_poster && !match.poster_path.empty())
@@ -551,6 +775,17 @@ FetchOutcome fetch_cover(const TmdbConfig &config, const HttpGet &get, const Cov
             return stored ? FetchOutcome::stored : FetchOutcome::network;
         }
         stored = true;
+    }
+    if (job.show && match.id > 0)
+    {
+        for (const SeasonJob &season : job.seasons)
+        {
+            const FetchOutcome outcome =
+                fetch_season(config, get, store, job.id, match.id, season, note);
+            if (outcome != FetchOutcome::stored)
+                return stored ? FetchOutcome::stored : outcome;
+            stored = true;
+        }
     }
     if (!stored)
     {

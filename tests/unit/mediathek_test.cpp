@@ -212,11 +212,61 @@ class MediathekTest : public hui::testing::ConceptFixture
     // The settings tab with the focus in the form of this category (the order of the list).
     void open_category(app::Concept &design, int category)
     {
+        // Movies, Series, Settings.
+        send(design, press(Action::page_next), 0.5f);
         send(design, press(Action::page_next), 0.5f);
         send(design, press(Action::page_next), 0.5f);
         for (int i = 0; i < category; ++i)
             send(design, nav(Direction::down), 0.3f);
         send(design, nav(Direction::right), 0.3f);
+    }
+
+    // The four films and one series of two seasons, two episodes each, in a tvshows folder.
+    void fill_library_with_series()
+    {
+        media::ScanResult scan;
+        scan.roots = {"/data/movies", "/data/tvshows"};
+        const char *films[] = {"Blue Harbor (2011).mkv", "Paper Moons (2015).mp4"};
+        for (const char *name : films)
+        {
+            media::FoundFile file;
+            file.path = std::string("/data/movies/") + name;
+            file.readable = file.path;
+            file.size = 1ull << 30;
+            file.mtime = 1700000000;
+            scan.videos.push_back(file);
+        }
+        const char *episodes[] = {"Season 1/Tide.S01E01.mkv", "Season 1/Tide.S01E02.mkv",
+                                  "Season 2/Tide.S02E01.mkv", "Season 2/Tide.S02E02.mkv"};
+        for (const char *name : episodes)
+        {
+            media::FoundFile file;
+            file.path = std::string("/data/tvshows/Tide/") + name;
+            file.readable = file.path;
+            file.size = 1ull << 28;
+            file.mtime = 1700000000;
+            scan.videos.push_back(file);
+        }
+        services_.library = media::Library::from_scan(scan);
+        ++services_.revision;
+    }
+
+    // The id of episode `episode` of season `season` (both counted from 1) of the series.
+    std::string episode_id(int season, int episode) const
+    {
+        for (const media::Movie &movie : services_.library.movies())
+            if (movie.show)
+                return movie.seasons[static_cast<std::size_t>(season - 1)]
+                    .episodes[static_cast<std::size_t>(episode - 1)]
+                    .id;
+        return {};
+    }
+
+    // The Series tab: Home, Movies, Series.
+    void open_series(app::Concept &design)
+    {
+        send(design, press(Action::page_next), 0.5f);
+        send(design, press(Action::page_next), 0.5f);
     }
 
     media::Services services_;
@@ -576,11 +626,12 @@ TEST_F(MediathekTest, AnyInputInAnyStateStaysDrawable)
     expect_drawable(*design);
 }
 
-// The gear: Home, Movies, Settings are one row of tabs for L1 and R1.
+// The gear: Home, Movies, Series, Settings are one row of tabs for L1 and R1.
 TEST_F(MediathekTest, TheSettingsTabIsReachedWithTheTabKeysAndLeftWithBack)
 {
     fill_library();
     auto design = make();
+    send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
     expect_drawable(*design);
@@ -653,6 +704,7 @@ TEST_F(MediathekTest, TheCategoryListChangesNothingUntilTheFormHasTheFocus)
     auto design = make();
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
+    send(*design, press(Action::page_next), 0.5f);
     context_.settings_changed = false;
     send(*design, nav(Direction::left), 0.3f); // the list is the leftmost pane
     send(*design, nav(Direction::down), 0.3f);
@@ -702,6 +754,7 @@ TEST_F(MediathekTest, BackFromTheListLeavesTheSettingsAndComingBackStartsAtTheLi
     open_category(*design, kAppearance);
     send(*design, press(Action::back), 0.3f); // the list
     send(*design, press(Action::back), 0.5f); // Home
+    send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::page_next), 0.5f);
     send(*design, press(Action::confirm), 0.3f); // Appearance's form, not a switch
@@ -1123,6 +1176,96 @@ TEST_F(MediathekTest, ReloadingAnEmptyLibraryJustSaysThereIsNothing)
     send(*design, press(Action::confirm), 0.6f);
     EXPECT_TRUE(played(audio::Cue::error));
     EXPECT_EQ(asked, 0);
+}
+
+TEST_F(MediathekTest, TheSeriesTabPlaysASeriesFromItsFirstEpisode)
+{
+    fill_library_with_series();
+    EXPECT_EQ(services_.library.show_count(), 1u);
+    auto design = make();
+    open_series(*design);
+    expect_drawable(*design);
+    send(*design, press(Action::west), 30.0f); // Square: play, past the resume threshold
+    EXPECT_EQ(player_->state(), media::PlayerState::playing);
+    expect_drawable(*design);
+    send(*design, press(Action::back), 0.5f);
+    EXPECT_TRUE(services_.progress.in_progress(episode_id(1, 1)));
+    // The series' own id is no file and has no resume point.
+    for (const media::Movie &movie : services_.library.movies())
+        if (movie.show)
+            EXPECT_FALSE(services_.progress.in_progress(movie.id));
+    expect_drawable(*design);
+}
+
+TEST_F(MediathekTest, TheDetailsPageChoosesTheSeasonAndTheEpisodeToPlay)
+{
+    fill_library_with_series();
+    auto design = make();
+    open_series(*design);
+    send(*design, press(Action::confirm), 0.8f);
+    expect_drawable(*design);
+    send(*design, nav(Direction::down), 0.3f);  // the Season row
+    send(*design, nav(Direction::right), 0.4f); // Season 2
+    EXPECT_TRUE(played(audio::Cue::tick));
+    send(*design, nav(Direction::right), 0.4f); // there is no Season 3
+    EXPECT_TRUE(played(audio::Cue::error));
+    send(*design, nav(Direction::down), 0.3f);  // the Episode row
+    send(*design, nav(Direction::right), 0.4f); // Episode 2
+    expect_drawable(*design);
+    send(*design, press(Action::confirm), 30.0f);
+    EXPECT_EQ(player_->state(), media::PlayerState::playing);
+    send(*design, press(Action::back), 0.5f);
+    EXPECT_TRUE(services_.progress.in_progress(episode_id(2, 2)));
+    EXPECT_FALSE(services_.progress.in_progress(episode_id(1, 1)));
+}
+
+TEST_F(MediathekTest, R1InThePlayerStartsTheNextEpisode)
+{
+    fill_library_with_series();
+    auto design = make();
+    open_series(*design);
+    send(*design, press(Action::west), 30.0f);
+    send(*design, press(Action::page_next), 30.0f);
+    EXPECT_EQ(player_->state(), media::PlayerState::playing);
+    EXPECT_LT(player_->position(), 60.0); // from the start, not where the last one was
+    send(*design, press(Action::back), 0.5f);
+    EXPECT_TRUE(services_.progress.in_progress(episode_id(1, 1))); // kept where it was left
+    EXPECT_TRUE(services_.progress.in_progress(episode_id(1, 2)));
+}
+
+TEST_F(MediathekTest, TheEndOfAnEpisodeStartsTheNextOneAcrossTheSeason)
+{
+    fill_library_with_series();
+    // Season 1's last episode is under way.
+    services_.progress.update(episode_id(1, 2), 600.0, 7200.0, clock_seconds_);
+    ++services_.revision;
+    auto design = make();
+    open_series(*design);
+    send(*design, press(Action::west), 1.0f); // resumes S1 E2
+    EXPECT_EQ(player_->state(), media::PlayerState::playing);
+    player_->seek_to(7200.0 - 30.0); // the "Up next" card's last seconds
+    send(*design, idle(), 1.0f);
+    expect_drawable(*design);
+    send(*design, idle(), 60.0f); // it ends, and Season 2 starts
+    EXPECT_TRUE(services_.progress.watched(episode_id(1, 2)));
+    EXPECT_EQ(player_->state(), media::PlayerState::playing);
+    send(*design, press(Action::back), 0.5f);
+    EXPECT_TRUE(services_.progress.in_progress(episode_id(2, 1)));
+}
+
+TEST_F(MediathekTest, TheLastEpisodeEndsThePlayback)
+{
+    fill_library_with_series();
+    services_.progress.update(episode_id(2, 2), 600.0, 7200.0, clock_seconds_);
+    ++services_.revision;
+    auto design = make();
+    open_series(*design);
+    send(*design, press(Action::west), 1.0f); // resumes S2 E2, the last
+    player_->seek_to(7200.0 - 5.0);
+    send(*design, idle(), 30.0f);
+    EXPECT_TRUE(services_.progress.watched(episode_id(2, 2)));
+    EXPECT_NE(player_->state(), media::PlayerState::playing);
+    expect_drawable(*design);
 }
 
 } // namespace

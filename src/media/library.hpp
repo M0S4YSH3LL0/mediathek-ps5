@@ -23,6 +23,34 @@ struct SubtitleFile
     std::string language;
 };
 
+// One file of a series. Its id is made like a film's, so resume points, the file's details and
+// the fetched description are kept under it the same way.
+struct Episode
+{
+    std::string id;
+    std::string path;
+    int season = 1;         // 0: the specials
+    int number = 0;         // within the season; 0 when the name gives none
+    std::string title;      // TMDB's name for it, else file_title (may be "")
+    std::string file_title; // what the file name says after the episode mark, or ""
+    std::string overview;   // TMDB's description, or ""
+    std::string quality;
+    std::uint64_t size = 0;
+    std::int64_t added = 0;
+    std::string drive;
+    std::vector<SubtitleFile> subtitles;
+};
+
+struct Season
+{
+    int number = 1;
+    std::string overview;          // TMDB's description of the season, or ""
+    std::vector<Episode> episodes; // by number, then by file name
+};
+
+// A film, or a whole series (`show`): the shelves, the grid and the details page show both
+// the same way. A series has no file of its own; its episodes are in `seasons`, its `path` is
+// its folder and its id is "tv" and a hash of its name, so it never meets a film's.
 struct Movie
 {
     std::string id;    // stable across drive letters: name and size, hashed
@@ -46,7 +74,39 @@ struct Movie
     std::vector<int> genres; // TMDB genre ids, most telling first; see genre_name()
     std::string drive;       // "Internal", "USB 1", "Drive 2"
     std::string collection;  // folder name when the movie sits in a subfolder of movies/
+    bool show = false;
+    std::vector<Season> seasons; // a series': numbered seasons first, the specials last
 };
+
+// Where an episode is in its series: indices into seasons and episodes, -1 for none.
+struct EpisodeRef
+{
+    int season = -1;
+    int episode = -1;
+    bool valid() const
+    {
+        return season >= 0 && episode >= 0;
+    }
+    bool operator==(const EpisodeRef &) const = default;
+};
+
+// The episode a reference points at, or null.
+const Episode *episode_at(const Movie &show, EpisodeRef ref);
+// The episode with this id in the series, or an invalid reference.
+EpisodeRef find_episode(const Movie &show, std::string_view id);
+// The first episode: of the first numbered season, the specials only when there is nothing else.
+EpisodeRef first_episode(const Movie &show);
+// The episode after `ref`, into the next season at the end of one; invalid after the last.
+EpisodeRef next_episode(const Movie &show, EpisodeRef ref);
+// How many episodes a series has.
+std::size_t episode_count(const Movie &show);
+// How many seasons a series has, as a viewer counts them: the specials are not one, unless they
+// are all there is.
+std::size_t season_total(const Movie &show);
+
+// The folders a series is kept in, by their name: "tvshows", "TV Shows", "series", "Serien".
+// Every video below one is an episode.
+bool is_series_folder(std::string_view folder_name);
 
 // Whether a movie answers a search. `query` is what the viewer typed; every word of it must
 // appear in the title, ignoring case and accents. An empty query matches everything.
@@ -95,7 +155,7 @@ struct ScanResult
 // The index file that the scan helper payload writes (the app's sandbox
 // cannot list folders itself):
 //   mediathek-index 1
-//   R<TAB>path                    a movies folder that exists
+//   R<TAB>path                    a movies (or series) folder that exists
 //   V<TAB>path<TAB>size<TAB>mtime a video
 //   I<TAB>path<TAB>readable       an image next to a video
 //   S<TAB>path<TAB>readable       a subtitle file
@@ -138,8 +198,13 @@ class Library
     {
         return roots_;
     }
-    // Index of the movie with this id, or -1.
+    // Index of the movie (or series) with this id, or -1.
     int find(std::string_view id) const;
+    // The series an episode id belongs to: its index, or -1, and where in it the episode is.
+    int find_episode(std::string_view id, EpisodeRef *ref) const;
+    // The films and the series of the library, counted apart.
+    std::size_t film_count() const;
+    std::size_t show_count() const;
     // Lets `edit` change every movie (artwork fetched after the scan).
     void edit_all(const std::function<void(Movie *)> &edit);
     // Orders the films by title again, after `edit_all` gave them TMDB's titles. Indices

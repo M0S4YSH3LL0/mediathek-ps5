@@ -5,7 +5,7 @@
 ---
 
 **A Netflix-style movie library for your PS5.**<br>
-Put your films in a `movies` folder. Mediathek finds them, fetches their posters and plays them.
+Put your films in a `movies` folder and your series in `tvshows`. Mediathek finds them, fetches their posters and plays them.
 
 [![Version 0.8.0](https://img.shields.io/badge/version-0.8.0-blue)](CHANGELOG.md)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
@@ -30,6 +30,10 @@ Put your films in a `movies` folder. Mediathek finds them, fetches their posters
   collections, genres and decades. A setting limits them to your own collections,
   genres or decades.
 - **Movies:** a grid with search and sorting.
+- **Series:** a tab of their own, and on Home among the films: in *Continue Watching* with
+  the episode up next, and on the genre shelves. The details page chooses the season and
+  the episode and shows the description of both. In the player, R1 starts the next
+  episode, and in an episode's last 40 seconds a card counts down to it.
 - **Details:** length, video and sound format, audio and subtitle languages, and
   Play, Resume or Start over.
 - **Covers:** posters, wallpapers, descriptions, scores and genres from TMDB with a
@@ -77,8 +81,8 @@ six levels deep:
 /mnt/usb0/mediathek/movies/Space Sagas/Orbital Dawn (2010).mkv
 ```
 
-It searches `movies` and `mediathek/movies` on `/data`, `/`, `/mnt/usb0-7` and `/mnt/ext0-1`.
-Press **Options** to scan again.
+It searches `movies` and `mediathek/movies`, and the [series folders](#series), on `/data`,
+`/`, `/mnt/usb0-7` and `/mnt/ext0-1`. Press **Options** to scan again.
 
 Films somewhere else? Add the folder in **Settings > Library > Add folder**: a full path
 such as `/mnt/usb0/Films`, or just a name such as `Films`, which is then looked for on
@@ -96,6 +100,26 @@ found" screen goes straight there.
   switches them on, the preferred language first.
 - **Audio language:** if a file does not say, its name can: `Film (2011) German DL.mkv`
   is listed as German.
+
+### Series
+
+Put series in a `tvshows` or `series` folder (also `TV Shows`, `mediathek/tvshows` and
+`mediathek/series`), one folder per series, with season folders inside or not:
+
+```
+/data/tvshows/Tidewater County/Season 1/Tidewater.County.S01E01.mkv
+/mnt/usb0/series/Starfall Station/season2/Starfall Station - 2x03 - Ballast.mkv
+```
+
+- **Episodes:** the name gives the season and the episode: `S01E02`, `s1e2`, `1x02` or
+  `S01 E02`. Without one, a season folder (`Season 1`, `Season1`, `season 01`, `Staffel 1`,
+  `S01`, `Specials`) gives the season and a number in the name (`E05`, `Episode 5`,
+  `05 - Title`) the episode.
+- **Anywhere else:** a file whose name has such a mark is an episode in any searched folder,
+  of the series its folder is named after (or the name before the mark).
+- **Pictures:** `poster.jpg` and `fanart.jpg` in the series' folder.
+- **Watched:** Triangle on Home marks a whole series watched, or unwatched again; an episode
+  is marked on its own on the details page.
 
 ## Formats
 
@@ -133,8 +157,9 @@ tracks it cannot decode are left out of the list.
    TMDB_API_KEY=your-key-here
    ```
 
-3. Start the app. After each scan it looks up films with no cover, one at a time in
-   the background.
+3. Start the app. After each scan it looks up films and series with no cover, one at a
+   time in the background. A series brings the description of each season and the name
+   and description of each episode, and a season added later is fetched on its own.
 
 The same file takes a few optional settings:
 
@@ -162,13 +187,13 @@ Keep your key private. When you build from source, `make` writes this file from 
 
 | | Browse | Details | Player |
 | --- | --- | --- | --- |
-| D-pad / stick | move | up/down: action<br>left/right: previous / next film | left/right: seek |
+| D-pad / stick | move | up/down: action<br>left/right: previous / next film, or season / episode on their rows | left/right: seek |
 | Cross | details (Settings: open, change) | choose | pause / resume |
 | Square | play or resume | | next audio track |
-| Triangle | watched (Home)<br>search (Movies) | | next subtitles, then off |
-| R3 | sort (Movies) | | |
+| Triangle | watched (Home)<br>search (Movies, Series) | | next subtitles, then off |
+| R3 | sort (Movies, Series) | | |
 | Options | scan again | | stream info |
-| L1 / R1 | Home / Movies / Settings | previous / next film | seek -60 s / +60 s |
+| L1 / R1 | Home / Movies / Series / Settings | previous / next film | seek -60 s / +60 s<br>R1 in a series: next episode |
 | Circle | back (twice on Home to exit) | back | stop |
 
 In the player, a tap seeks 10 s. Hold and the jump starts at 30 s and grows by 30 s
@@ -187,14 +212,14 @@ Circle to go back. Changes apply at once and save themselves.
 | Category | Setting | What it does |
 | --- | --- | --- |
 | Appearance | Fixed billboard | Keeps the Play button on screen while you scroll the shelves. |
-| Appearance | Shelves on Home | *Continue Watching* always, then all shelves, your own collections only (*Recently Added*, collections, *All Movies*), genres only or decades only. |
+| Appearance | Shelves on Home | *Continue Watching* always, then all shelves, your own collections only (*Recently Added*, collections, *All Movies*, *All Series*), genres only or decades only. |
 | Appearance | Wallpaper on the details page | Shows the film's wallpaper behind its details. |
 | Playback | Force subtitles | A film with subtitles starts with them on. Off by default. |
 | Playback | Subtitle language | None, German or English: the subtitles chosen first, when forced on or switched on with Triangle. |
 | General | App language | Automatic, English or Deutsch. |
 | General | UI sounds | Menu sounds on or off. |
 | Library | Reload all covers and infos | Fetches everything from TMDB again, with a message that counts the progress. |
-| Library | Movie folders | Folders searched besides `movies` and `mediathek/movies`: add a path or a name, or choose one to remove it. Each change scans again. |
+| Library | Movie folders | Folders searched besides `movies`, `tvshows`, `series` and those below `mediathek`: add a path or a name, or choose one to remove it. Each change scans again. |
 | About | Version | The version and when this build was made. |
 | About | Author | Who made the app. |
 | About | Debug info | Frame rate in the corner. |
@@ -208,15 +233,17 @@ Circle to go back. Changes apply at once and save themselves.
 | --- | --- |
 | ![All movies](docs/screenshots/movies.jpg) | ![Details](docs/screenshots/details.jpg) |
 | ![Genre shelves on Home](docs/screenshots/genres.jpg) | ![Search on the Movies page](docs/screenshots/search.jpg) |
+| ![A series: season and episode](docs/screenshots/series.jpg) | ![Up next in the player](docs/screenshots/up-next.jpg) |
 | ![Settings](docs/screenshots/settings.jpg) | ![Home, in German](docs/screenshots/home-de.jpg) |
 
-*Pictures from the PC preview, with invented films.*
+*Pictures from the PC preview, with invented films and series.*
 
 ## FAQ
 
 **The app starts but shows no films.**
-The ELF loader on `127.0.0.1:9021` is not running, or no searched drive has a `movies`
-or `mediathek/movies` folder, nor one you added in Settings. Start the loader and press
+The ELF loader on `127.0.0.1:9021` is not running, or no searched drive has a `movies`,
+`tvshows` or `series` folder (or one of those below `mediathek`), nor one you added in
+Settings. Start the loader and press
 **Options**.
 
 **Nothing appears after I copy the folder.**
@@ -255,7 +282,7 @@ make test-unit        # GoogleTest, sanitizers on
 make format-check
 make lint             # takes a few minutes
 
-python3 tools/make-sample-movies.py                 # the invented films for the preview
+python3 tools/make-sample-movies.py                 # the invented films and series for the preview
 tools/host-snapshots.sh build/snapshots mediathek   # PC preview: a PNG of every screen
 HUI_LANG=de tools/host-snapshots.sh build/snapshots-de mediathek   # the same in German
 ```
@@ -283,8 +310,10 @@ mapping, forced subtitles and the subtitle language, the regrouped Settings, and
 Home and details page. The loader
 version was not recorded. Reports from other firmware are welcome.
 
-**Not checked on a console:** 4K H.264, HLG and Dolby Vision films, and the fallback to the
-CPU when the graphics chip cannot convert a picture.
+**Not checked on a console:** 4K H.264, HLG and Dolby Vision films, the fallback to the
+CPU when the graphics chip cannot convert a picture, and series (not yet released): the scan
+of the series folders, TMDB's season and episode descriptions, and the next episode in the
+player.
 
 **Checked on a PC:** the unit tests, the preview pictures, the scan helper against a
 folder of sample files, a clean build and lint.

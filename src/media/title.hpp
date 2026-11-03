@@ -28,6 +28,27 @@ struct ParsedName
 // codec, group) are dropped from the title.
 ParsedName parse_file_name(std::string_view file_name);
 
+// What the file name of a series episode says:
+//   "Show.Name.S01E02.The.Pilot.1080p.mkv"  season 1, episode 2, "The Pilot", show "Show Name"
+//   "Show Name - 1x02 - The Pilot.mkv"      the same
+//   "Show Name S01 E02.mkv"                 the same, no title
+// `marked` says the name carries such a mark, which is what makes a file an episode outside a
+// series folder. Without one, `season` is -1 and `episode` is what a bare number says ("E05",
+// "Episode 5", "Folge 5", "05 - Name"), else 0.
+struct EpisodeName
+{
+    bool marked = false;
+    int season = -1;
+    int episode = 0;
+    std::string show;  // the words before the mark, as a title: "Show Name", or ""
+    std::string title; // the words after it, release tags dropped, or ""
+};
+EpisodeName parse_episode_name(std::string_view file_name);
+
+// The season a folder's name stands for: "Season 1", "Season1", "season 01", "Staffel 2", "S02"
+// and "Specials" (0); -1 for any other name.
+int season_of_folder(std::string_view folder_name);
+
 // True for the containers the player can open.
 bool is_video_file(std::string_view file_name);
 bool is_image_file(std::string_view file_name);

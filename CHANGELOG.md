@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- New: series. A *Series* tab between Movies and Settings lists them with search and sorting,
+  and Home mixes them in with the films: *Continue Watching* (with the episode up next),
+  *Recently Added*, the genre and decade shelves, and an *All Series* shelf below *All Movies*.
+  Series go into a `tvshows` or `series` folder (`TV Shows`, `mediathek/tvshows` and `mediathek/series` too),
+  one folder per series, with or without season folders (`Season 1`, `Season1`, `season 01`,
+  `Staffel 1`, `S01`, `Specials`). The episode comes from the name (`S01E02`, `1x02`,
+  `S01 E02`) or, in a season folder, from a number (`E05`, `Episode 5`, `05 - Title`). A file
+  with such a mark is an episode in a movies folder too.
+- The details page of a series has *Season* and *Episode* rows (left and right choose) and
+  shows the season's description above the chosen episode's. Play starts or resumes the
+  episode up next: the one under way, else the first not seen after the last one finished.
+  *Mark as watched* marks the chosen episode; Triangle on Home marks the whole series.
+- The player plays a series on: R1 starts the next episode (the next season's first at the end
+  of one), a card counts down the last 40 seconds of an episode, and the next one starts when
+  it ends.
+- TMDB: a series is searched as one, and its seasons are asked for one request each, for their
+  descriptions and the names and descriptions of their episodes (`<id>-s<N>.txt` for a season,
+  `<id>.txt` and `<id>.title` for an episode, `<id>.tmdb` for TMDB's number, so a season added
+  later is fetched without searching again). TV genres become the film genres they mean
+  (*Action & Adventure* is both, *Sci-Fi & Fantasy* both), so series and films share shelves.
+- Fixed: a long title on the Home billboard lost its end ("The Clockmaker's Gui...") although it
+  had been shrunk to fit; captions turn umlauts and accents into capitals too ("KOMÖDIE",
+  "ALS NÄCHSTES", which read "KOMöDIE").
 - New in Settings, under Library: *Movie folders*. Add folders to search besides `movies` and
   `mediathek/movies`, either a path (`/mnt/usb0/Films`) or a name looked for on every drive
   (`Films`), up to eight; choose one to remove it. Every change scans again. The list is kept

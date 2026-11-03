@@ -7,7 +7,8 @@ repository is, where to look, how to work in it, and what "done" means here.
 
 **Mediathek**: a Netflix-style movie library and player for the PS5, a native
 C++20 app drawn with OpenGL 4.6 (title id `PPSA66120`, version in
-`sce_sys/param.json`). It finds films in `movies` and `mediathek/movies` folders on the internal drive,
+`sce_sys/param.json`). It finds films in `movies` and `mediathek/movies` folders, and series in
+`tvshows` and `series` folders, on the internal drive,
 USB and extended storage, shows a billboard, shelves and a grid, fetches covers,
 wallpapers and descriptions from TMDB, plays files with FFmpeg and remembers
 where you stopped. The UI is English or German.
@@ -29,9 +30,11 @@ src/media/                   the movie side, no platform code (mediainfo: langua
                                language of a subtitle file from its name or, failing that, its text;
                                info_service: reads files in the background):
                                library (scan index -> Movie list, a film's subtitle
-                               files, genre shelves, search matching), title (file
-                               name -> title, year, quality; search_fold), progress (resume
-                               points, watched), subtitles (.srt), tmdb + cover_service
+                               files, series grouped into seasons, genre shelves, search
+                               matching), title (file name -> title, year, quality; an
+                               episode's SxxEyy mark; search_fold), progress (resume
+                               points, watched), show_progress (a series' episode up next),
+                               subtitles (.srt), tmdb + cover_service
                                (poster, wallpaper, description), poster_cache,
                                hw_stream, yuv_picture (feeding the hardware decoder, its pictures to RGBA),
                                player.hpp (the interface), simulated_player (PC preview)
@@ -165,8 +168,9 @@ folder's git repository and takes more than two minutes; use a long timeout.
 ## Things that are not obvious
 
 **A sandboxed title cannot list a folder.** The app sends `mt-scan.elf` to an ELF
-loader on `127.0.0.1:9021`; it walks the `movies` and `mediathek/movies` folders of each
-drive (the same list as `default_roots()` in `library.cpp`; change both), copies small pictures
+loader on `127.0.0.1:9021`; it walks the `movies`, `tvshows`, `series` folders (and their
+spellings, and those below `mediathek/`) of each drive (`MOVIE_FOLDERS` in `mt-scan.c`, the same
+list as `default_roots()` in `library.cpp`; change both, and `MAX_ROOTS` with them), copies small pictures
 and subtitles next to the app and writes `mediathek-index.txt`, which the app
 reads as `/app0/mediathek-index.txt`. Without a loader the app starts and finds
 nothing. The install folder `/data/homebrew/PPSA66120` is `/app0` inside the app.
@@ -190,7 +194,9 @@ movies" message after a scan is the app's own toast at the bottom (`Services::sc
 wallpapers and descriptions in `covers/` (a description is `<id>.txt`; an empty
 one is stored as `"\n"` so TMDB is not asked again, because `CoverStore::exists`
 needs size > 0; likewise `<id>.rating` is `"0"` and `<id>.genres` is `"-"` when TMDB has
-none, and `<id>.title` is `"\n"`), what a file contains in `info/<id>.info`, the extra scan folders in `scan-folders.txt`,
+none, and `<id>.title` is `"\n"`; a series adds `<id>.tmdb`, TMDB's number for it, and
+`<id>-s<N>.txt` per season, its episodes `<episode id>.txt` and `.title`), what a file contains in
+`info/<id>.info` (an episode's under its own id), the extra scan folders in `scan-folders.txt`,
 resume points beside them. Settings are read from
 `/app0/mediathek.env`.
 
@@ -203,8 +209,8 @@ info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` 
 `hero_` open on every shelf, `animate()`; the settings file is format version 6, older ones still
 load with the defaults; *App language* is `ui_language`, *Wallpaper on the details page* is
 `details_wallpaper`, read by `draw_details_art`; *Shelves on Home* is `home_shelves`, read by
-`rebuild`: Continue Watching always, then all, own (Recently Added, collections, All Movies), genres
-or decades, with the All Movies shelf as the fallback when the choice has no shelf of its own);
+`rebuild`: Continue Watching always, then all, own (Recently Added, collections, All Movies, All Series), genres
+or decades, with the All Movies and Series shelves as the fallback when the choice has no shelf of its own);
 *Force subtitles* is `force_subtitles` and *Subtitle language* `subtitle_language` (0 none,
 1 German, 2 English), both read by `start_playback`: a film starts with no subtitles unless forced,
 and Triangle steps through `media::subtitle_order`, the preferred language first.
@@ -312,7 +318,29 @@ with, what is shown until TMDB has answered or when it knows no title, and what 
 matches. Fetched pictures never replace
 pictures the user put beside the film. The language follows the app unless
 `TMDB_LANGUAGE` says otherwise. The app has its own DNS client and a CA bundle
-in `assets/certs`; `DNS_SERVER` helps behind a router that blocks public DNS.
+in `assets/certs`; `DNS_SERVER` helps behind a router that blocks public DNS. A series is
+searched on `/search/tv`, then each season is one request (`/tv/<id>/season/<n>`) for its
+description and its episodes' names and descriptions; `missing_covers` asks again for a season
+with no file or an episode with no description (one added since), and without searching, as
+`<id>.tmdb` keeps the number. A season TMDB answers with 404 is stored empty. TV genres are
+turned into film genres (`tv_genres_as_films`) so the shelves can mix both.
+
+**Series.** A series is a `Movie` with `show` set: no file of its own, its episodes in
+`seasons` (numbered seasons first, the specials last), its id `"tv"` and a hash of its name, so
+nothing of a film's ever meets it; each `Episode` has an id made like a film's, and resume points,
+file facts and descriptions are kept under it. `Library::from_scan` makes one of every video
+under a series folder (`is_series_folder`), and of every file with an `SxxEyy` / `1x02` mark
+anywhere else (`parse_episode_name`); a marked file with no name to file it under ("S01E02.mkv"
+straight in `movies`) stays a film. The series is the first folder below a series root, else the
+file's folder, or the one above a season folder (`season_of_folder`). The episode up next
+(`media::show_progress`) is the one under way, else the first not seen after the last one
+finished, else the first; the design keeps it per series in `show_states_`, rebuilt in `rebuild()`.
+Playing an episode makes a `Movie` of it (`playing_item_`, the series' title, the episode's file),
+so the stage, subtitles and resume points do not care; `playing_ref_` is where it is in the series.
+R1 in the player plays `upcoming()`; the last `kUpNextSeconds` (40) show a card, and the end starts
+the next one. The preview's samples have series too (`tvshows/`, `series/` beside `movies/`); its
+`SamplePlayer` (`host/snapshot_main.cpp`) gives episodes 45 minutes, and it writes a resume point
+in an episode's last seconds, which the app itself never keeps (92 % is watched), to picture the card.
 
 **Pitfalls that have already cost time**
 

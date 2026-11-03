@@ -50,6 +50,37 @@ MOVIES = [
     ("", "Hollow Bell (2006).mkv", 3.6, 0.80, "lighthouse", True, False),
 ]
 
+# Series, invented like the films: (root, show folder, palette hue, motif, poster?, fanart?).
+# The show's art is a poster.jpg / fanart.jpg in its folder.
+SHOWS = [
+    ("tvshows", "Tidewater County", 0.47, "sea", True, True),
+    ("tvshows", "Starfall Station", 0.66, "stars", True, True),
+    ("tvshows", "The Clockmakers Guild", 0.10, "moon", True, False),
+    ("series", "Quiet Frequencies", 0.85, "waves", False, False),
+]
+# (root, show folder, season folder, file name, size in GB). The names try each spelling the
+# scan understands: "Season 1", "season2", "Staffel 1", "Specials", none; SxxEyy and 1x02.
+EPISODES = [
+    ("tvshows", "Tidewater County", "Season 1", "Tidewater.County.S01E01.The.Ferry.1080p.mkv", 1.4),
+    ("tvshows", "Tidewater County", "Season 1", "Tidewater.County.S01E02.Low.Water.1080p.mkv", 1.3),
+    ("tvshows", "Tidewater County", "Season 1", "Tidewater.County.S01E03.Salt.Marsh.1080p.mkv", 1.4),
+    ("tvshows", "Tidewater County", "Season 1", "Tidewater.County.S01E04.The.Keeper.1080p.mkv", 1.5),
+    ("tvshows", "Tidewater County", "season2", "Tidewater.County.S02E01.Spring.Tide.1080p.mkv", 1.6),
+    ("tvshows", "Tidewater County", "season2", "Tidewater.County.S02E02.Driftwood.1080p.mkv", 1.5),
+    ("tvshows", "Tidewater County", "season2", "Tidewater.County.S02E03.Fog.Bank.1080p.mkv", 1.4),
+    ("tvshows", "Starfall Station", "Season 1", "Starfall.Station.S01E01.2160p.mkv", 4.8),
+    ("tvshows", "Starfall Station", "Season 1", "Starfall.Station.S01E02.2160p.mkv", 4.6),
+    ("tvshows", "Starfall Station", "Season 1", "Starfall.Station.S01E03.2160p.mkv", 4.9),
+    ("tvshows", "Starfall Station", "Season 2", "Starfall.Station.S02E01.2160p.mkv", 5.1),
+    ("tvshows", "Starfall Station", "Season 2", "Starfall.Station.S02E02.2160p.mkv", 5.0),
+    ("tvshows", "Starfall Station", "Specials", "Starfall.Station.S00E01.Making.Orbit.mkv", 0.9),
+    ("tvshows", "The Clockmakers Guild", "Staffel 1", "The Clockmakers Guild - 1x01 - First Gear.mkv", 0.8),
+    ("tvshows", "The Clockmakers Guild", "Staffel 1", "The Clockmakers Guild - 1x02 - Escapement.mkv", 0.8),
+    ("tvshows", "The Clockmakers Guild", "Staffel 1", "The Clockmakers Guild - 1x03 - Mainspring.mkv", 0.9),
+    ("series", "Quiet Frequencies", "", "Quiet.Frequencies.S01E01.720p.mkv", 0.6),
+    ("series", "Quiet Frequencies", "", "Quiet.Frequencies.S01E02.720p.mkv", 0.6),
+]
+
 IN_PROGRESS = {"Blue Harbor (2011).mkv": 0.42, "Winter Cartographer (2017).mkv": 0.17,
                "Copper Skies (2020) 2160p.mkv": 0.71, "Velvet Static (2021).mkv": 0.05}
 
@@ -178,7 +209,19 @@ def main():
     with open(os.path.join(root, "Blue Harbor (2011).de.srt"), "w") as handle:
         handle.write("1\n00:00:01,000 --> 00:00:05,000\nDie Flut kommt immer wieder.\n\n"
                      "2\n00:00:06,000 --> 00:00:10,000\n<i>Nur nie mit demselben\nWasser.</i>\n")
-    print(f"wrote {len(MOVIES)} movies to {root}")
+    for index, (folder, show, hue, motif, has_poster, has_fanart) in enumerate(SHOWS):
+        directory = os.path.join(out, folder, show)
+        os.makedirs(directory, exist_ok=True)
+        if has_poster:
+            poster(os.path.join(directory, "poster.jpg"), show, 2015 + index * 2, hue, motif, 200 + index)
+        if has_fanart:
+            fanart(os.path.join(directory, "fanart.jpg"), hue, motif, 300 + index)
+    for folder, show, season, name, size_gb in EPISODES:
+        directory = os.path.join(out, folder, show, season)
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, name), "wb") as handle:
+            handle.truncate(int(size_gb * (1 << 30)))
+    print(f"wrote {len(MOVIES)} movies to {root}, {len(SHOWS)} series beside it")
 
 
 if __name__ == "__main__":

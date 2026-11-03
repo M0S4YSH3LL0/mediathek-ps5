@@ -112,4 +112,19 @@ std::string movie_count(std::size_t count)
     return count == 1 ? tr(Text::movies_one) : format(Text::movies_many, std::to_string(count));
 }
 
+std::string series_count(std::size_t count)
+{
+    return count == 1 ? tr(Text::series_one) : format(Text::series_many, std::to_string(count));
+}
+
+std::string season_count(std::size_t count)
+{
+    return count == 1 ? tr(Text::seasons_one) : format(Text::seasons_many, std::to_string(count));
+}
+
+std::string episode_count(std::size_t count)
+{
+    return count == 1 ? tr(Text::episodes_one) : format(Text::episodes_many, std::to_string(count));
+}
+
 } // namespace hui::i18n

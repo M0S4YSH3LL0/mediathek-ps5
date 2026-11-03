@@ -29,7 +29,9 @@
 #include "media/mediainfo.hpp"
 #include "media/scan_folders.hpp"
 #include "media/services.hpp"
+#include "media/show_progress.hpp"
 #include "media/subtitles.hpp"
+#include "media/title.hpp"
 #include "ui/components/dialog.hpp"
 #include "ui/components/form.hpp"
 #include "ui/components/input_prompt.hpp"
@@ -65,7 +67,7 @@ const Color kLightBar = Color::rgb(0xff0000);
 
 constexpr float kMargin = 96.0f;
 constexpr float kGearRadius = 17.0f;
-constexpr int kTabCount = 3; // Tab::home .. Tab::settings
+constexpr int kTabCount = 4; // Tab::home .. Tab::settings
 constexpr float kExitConfirmSeconds = 2.5f;
 // The centre line of the button hints at the bottom of every screen: lower than the kit's 1010,
 // closer to the edge, where they take less from the page.
@@ -137,6 +139,8 @@ constexpr float kOsdSeconds = 4.0f;
 constexpr float kSeekHoldGap = 0.5f;   // a pause this long in the repeats ends a hold
 constexpr double kSeekHeldStep = 30.0; // first held step, and what each held second adds
 constexpr double kSeekHeldMax = 300.0; // the longest step, 5 minutes
+// The last seconds of an episode show what comes next; when it ends, that starts.
+constexpr double kUpNextSeconds = 40.0;
 
 // Seconds to jump for a direction held `held` seconds: 30, 60, 90 ... up to 5 minutes.
 double held_seek_step(float held)
@@ -196,6 +200,27 @@ constexpr app::TourStep kTour[] = {
     {0.8f, 0, Direction::none, "paused"},
     {0.4f, action_bit(Action::back)},
     {0.4f, action_bit(Action::page_next)},
+    {1.0f, 0, Direction::none, "series"},
+    {0.3f, 0, Direction::right},
+    {0.3f, 0, Direction::right},
+    {0.3f, 0, Direction::right},
+    {0.6f, action_bit(Action::confirm)},
+    {0.9f, 0, Direction::none, "series-details"},
+    {0.3f, 0, Direction::down},
+    {0.3f, 0, Direction::right},
+    {0.8f, 0, Direction::none, "series-season"},
+    {0.3f, 0, Direction::left},
+    {0.3f, 0, Direction::down},
+    {0.2f, 0, Direction::right},
+    {0.2f, 0, Direction::right},
+    {0.3f, 0, Direction::right},
+    {0.8f, 0, Direction::none, "series-episode"},
+    {0.2f, action_bit(Action::confirm)},
+    {1.6f, 0, Direction::none, "series-up-next"},
+    {0.2f, action_bit(Action::page_next)},
+    {1.4f, 0, Direction::none, "series-next"},
+    {0.4f, action_bit(Action::back)},
+    {0.4f, action_bit(Action::page_next)},
     {1.0f, 0, Direction::none, "settings"},
     {0.3f, 0, Direction::right},
     {0.2f, action_bit(Action::confirm)},
@@ -241,6 +266,7 @@ enum class Tab : std::uint8_t
 {
     home,
     movies,
+    series,
     settings, // the gear at the top right
 };
 
@@ -255,6 +281,8 @@ enum class Sort : std::uint8_t
 enum class SheetAction : std::uint8_t
 {
     play,
+    season,  // a series: left and right choose the season
+    episode, // ... and the episode in it
     restart,
     watched,
     cover,
@@ -339,6 +367,21 @@ std::string format_time(double seconds)
     return text;
 }
 
+// "S1 · E3", or "Specials · E3": where an episode is in its series.
+std::string episode_code(const media::Episode &episode)
+{
+    const std::string season = episode.season == 0 ? std::string(tr(Text::specials))
+                                                   : "S" + std::to_string(episode.season);
+    return season + " \xC2\xB7 E" + std::to_string(episode.number);
+}
+
+// "Season 2", or "Specials".
+std::string season_name(const media::Season &season)
+{
+    return season.number == 0 ? std::string(tr(Text::specials))
+                              : i18n::format(Text::season_n, std::to_string(season.number));
+}
+
 std::string meta_line(const media::Movie &movie)
 {
     std::string line;
@@ -352,6 +395,11 @@ std::string meta_line(const media::Movie &movie)
     };
     if (movie.year > 0)
         add(std::to_string(movie.year));
+    if (movie.show)
+    {
+        add(i18n::season_count(media::season_total(movie)));
+        add(i18n::episode_count(media::episode_count(movie)));
+    }
     add(movie.quality);
     if (movie.size > 0)
         add(format_size(movie.size));
@@ -412,10 +460,7 @@ class Mediathek final : public app::Concept
             // The small message at the bottom once a scan has finished, after "Looking for
             // movies...". It is the app's own: the helper payload cannot post one of its own
             // that fits the app.
-            notify(feedback,
-                   i18n::format(Text::scan_found,
-                                i18n::movie_count(static_cast<std::size_t>(svc_->scan_found))),
-                   audio::Cue::notify);
+            notify(feedback, i18n::format(Text::scan_found, library_count()), audio::Cue::notify);
             svc_->scan_found = -1;
         }
         update_reload_progress(feedback);
@@ -491,16 +536,78 @@ class Mediathek final : public app::Concept
         return grid_.empty() ? -1 : grid_[static_cast<std::size_t>(grid_focus_)];
     }
 
+    // "26 movies", "26 movies · 3 series", "3 series": what the library holds.
+    std::string library_count() const
+    {
+        const std::size_t shows = library().show_count();
+        const std::size_t films = library().size() - shows;
+        if (shows == 0)
+            return i18n::movie_count(films);
+        if (films == 0)
+            return i18n::series_count(shows);
+        return i18n::movie_count(films) + "  \xC2\xB7  " + i18n::series_count(shows);
+    }
+
+    bool grid_tab() const
+    {
+        return tab_ == Tab::movies || tab_ == Tab::series;
+    }
+
+    // Where the viewer is in the series at `index`; for a film, nothing.
+    const media::ShowProgress &show_state(int index) const
+    {
+        return index >= 0 && static_cast<std::size_t>(index) < show_states_.size()
+                   ? show_states_[static_cast<std::size_t>(index)]
+                   : no_show_state_;
+    }
+
+    // The file Play starts for a title: the film, or the series' episode up next.
+    const media::Episode *next_episode_of(int index) const
+    {
+        return movie(index).show ? media::episode_at(movie(index), show_state(index).next)
+                                 : nullptr;
+    }
+
+    // What a card's bar shows: how far into the film, or into the series' episode up next.
+    float card_fraction(int index) const
+    {
+        if (const media::Episode *episode = next_episode_of(index))
+            return svc_->progress.fraction(episode->id);
+        return movie(index).show ? 0.0f : svc_->progress.fraction(movie(index).id);
+    }
+
+    bool card_watched(int index) const
+    {
+        return movie(index).show ? show_state(index).all_watched
+                                 : svc_->progress.watched(movie(index).id);
+    }
+
     void rebuild()
     {
         revision_ = svc_->revision;
+        const media::Library &lib = library();
         // The library may have been re-sorted (a TMDB title arrived) or rescanned: the film
         // playing keeps playing under its new index.
-        if (const int index = library().find(playing_id_); index >= 0)
+        if (playing_ref_.valid())
+        {
+            media::EpisodeRef ref;
+            if (const int index = lib.find_episode(playing_id_, &ref); index >= 0)
+            {
+                playing_ = index;
+                playing_ref_ = ref;
+            }
+        }
+        else if (const int index = lib.find(playing_id_); index >= 0)
+        {
             playing_ = index;
+        }
+        show_states_.assign(lib.size(), media::ShowProgress{});
+        for (std::size_t i = 0; i < lib.size(); ++i)
+            if (lib[i].show)
+                show_states_[i] = media::show_progress(lib[i], svc_->progress);
+
         const std::string keep = focus_id_;
         shelves_.clear();
-        const media::Library &lib = library();
         const int total = static_cast<int>(lib.size());
         const int shown = context_.settings.home_shelves;
         const bool own = shown == kShelvesAll || shown == kShelvesOwn;
@@ -517,20 +624,32 @@ class Mediathek final : public app::Concept
             shelves_.push_back(std::move(shelf));
         };
 
-        std::vector<int> continuing;
+        // Films under way and series with an episode under way or up next, the latest first.
+        std::vector<std::pair<std::int64_t, int>> latest;
         for (const media::Watch *watch : svc_->progress.in_progress_recent())
-        {
-            const int index = lib.find(watch->id);
-            if (index >= 0 && continuing.size() < 20)
-                continuing.push_back(index);
-        }
+            if (const int index = lib.find(watch->id); index >= 0)
+                latest.emplace_back(watch->last, index);
+        for (int i = 0; i < total; ++i)
+            if (show_state(i).continuing)
+                latest.emplace_back(show_state(i).last, i);
+        std::stable_sort(latest.begin(), latest.end(),
+                         [](const auto &a, const auto &b) { return a.first > b.first; });
+        std::vector<int> continuing;
+        for (const auto &entry : latest)
+            if (continuing.size() < 20)
+                continuing.push_back(entry.second);
         // Every choice keeps it: it is where the viewer left off, not a way to sort the library.
         add(tr(Text::shelf_continue), continuing);
         const std::size_t always = shelves_.size();
 
-        std::vector<int> all(static_cast<std::size_t>(total));
+        std::vector<int> all; // every title, films and series
+        std::vector<int> films;
+        std::vector<int> series;
         for (int i = 0; i < total; ++i)
-            all[static_cast<std::size_t>(i)] = i;
+        {
+            all.push_back(i);
+            (movie(i).show ? series : films).push_back(i);
+        }
 
         if (own && total >= 8)
         {
@@ -554,8 +673,8 @@ class Mediathek final : public app::Concept
             for (auto &entry : collections)
                 if (entry.second.size() >= 2)
                     add(entry.first, entry.second);
-        // One shelf for every genre a film has among its two main ones (the two the details
-        // page names), the fullest first.
+        // One shelf for every genre a title has among its two main ones (the two the details
+        // page names), the fullest first. Films and series share them.
         if (genres)
             for (media::GenreShelf &entry : media::genre_shelves(lib.movies()))
                 add(media::genre_name(entry.genre), std::move(entry.movies));
@@ -564,10 +683,14 @@ class Mediathek final : public app::Concept
                 if (entry.second.size() >= 3)
                     add(i18n::format(Text::decade, std::to_string(entry.first)), entry.second);
 
-        // Without covers there are no genres, and a small library has no decades: the films must
-        // still be on Home, and the rest of the page counts on a shelf while there are films.
+        // Without covers there are no genres, and a small library has no decades: the titles
+        // must still be on Home, and the rest of the page counts on a shelf while there are any.
         if (own || shelves_.size() == always)
-            add(tr(total >= 8 ? Text::shelf_all : Text::shelf_yours), all);
+        {
+            // All Series right below All Movies: the two shelves of everything, side by side.
+            add(tr(films.size() >= 8 ? Text::shelf_all : Text::shelf_yours), films);
+            add(tr(Text::shelf_all_series), series);
+        }
 
         row_ = 0;
         if (!keep.empty())
@@ -589,14 +712,21 @@ class Mediathek final : public app::Concept
         }
         rebuild_grid(keep);
         previous_ = shown_ = focused_movie();
+        // A details page stays on its episode; one the rescan took away gives way to the next.
+        if (const int focused = focused_movie();
+            focused >= 0 && movie(focused).show &&
+            media::episode_at(movie(focused), details_ref_) == nullptr)
+            details_ref_ = show_state(focused).next;
     }
 
+    // The grid of the tab that shows one: the films on Movies, the series on Series.
     void rebuild_grid(const std::string &keep)
     {
         const media::Library &lib = library();
+        const bool series = tab_ == Tab::series;
         grid_.clear();
         for (std::size_t i = 0; i < lib.size(); ++i)
-            if (media::matches_search(lib[i], search_))
+            if (lib[i].show == series && media::matches_search(lib[i], search_))
                 grid_.push_back(static_cast<int>(i));
         std::stable_sort(grid_.begin(), grid_.end(),
                          [&](int a, int b)
@@ -667,6 +797,8 @@ class Mediathek final : public app::Concept
                 tab_age_ = 0.0f;
                 if (tab_ == Tab::settings)
                     open_settings();
+                if (grid_tab())
+                    rebuild_grid(focus_id_); // the films, or the series
                 feedback.play(audio::Cue::tab, tab_ == Tab::home ? 0.94f : 1.08f);
             }
         }
@@ -685,10 +817,12 @@ class Mediathek final : public app::Concept
         }
 
         // Search and sort also work on an empty result: that is how it is changed.
-        if (tab_ == Tab::movies && library().size() > 0)
+        if (grid_tab() && library().size() > 0)
         {
             if (input.is_pressed(Action::north))
             {
+                search_prompt_.set_title(
+                    tr(tab_ == Tab::series ? Text::search_title_series : Text::search_title));
                 search_prompt_.open(feedback, search_);
                 return;
             }
@@ -720,7 +854,7 @@ class Mediathek final : public app::Concept
         }
         else if (input.is_pressed(Action::west))
         {
-            start_playback(focused, true, feedback);
+            start_playback(focused, show_state(focused).next, true, feedback);
         }
         else if (input.is_pressed(Action::north) && tab_ == Tab::home)
         {
@@ -739,7 +873,7 @@ class Mediathek final : public app::Concept
             feedback.play(audio::Cue::back);
             return true;
         }
-        if (tab_ == Tab::movies && !search_.empty())
+        if (grid_tab() && !search_.empty())
         {
             search_.clear();
             rebuild_grid(focus_id_);
@@ -773,7 +907,7 @@ class Mediathek final : public app::Concept
         return true;
     }
 
-    // Triangle on the Movies page: the on-screen keyboard. Done with an empty line clears
+    // Triangle on the Movies or Series page: the on-screen keyboard. Done with an empty line clears
     // the search, and so does Back once.
     void update_search(const InputFrame &input, app::Feedback &feedback)
     {
@@ -1378,15 +1512,52 @@ class Mediathek final : public app::Concept
         screen_ = Screen::details;
         action_ = 0;
         action_position_.snap(0.0f);
-        // The page shows what the file contains; reading it takes a moment on a
-        // drive that has to spin up, so the page opens first and fills in.
         if (const int index = focused_movie(); index >= 0)
         {
-            if (svc_->info != nullptr)
-                svc_->info->request(movie(index).id, movie(index).path);
-            sniff_subtitle_languages(movie(index));
+            details_ref_ = show_state(index).next;
+            read_details_file(index);
         }
         feedback.play(audio::Cue::open);
+    }
+
+    // The episode the page of a series shows, or null (a film).
+    const media::Episode *details_episode() const
+    {
+        const int index = focused_movie();
+        return index >= 0 && movie(index).show ? media::episode_at(movie(index), details_ref_)
+                                               : nullptr;
+    }
+
+    // The id the page's progress, status and file details are kept under: the film's, or the
+    // chosen episode's.
+    std::string details_id() const
+    {
+        const int index = focused_movie();
+        if (index < 0)
+            return {};
+        if (const media::Episode *episode = details_episode())
+            return episode->id;
+        return movie(index).show ? std::string() : movie(index).id;
+    }
+
+    // The page shows what the file contains; reading it takes a moment on a drive that has to
+    // spin up, so the page opens first and fills in. A series' file is the chosen episode's.
+    void read_details_file(int index)
+    {
+        const media::Movie &m = movie(index);
+        if (m.show)
+        {
+            if (const media::Episode *episode = media::episode_at(m, details_ref_))
+            {
+                if (svc_->info != nullptr)
+                    svc_->info->request(episode->id, episode->path);
+                sniff_subtitle_languages(episode->subtitles);
+            }
+            return;
+        }
+        if (svc_->info != nullptr)
+            svc_->info->request(m.id, m.path);
+        sniff_subtitle_languages(m.subtitles);
     }
 
     // Moves to the neighbouring film of the shelf (or the grid) the page was opened from, so
@@ -1408,11 +1579,53 @@ class Mediathek final : public app::Concept
         details_swap_.start(context_.settings.reduced_motion ? 0.1f : 0.32f);
         if (const int index = focused_movie(); index >= 0)
         {
-            if (svc_->info != nullptr)
-                svc_->info->request(movie(index).id, movie(index).path);
-            sniff_subtitle_languages(movie(index));
+            details_ref_ = show_state(index).next;
+            read_details_file(index);
         }
         feedback.play(audio::Cue::focus, step > 0 ? 1.1f : 0.9f, step > 0 ? 0.3f : -0.3f);
+    }
+
+    // Left and right on the Season or Episode row of a series' page. A new season starts at
+    // its first episode. The ends refuse, as the films of a shelf do.
+    void choose_episode(SheetAction row, int step, const InputFrame &input, app::Feedback &feedback)
+    {
+        const int index = focused_movie();
+        if (index < 0 || !movie(index).show)
+            return;
+        const media::Movie &show = movie(index);
+        media::EpisodeRef ref = details_ref_;
+        if (row == SheetAction::season)
+        {
+            int next = ref.season + step;
+            // A season the scan left empty is stepped over.
+            while (next >= 0 && next < static_cast<int>(show.seasons.size()) &&
+                   show.seasons[static_cast<std::size_t>(next)].episodes.empty())
+                next += step;
+            if (next < 0 || next >= static_cast<int>(show.seasons.size()))
+            {
+                nudge_direction_ = static_cast<float>(step);
+                refuse(feedback, input);
+                return;
+            }
+            ref = {next, 0};
+        }
+        else
+        {
+            const int next = ref.episode + step;
+            const int count = static_cast<int>(
+                show.seasons[static_cast<std::size_t>(ref.season)].episodes.size());
+            if (next < 0 || next >= count)
+            {
+                nudge_direction_ = static_cast<float>(step);
+                refuse(feedback, input);
+                return;
+            }
+            ref.episode = next;
+        }
+        details_ref_ = ref;
+        read_details_file(index);
+        episode_swap_.start(context_.settings.reduced_motion ? 0.1f : 0.28f);
+        feedback.play(audio::Cue::tick, step > 0 ? 1.1f : 0.9f, step > 0 ? 0.35f : 0.25f);
     }
 
     // How many films the details page steps through: the shelf or the grid it was opened from.
@@ -1433,13 +1646,33 @@ class Mediathek final : public app::Concept
     {
         std::vector<SheetAction> actions = {SheetAction::play};
         const int index = focused_movie();
-        if (index >= 0 && svc_->progress.in_progress(movie(index).id))
+        if (index >= 0 && movie(index).show)
+        {
+            // One season needs no choosing.
+            if (movie(index).seasons.size() > 1)
+                actions.push_back(SheetAction::season);
+            actions.push_back(SheetAction::episode);
+        }
+        if (index >= 0 && svc_->progress.in_progress(details_id()))
             actions.push_back(SheetAction::restart);
         actions.push_back(SheetAction::watched);
         if (svc_->refetch_cover)
             actions.push_back(SheetAction::cover);
         actions.push_back(SheetAction::close);
         return actions;
+    }
+
+    // Where the details page's column of actions starts: centred on the page. A series keeps the
+    // room of its "Start from the beginning" row, which comes and goes as episodes are chosen,
+    // so the rows above it stay where they are.
+    float actions_top(const std::vector<SheetAction> &actions) const
+    {
+        std::size_t rows = actions.size();
+        const int index = focused_movie();
+        if (index >= 0 && movie(index).show &&
+            std::find(actions.begin(), actions.end(), SheetAction::restart) == actions.end())
+            ++rows;
+        return gfx::kVirtualHeight * 0.5f - (static_cast<float>(rows) * 84.0f - 12.0f) * 0.5f;
     }
 
     void update_details(const InputFrame &input, app::Feedback &feedback)
@@ -1457,6 +1690,15 @@ class Mediathek final : public app::Concept
                 feedback.play(audio::Cue::focus, 1.0f, 0.35f);
             }
         }
+        const SheetAction row = actions[static_cast<std::size_t>(action_)];
+        // The Season and Episode rows keep left and right for themselves, as a choice in
+        // Settings does; L1 and R1 still step to the next title.
+        if ((row == SheetAction::season || row == SheetAction::episode) &&
+            (input.nav == Direction::left || input.nav == Direction::right))
+        {
+            choose_episode(row, input.nav == Direction::right ? 1 : -1, input, feedback);
+            return;
+        }
         int step = 0;
         if (input.nav == Direction::left || input.is_pressed(Action::page_prev))
             step = -1;
@@ -1470,16 +1712,24 @@ class Mediathek final : public app::Concept
         const int focused = focused_movie();
         if (input.is_pressed(Action::confirm) && focused >= 0)
         {
-            switch (actions[static_cast<std::size_t>(action_)])
+            switch (row)
             {
             case SheetAction::play:
-                start_playback(focused, true, feedback);
+                start_playback(focused, details_ref_, true, feedback);
+                break;
+            case SheetAction::season:
+            case SheetAction::episode:
+                // Cross on a choice is Play: the episode is chosen, so start it.
+                start_playback(focused, details_ref_, true, feedback);
                 break;
             case SheetAction::restart:
-                start_playback(focused, false, feedback);
+                start_playback(focused, details_ref_, false, feedback);
                 break;
             case SheetAction::watched:
-                toggle_watched(focused, feedback);
+                if (const media::Episode *episode = details_episode())
+                    toggle_episode_watched(episode->id, feedback);
+                else
+                    toggle_watched(focused, feedback);
                 break;
             case SheetAction::cover:
             {
@@ -1503,53 +1753,150 @@ class Mediathek final : public app::Concept
         }
     }
 
+    // Triangle on Home: a film, or a whole series (all its episodes seen, or none).
     void toggle_watched(int index, app::Feedback &feedback)
     {
-        const std::string &id = movie(index).id;
-        const bool now_watched = !svc_->progress.watched(id);
-        svc_->progress.set_watched(id, now_watched, svc_->now());
+        const media::Movie &m = movie(index);
+        bool now_watched = false;
+        if (m.show)
+        {
+            now_watched = !show_state(index).all_watched;
+            for (const media::Season &season : m.seasons)
+                for (const media::Episode &episode : season.episodes)
+                {
+                    // Not seen is no entry at all: a long series must not crowd the store.
+                    if (now_watched)
+                        svc_->progress.set_watched(episode.id, true, svc_->now());
+                    else
+                        svc_->progress.forget(episode.id);
+                }
+            toast_ = tr(now_watched ? Text::marked_show_watched : Text::marked_show_unwatched);
+        }
+        else
+        {
+            now_watched = !svc_->progress.watched(m.id);
+            svc_->progress.set_watched(m.id, now_watched, svc_->now());
+            toast_ = tr(now_watched ? Text::marked_watched : Text::marked_unwatched);
+        }
         feedback.play(now_watched ? audio::Cue::favorite_on : audio::Cue::favorite_off);
-        toast_ = tr(now_watched ? Text::marked_watched : Text::marked_unwatched);
         toast_time_ = 2.2f;
         // A watched movie leaves Continue Watching.
         ++svc_->revision;
     }
 
+    // The details page of a series: the chosen episode alone.
+    void toggle_episode_watched(const std::string &id, app::Feedback &feedback)
+    {
+        const bool now_watched = !svc_->progress.watched(id);
+        svc_->progress.set_watched(id, now_watched, svc_->now());
+        feedback.play(now_watched ? audio::Cue::favorite_on : audio::Cue::favorite_off);
+        toast_ = tr(now_watched ? Text::marked_watched : Text::marked_unwatched);
+        toast_time_ = 2.2f;
+        ++svc_->revision;
+    }
+
     // ------------------------------------------------------------- player
 
-    void start_playback(int index, bool resume, app::Feedback &feedback)
+    // Plays a film, or an episode of a series (`ref`; the first one when it points nowhere).
+    void start_playback(int index, media::EpisodeRef ref, bool resume, app::Feedback &feedback)
     {
         if (svc_->player == nullptr)
         {
             notify(feedback, tr(Text::playback_unavailable), audio::Cue::error);
             return;
         }
-        const media::Movie &m = movie(index);
+        const media::Movie &title = movie(index);
+        // The player shows one file: a film as it is, an episode as a film of its own that
+        // carries the series' name, so the stage, subtitles and resume points need not care.
+        media::Movie item;
+        playing_label_.clear();
+        if (title.show)
+        {
+            if (media::episode_at(title, ref) == nullptr)
+                ref = media::first_episode(title);
+            const media::Episode *episode = media::episode_at(title, ref);
+            if (episode == nullptr)
+                return;
+            item.id = episode->id;
+            item.path = episode->path;
+            item.title = title.title;
+            item.quality = episode->quality;
+            item.size = episode->size;
+            item.drive = episode->drive;
+            item.subtitles = episode->subtitles;
+            playing_label_ = episode_code(*episode);
+            if (!episode->title.empty())
+                playing_label_ += "  " + episode->title;
+        }
+        else
+        {
+            item = title;
+            ref = {};
+        }
+        const media::Movie &m = item;
         const double start = resume ? svc_->progress.resume_position(m.id) : 0.0;
         svc_->player->open(m.path, start);
         playing_ = index;
+        playing_ref_ = ref;
         playing_id_ = m.id;
+        playing_item_ = item;
         screen_ = Screen::player;
         osd_ = kOsdSeconds;
         paused_ = false;
         last_save_ = 0.0f;
         seek_flash_ = 0.0f;
         subtitle_track_ = -1;
-        sniff_subtitle_languages(m);
-        order_subtitles(m);
-        select_subtitle(m, context_.settings.force_subtitles && !subtitle_order_.empty()
-                               ? subtitle_order_.front()
-                               : -1);
+        sniff_subtitle_languages(playing_item_.subtitles);
+        order_subtitles(playing_item_);
+        select_subtitle(playing_item_, context_.settings.force_subtitles && !subtitle_order_.empty()
+                                           ? subtitle_order_.front()
+                                           : -1);
         feedback.play(audio::Cue::launch);
         feedback.rumble(0.6f, 0.15f);
+    }
+
+    // The episode after the one playing, or an invalid reference (a film, the last episode).
+    media::EpisodeRef upcoming() const
+    {
+        if (!playing_ref_.valid() || playing_ < 0 ||
+            static_cast<std::size_t>(playing_) >= library().size() || !movie(playing_).show)
+            return {};
+        return media::next_episode(movie(playing_), playing_ref_);
+    }
+
+    // The next episode, at once: its resume point if it has one. The one playing keeps where
+    // it was left (and is marked watched first when it ran out).
+    void play_next(app::Feedback &feedback)
+    {
+        const media::EpisodeRef next = upcoming();
+        if (!next.valid())
+            return;
+        save_progress();
+        svc_->player->close();
+        ++svc_->revision; // Continue Watching moves on to it
+        start_playback(playing_, next, true, feedback);
+        notify(feedback, tr(Text::next_episode), audio::Cue::tab);
+    }
+
+    // The "Up next" card shows in the last seconds of an episode that has one after it.
+    bool up_next_visible() const
+    {
+        if (svc_->player == nullptr || !upcoming().valid())
+            return false;
+        const double duration = svc_->player->duration();
+        const media::PlayerState state = svc_->player->state();
+        return duration > kUpNextSeconds * 3.0 &&
+               svc_->player->position() >= duration - kUpNextSeconds &&
+               (state == media::PlayerState::playing || state == media::PlayerState::paused ||
+                state == media::PlayerState::buffering);
     }
 
     void save_progress()
     {
         if (svc_->player == nullptr || playing_ < 0)
             return;
-        svc_->progress.update(movie(playing_).id, svc_->player->position(),
-                              svc_->player->duration(), svc_->now());
+        svc_->progress.update(playing_item_.id, svc_->player->position(), svc_->player->duration(),
+                              svc_->now());
     }
 
     void stop_playback(app::Feedback &feedback)
@@ -1584,7 +1931,12 @@ class Mediathek final : public app::Concept
         }
         if (state == media::PlayerState::ended)
         {
-            svc_->progress.set_watched(movie(playing_).id, true, svc_->now());
+            svc_->progress.set_watched(playing_item_.id, true, svc_->now());
+            if (upcoming().valid())
+            {
+                play_next(feedback); // what the Up next card counted down to
+                return;
+            }
             player.close();
             screen_ = Screen::browse;
             ++svc_->revision;
@@ -1625,6 +1977,12 @@ class Mediathek final : public app::Concept
             const double step = input.nav_repeat ? held_seek_step(seek_hold_) : 10.0;
             jump = input.nav == Direction::right ? step : -step;
         }
+        // R1 is the next episode while there is one; on a film (and the last episode) it jumps.
+        if (input.is_pressed(Action::page_next) && upcoming().valid())
+        {
+            play_next(feedback);
+            return;
+        }
         if (input.is_pressed(Action::jump_next) || input.is_pressed(Action::page_next))
             jump = 60.0;
         if (input.is_pressed(Action::jump_prev) || input.is_pressed(Action::page_prev))
@@ -1648,7 +2006,7 @@ class Mediathek final : public app::Concept
                                 player.audio_tracks()[static_cast<std::size_t>(next)].label),
                    audio::Cue::toggle);
         }
-        if (input.is_pressed(Action::north) && !movie(playing_).subtitles.empty())
+        if (input.is_pressed(Action::north) && !playing_item_.subtitles.empty())
             cycle_subtitles(feedback);
         if (input.is_pressed(Action::menu))
         {
@@ -1673,9 +2031,9 @@ class Mediathek final : public app::Concept
     // Reads each subtitle file of a film whose name does not give its language, once, and
     // guesses the language from its text. A file is a few hundred kilobytes at most, so the
     // page can wait for it.
-    void sniff_subtitle_languages(const media::Movie &m)
+    void sniff_subtitle_languages(const std::vector<media::SubtitleFile> &subtitles)
     {
-        for (const media::SubtitleFile &sub : m.subtitles)
+        for (const media::SubtitleFile &sub : subtitles)
         {
             if (sub.language != "und" || sniffed_subtitles_.count(sub.file) != 0)
                 continue;
@@ -1726,7 +2084,7 @@ class Mediathek final : public app::Concept
     // on/off switch.
     void cycle_subtitles(app::Feedback &feedback)
     {
-        const media::Movie &m = movie(playing_);
+        const media::Movie &m = playing_item_;
         const int count = static_cast<int>(subtitle_order_.size());
         // Where the current track is in the order; -1 (off) is before the first.
         const auto at = std::find(subtitle_order_.begin(), subtitle_order_.end(), subtitle_track_);
@@ -1803,6 +2161,7 @@ class Mediathek final : public app::Concept
         }
         hero_fade_.update(dt);
         details_swap_.update(dt);
+        episode_swap_.update(dt);
         search_prompt_.update(dt);
         settings_list_.update(dt);
         settings_form_.update(dt);
@@ -1824,7 +2183,7 @@ class Mediathek final : public app::Concept
                                 kMargin * 2.2f);
             shelf.scroll.update(dt, 12.0f);
         }
-        if (tab_ == Tab::movies && !grid_.empty())
+        if (grid_tab() && !grid_.empty())
         {
             const float top = static_cast<float>(grid_focus_ / kGridColumns) * kGridPitchY;
             grid_scroll_.reveal(top, top + kGridH * 1.1f + 20.0f,
@@ -1914,14 +2273,14 @@ class Mediathek final : public app::Concept
                                      static_cast<float>(art->height), rect.w / rect.h);
             list.image(art->texture, rect, uv, Color{1, 1, 1, alpha * fade}, radius);
         }
-        if (const float done = svc_->progress.fraction(m.id); done > 0.0f)
+        if (const float done = card_fraction(index); done > 0.0f)
         {
             const Rect bar{rect.x + rect.w * 0.08f, rect.y + rect.h - 16.0f, rect.w * 0.84f, 5.0f};
             list.rounded_rect(bar, 2.5f, Color::rgb(0x000000, 0.6f * alpha));
             list.rounded_rect({bar.x, bar.y, std::max(5.0f, bar.w * done), bar.h}, 2.5f,
                               kAccent.with_alpha(alpha));
         }
-        else if (svc_->progress.watched(m.id))
+        else if (card_watched(index))
         {
             const float r = rect.w * 0.075f;
             const float cx = rect.x + rect.w - r * 1.8f;
@@ -2083,8 +2442,8 @@ class Mediathek final : public app::Concept
         float x = ui::text(list, fonts.display, "MEDIATHEK", kMargin, y, 30, kAccent,
                            gfx::Align::left, 5.0f);
         x = kMargin + x + 64.0f;
-        const char *tabs[] = {tr(Text::tab_home), tr(Text::tab_movies)};
-        for (int i = 0; i < 2; ++i)
+        const char *tabs[] = {tr(Text::tab_home), tr(Text::tab_movies), tr(Text::tab_series)};
+        for (int i = 0; i < 3; ++i)
         {
             const bool active = static_cast<int>(tab_) == i;
             const float w = ui::text(list, active ? fonts.semibold : fonts.regular, tabs[i], x,
@@ -2107,16 +2466,15 @@ class Mediathek final : public app::Concept
             const float w = kGearRadius * 2.0f * tween::cubic_out(slide);
             list.rounded_rect({gear_x - kGearRadius, y + 14, w, 4}, 2, kAccent);
         }
+        const std::string count = svc_->scanning && library().size() == 0
+                                      ? std::string(tr(Text::scanning))
+                                      : library_count();
         if (!svc_->library.movies().empty() || svc_->scanning)
-        {
-            ui::text(list, fonts.regular,
-                     svc_->scanning && library().size() == 0 ? tr(Text::scanning)
-                                                             : i18n::movie_count(library().size()),
-                     right, y - 2, 22, kInk.with_alpha(0.6f), gfx::Align::right);
-        }
+            ui::text(list, fonts.regular, count, right, y - 2, 22, kInk.with_alpha(0.6f),
+                     gfx::Align::right);
         if (svc_->scanning)
         {
-            const float cx = right - 150.0f - fonts.regular.measure(i18n::movie_count(9999), 22);
+            const float cx = right - 30.0f - fonts.regular.measure(count, 22);
             list.arc(cx, y - 9, 11, 3, clock_ * 5.0f, 4.2f, kInk.with_alpha(0.8f));
         }
         list.pop_opacity();
@@ -2166,41 +2524,56 @@ class Mediathek final : public app::Concept
         float size = title_size;
         const float width = fonts.display.measure(m.title, size);
         const float max_width = 1000.0f;
+        // A hair under the exact ratio: widths do not scale exactly with the size (kerning,
+        // rounding), and a title a fraction too wide would lose its end to fit() below.
         if (width > max_width)
-            size = std::max(title_size * 0.62f, size * max_width / width);
+            size = std::max(title_size * 0.62f, size * max_width / width * 0.98f);
         ui::text(list, fonts.display, fit(fonts.display, m.title, size, max_width), x - 3, title_y,
                  size, kInk);
         const float meta_y = title_y + tween::lerp(40.0f, 52.0f, h);
-        // The billboard keeps to the year; quality, size and drive are on the details page and
-        // in the player (meta_line).
-        if (m.year > 0)
-            ui::text(list, fonts.regular, std::to_string(m.year), x, meta_y,
-                     tween::lerp(23.0f, 26.0f, h), kInk.with_alpha(0.78f));
+        // The billboard keeps to the year (and a series' seasons); quality, size and drive are
+        // on the details page and in the player (meta_line).
+        std::string meta = m.year > 0 ? std::to_string(m.year) : std::string();
+        if (m.show)
+            meta +=
+                (meta.empty() ? "" : "  \xC2\xB7  ") + i18n::season_count(media::season_total(m));
+        if (!meta.empty())
+            ui::text(list, fonts.regular, meta, x, meta_y, tween::lerp(23.0f, 26.0f, h),
+                     kInk.with_alpha(0.78f));
 
         if (h > 0.02f)
         {
             list.push_opacity(h);
             const float bar_y = meta_y + 34.0f;
-            const float done = svc_->progress.fraction(m.id);
-            if (done > 0.0f)
+            // A series' bar and button are its episode up next.
+            const media::Episode *episode = next_episode_of(index);
+            const std::string id = episode != nullptr ? episode->id : m.id;
+            const float done = card_fraction(index);
+            if (const media::Watch *watch = svc_->progress.find(id); done > 0.0f && watch)
             {
                 const Rect bar{x, bar_y, 360, 6};
                 list.rounded_rect(bar, 3, kInk.with_alpha(0.2f));
                 list.rounded_rect({bar.x, bar.y, std::max(6.0f, bar.w * done), bar.h}, 3, kAccent);
                 const std::string text =
-                    i18n::format(Text::time_left, format_time(svc_->progress.find(m.id)->duration -
-                                                              svc_->progress.find(m.id)->position));
+                    i18n::format(Text::time_left, format_time(watch->duration - watch->position));
                 ui::text(list, fonts.regular, text, bar.x + bar.w + 20, bar.y + 10, 21,
                          kInk.with_alpha(0.7f));
             }
             const float by = bar_y + (done > 0.0f ? 36.0f : 6.0f);
-            const bool resuming = svc_->progress.in_progress(m.id);
-            const Rect play{x, by, resuming ? 250.0f : 214.0f, 64};
+            const bool resuming = svc_->progress.in_progress(id);
+            const std::string label =
+                episode != nullptr
+                    ? i18n::format(resuming ? Text::resume_episode : Text::play_episode,
+                                   episode_code(*episode))
+                    : std::string(tr(resuming ? Text::button_resume : Text::button_play));
+            const float width = episode != nullptr ? fonts.semibold.measure(label, 28) + 110.0f
+                                : resuming         ? 250.0f
+                                                   : 214.0f;
+            const Rect play{x, by, width, 64};
             list.glow(play, 32, 20, kAccent.with_alpha(0.32f));
             list.rounded_rect(play, 32, kInk);
             list.triangle({play.x + 30, play.cy() - 13, 24, 26}, kBlack, 0.0f, 1.5708f);
-            ui::text(list, fonts.semibold, tr(resuming ? Text::button_resume : Text::button_play),
-                     play.x + 74, play.cy() + 10, 28, kBlack);
+            ui::text(list, fonts.semibold, label, play.x + 74, play.cy() + 10, 28, kBlack);
             list.pop_opacity();
         }
         list.pop_opacity();
@@ -2370,15 +2743,16 @@ class Mediathek final : public app::Concept
         const float in = tween::stagger(tab_age_, 0, 0.0f, 0.35f);
         list.push_opacity(in);
         // Header: what this page is, and how it is sorted.
-        ui::text(list, fonts.display, tr(Text::shelf_all), kMargin, 168, 34, kInk);
+        const bool series = tab_ == Tab::series;
+        const char *heading = tr(series ? Text::shelf_all_series : Text::shelf_all);
+        ui::text(list, fonts.display, heading, kMargin, 168, 34, kInk);
         std::string state = i18n::format(Text::sorted_by, sort_name());
         if (!search_.empty())
         {
             // The search, in the accent colour, where the eye already is.
-            const float x = kMargin + fonts.display.measure(tr(Text::shelf_all), 34) + 36.0f;
+            const float x = kMargin + fonts.display.measure(heading, 34) + 36.0f;
             const std::string count =
-                grid_.size() == 1 ? std::string(tr(Text::movies_one))
-                                  : i18n::format(Text::movies_many, std::to_string(grid_.size()));
+                series ? i18n::series_count(grid_.size()) : i18n::movie_count(grid_.size());
             ui::text(list, fonts.semibold,
                      fit(fonts.semibold,
                          i18n::format(Text::search_active, search_) + "  \xC2\xB7  " + count, 24,
@@ -2389,11 +2763,23 @@ class Mediathek final : public app::Concept
                  kInk.with_alpha(0.6f), gfx::Align::right);
         if (grid_.empty())
         {
+            // A search that found nothing, or a page with nothing on it yet (films only, or
+            // series only): what to do about it.
             const float cx = gfx::kVirtualWidth * 0.5f;
-            ui::text(list, fonts.display, tr(Text::search_none), cx, 480, 44, kInk,
+            const bool searching = !search_.empty();
+            const Text title = searching ? (series ? Text::search_none_series : Text::search_none)
+                               : series  ? Text::no_series
+                                         : Text::no_movies_found;
+            const Text hint =
+                searching ? (series ? Text::search_none_series_hint : Text::search_none_hint)
+                : series  ? Text::no_series_hint
+                          : Text::put_files_in;
+            ui::text(list, fonts.display, tr(title), cx, 480, 44, kInk, gfx::Align::center);
+            ui::text(list, fonts.regular, tr(hint), cx, 540, 26, kInk.with_alpha(0.65f),
                      gfx::Align::center);
-            ui::text(list, fonts.regular, tr(Text::search_none_hint), cx, 540, 26,
-                     kInk.with_alpha(0.65f), gfx::Align::center);
+            if (!searching && !series)
+                ui::text(list, fonts.mono, tr(Text::place_internal), cx, 600, 24,
+                         kInk.with_alpha(0.9f), gfx::Align::center);
         }
 
         list.push_clip({0, kGridFadeTop, gfx::kVirtualWidth, gfx::kVirtualHeight - kGridFadeTop});
@@ -2465,16 +2851,18 @@ class Mediathek final : public app::Concept
         for (int i = 0; i < 3; ++i)
             ui::text(list, fonts.mono, places[i], cx, cy + 148 + static_cast<float>(i) * 40, 24,
                      kInk.with_alpha(0.9f), gfx::Align::center);
-        ui::text(list, fonts.regular, tr(Text::name_them), cx, cy + 300, 22, kInk.with_alpha(0.55f),
+        ui::text(list, fonts.regular, tr(Text::name_them), cx, cy + 290, 22, kInk.with_alpha(0.55f),
                  gfx::Align::center);
+        ui::text(list, fonts.regular, tr(Text::series_folder), cx, cy + 326, 22,
+                 kInk.with_alpha(0.55f), gfx::Align::center);
         // Films kept elsewhere need not be moved: the folder can be added (Cross goes there).
         // A plain ">": the baked fonts have no single angle quote.
         ui::text(list, fonts.regular,
                  i18n::format(Text::other_folder, std::string(tr(Text::settings_title)) + " > " +
                                                       tr(Text::settings_library)),
-                 cx, cy + 340, 22, kInk.with_alpha(0.55f), gfx::Align::center);
+                 cx, cy + 362, 22, kInk.with_alpha(0.55f), gfx::Align::center);
         if (!svc_->scan_note.empty())
-            ui::text(list, fonts.regular, svc_->scan_note, cx, cy + 392, 22, kAccent,
+            ui::text(list, fonts.regular, svc_->scan_note, cx, cy + 410, 22, kAccent,
                      gfx::Align::center);
         list.pop_opacity();
     }
@@ -2552,17 +2940,27 @@ class Mediathek final : public app::Concept
         const float head = tween::stagger(t, 1, 0.12f, 0.6f);
         const float top = art.y;
         list.push_opacity(head);
+        // A series' page is about the chosen episode: its file, its progress, its status.
+        const media::Episode *episode = details_episode();
+        const std::string file_id = episode != nullptr ? episode->id : m.id;
+        const std::string &file_path = episode != nullptr ? episode->path : m.path;
+        const std::string &quality = episode != nullptr ? episode->quality : m.quality;
+        // An episode change fades what is about the episode, not the whole page.
+        const float episode_fade =
+            episode_swap_.running ? 0.3f + 0.7f * tween::cubic_out(episode_swap_.progress()) : 1.0f;
         // What the file says about itself, once it has been read.
         const media::InfoService::Lookup lookup =
-            svc_->info != nullptr ? svc_->info->peek(m.id) : media::InfoService::Lookup{};
+            svc_->info != nullptr ? svc_->info->peek(file_id) : media::InfoService::Lookup{};
         const media::MediaInfo *content = lookup.info.get();
 
         // Which film of the shelf (or the grid) this is, as the shelf on Home counts it: L1 and
         // R1 step through the same films.
+        // A series' longer column of actions reaches above it: then it stands over the column.
         char counter[24];
         std::snprintf(counter, sizeof(counter), "%d / %d", details_position() + 1, details_count());
-        ui::text(list, fonts.mono, counter, gfx::kVirtualWidth - kMargin, top + 36, 20,
-                 kInk.with_alpha(0.45f), gfx::Align::right);
+        ui::text(list, fonts.mono, counter, gfx::kVirtualWidth - kMargin,
+                 std::min(top + 36, actions_top(sheet_actions()) - 24), 20, kInk.with_alpha(0.45f),
+                 gfx::Align::right);
 
         // What kind of film it is; where it lives is under FILE below.
         std::string label;
@@ -2595,6 +2993,8 @@ class Mediathek final : public app::Concept
                 std::snprintf(score, sizeof(score), "%.1f", static_cast<double>(m.rating));
                 chips.push_back({score, true});
             }
+            if (m.show)
+                chips.push_back({i18n::season_count(media::season_total(m)), false});
             if (content != nullptr && !media::format_runtime(content->duration).empty())
                 chips.push_back({media::format_runtime(content->duration), false});
             std::string picture;
@@ -2610,12 +3010,12 @@ class Mediathek final : public app::Concept
                 const std::string size_label =
                     media::resolution_label(content->width, content->height);
                 join(content->video_codec);
-                join(size_label.empty() ? m.quality : size_label);
+                join(size_label.empty() ? quality : size_label);
                 join(content->container);
             }
             else
             {
-                join(m.quality);
+                join(quality);
             }
             if (!picture.empty())
                 chips.push_back({picture, false});
@@ -2643,15 +3043,17 @@ class Mediathek final : public app::Concept
                 chip_x += width + 10.0f;
             }
         }
-        const double resume = svc_->progress.resume_position(m.id);
+        const double resume = svc_->progress.resume_position(file_id);
         float y = meta_y + 30.0f;
-        const float done = svc_->progress.fraction(m.id);
+        const float done = svc_->progress.fraction(file_id);
         if (done > 0.0f)
         {
             const Rect bar{kColumn, y, 360, 6};
+            list.push_opacity(episode_fade);
             list.rounded_rect(bar, 3, kInk.with_alpha(0.2f));
             list.rounded_rect({bar.x, bar.y, std::max(6.0f, bar.w * done), bar.h}, 3, kAccent);
-            const media::Watch *entry = svc_->progress.find(m.id);
+            list.pop_opacity();
+            const media::Watch *entry = svc_->progress.find(file_id);
             if (entry != nullptr)
                 ui::text(
                     list, fonts.regular,
@@ -2669,8 +3071,11 @@ class Mediathek final : public app::Concept
         // The file and status sit at the foot of the cover; a long description stops
         // (with an ellipsis) a line above their labels instead of running into them.
         const float facts_y = art.y + art.h - 4.0f;
-        const int fits = static_cast<int>((facts_y - 100.0f - 40.0f - text_y) / kLine) + 1;
-        if (!m.overview.empty())
+        const float last_line = facts_y - 100.0f - 40.0f; // the lowest baseline text may take
+        const int fits = static_cast<int>((last_line - text_y) / kLine) + 1;
+        if (m.show)
+            draw_episode_text(list, m, episode, text_y, last_line, episode_fade);
+        else if (!m.overview.empty())
             ui::paragraph(list, fonts.regular, m.overview, kColumn, text_y, 24, kColumnWidth, kLine,
                           kInk.with_alpha(0.86f), std::clamp(fits, 1, 9));
         else
@@ -2681,10 +3086,9 @@ class Mediathek final : public app::Concept
 
         // The file and where the viewer stands, small, under the description.
         const float facts = tween::stagger(t, 3, 0.12f, 0.6f);
-        list.push_opacity(facts);
-        const std::string file =
-            m.path.substr(m.path.rfind('/') == std::string::npos ? 0 : m.path.rfind('/') + 1);
-        const std::string status = svc_->progress.watched(m.id) ? tr(Text::status_watched)
+        list.push_opacity(facts * episode_fade);
+        const std::string file = media::file_name_of(file_path);
+        const std::string status = svc_->progress.watched(file_id) ? tr(Text::status_watched)
                                    : resume > 0.0
                                        ? i18n::format(Text::status_at, format_time(resume))
                                        : tr(Text::status_not_started);
@@ -2716,15 +3120,17 @@ class Mediathek final : public app::Concept
                   kColumn, 400.0f, true);
         caption(tr(Text::label_subtitles), kSecond, facts_y - 100);
         std::vector<std::string> subtitle_languages;
-        for (const media::SubtitleFile &sub : m.subtitles)
+        for (const media::SubtitleFile &sub : episode != nullptr ? episode->subtitles : m.subtitles)
             media::add_language(&subtitle_languages, subtitle_language(sub));
         languages(media::language_names(subtitle_languages), kSecond, 1360.0f - kSecond, false);
         // FILE, the drive it is on and its size.
         std::string file_caption = tr(Text::label_file);
-        if (!m.drive.empty())
-            file_caption += "  \xC2\xB7  " + ui::upper(m.drive);
-        if (m.size > 0)
-            file_caption += "  \xC2\xB7  " + format_size(m.size);
+        const std::string &drive = episode != nullptr ? episode->drive : m.drive;
+        const std::uint64_t bytes = episode != nullptr ? episode->size : m.size;
+        if (!drive.empty())
+            file_caption += "  \xC2\xB7  " + ui::upper(drive);
+        if (bytes > 0)
+            file_caption += "  \xC2\xB7  " + format_size(bytes);
         caption(file_caption, kColumn, facts_y - 30);
         ui::text(list, fonts.mono, fit(fonts.mono, file, 20, 400), kColumn, facts_y, 20,
                  kInk.with_alpha(0.9f));
@@ -2735,7 +3141,7 @@ class Mediathek final : public app::Concept
         // Actions: one highlight that springs between the rows.
         const std::vector<SheetAction> actions = sheet_actions();
         const float ax = 1824.0f - 384.0f + 36.0f * (1.0f - tween::stagger(t, 2, 0.12f, 0.6f));
-        const float ay = kCenter - (static_cast<float>(actions.size()) * 84.0f - 12.0f) * 0.5f;
+        const float ay = actions_top(actions);
         list.push_opacity(tween::stagger(t, 2, 0.12f, 0.6f));
         list.rounded_rect({ax, ay + action_position_.value * 84, 384, 72}, 36, kInk);
         for (std::size_t i = 0; i < actions.size(); ++i)
@@ -2743,17 +3149,37 @@ class Mediathek final : public app::Concept
             const bool focused = static_cast<int>(i) == action_;
             const float row = ay + static_cast<float>(i) * 84;
             std::string text;
+            bool choice = false; // drawn with arrows to both sides, the text in the middle
             switch (actions[i])
             {
             case SheetAction::play:
-                text = resume > 0.0 ? i18n::format(Text::resume_from, format_time(resume))
-                                    : tr(Text::button_play);
+                if (episode != nullptr)
+                    text = i18n::format(resume > 0.0 ? Text::resume_episode : Text::play_episode,
+                                        episode_code(*episode));
+                else
+                    text = resume > 0.0 ? i18n::format(Text::resume_from, format_time(resume))
+                                        : tr(Text::button_play);
+                break;
+            case SheetAction::season:
+                choice = true;
+                if (details_ref_.valid())
+                    text = season_name(m.seasons[static_cast<std::size_t>(details_ref_.season)]);
+                break;
+            case SheetAction::episode:
+                choice = true;
+                if (details_ref_.valid())
+                    text = i18n::format(
+                        Text::episode_n,
+                        std::to_string(details_ref_.episode + 1) + " / " +
+                            std::to_string(m.seasons[static_cast<std::size_t>(details_ref_.season)]
+                                               .episodes.size()));
                 break;
             case SheetAction::restart:
                 text = tr(Text::start_over);
                 break;
             case SheetAction::watched:
-                text = tr(svc_->progress.watched(m.id) ? Text::mark_unwatched : Text::mark_watched);
+                text =
+                    tr(svc_->progress.watched(file_id) ? Text::mark_unwatched : Text::mark_watched);
                 break;
             case SheetAction::cover:
                 text = tr(Text::refresh_info);
@@ -2765,11 +3191,87 @@ class Mediathek final : public app::Concept
             if (!focused)
                 list.bordered_rect({ax, row, 384, 72}, 36, kInk.with_alpha(0.08f), 1.5f,
                                    kInk.with_alpha(0.22f));
-            ui::text(list, fonts.semibold, text, ax + 36, row + 46, 25,
-                     focused ? kBlack : kInk.with_alpha(0.9f));
+            const Color ink = focused ? kBlack : kInk.with_alpha(0.9f);
+            if (!choice)
+            {
+                ui::text(list, fonts.semibold, fit(fonts.semibold, text, 25, 312), ax + 36,
+                         row + 46, 25, ink);
+                continue;
+            }
+            // A choice: the value in the middle, the arrows at the ends. An arrow with nothing
+            // that way is faint; a refused step shakes the row like a shelf's end.
+            const float shake =
+                focused ? ui::shake(nudge_.value, clock_, 10.0f, 6.0f) * nudge_direction_ : 0.0f;
+            const int at =
+                actions[i] == SheetAction::season ? details_ref_.season : details_ref_.episode;
+            const int last =
+                actions[i] == SheetAction::season
+                    ? static_cast<int>(m.seasons.size()) - 1
+                    : (details_ref_.valid()
+                           ? static_cast<int>(
+                                 m.seasons[static_cast<std::size_t>(details_ref_.season)]
+                                     .episodes.size()) -
+                                 1
+                           : 0);
+            ui::text(list, fonts.semibold, fit(fonts.semibold, text, 25, 250), ax + 192 + shake,
+                     row + 46, 25, ink, gfx::Align::center);
+            draw_chevron(list, ax + 34 + shake, row + 36, -1.0f,
+                         ink.with_alpha(ink.a * (at > 0 ? 1.0f : 0.3f)));
+            draw_chevron(list, ax + 384 - 34 + shake, row + 36, 1.0f,
+                         ink.with_alpha(ink.a * (at < last ? 1.0f : 0.3f)));
         }
         list.pop_opacity();
         list.pop_opacity(); // the film change
+    }
+
+    // A small arrow, pointing left (-1) or right (1). The fonts have no arrow that sits well.
+    static void draw_chevron(gfx::DrawList &list, float cx, float cy, float direction, Color color)
+    {
+        const float w = 6.0f * direction;
+        list.line(cx - w, cy - 10.0f, cx + w, cy, 3.0f, color);
+        list.line(cx + w, cy, cx - w, cy + 10.0f, 3.0f, color);
+    }
+
+    // The description of a series' page: the season's (the series' own while the season has
+    // none), then the chosen episode's under its number and name.
+    void draw_episode_text(gfx::DrawList &list, const media::Movie &show,
+                           const media::Episode *episode, float y, float last_line,
+                           float fade) const
+    {
+        constexpr float kColumn = 600.0f;
+        constexpr float kColumnWidth = 760.0f;
+        constexpr float kLine = 36.0f;
+        const ui::Fonts &fonts = context_.fonts;
+        if (episode == nullptr || !details_ref_.valid())
+            return;
+        const media::Season &season = show.seasons[static_cast<std::size_t>(details_ref_.season)];
+        const std::string &about = !season.overview.empty() ? season.overview : show.overview;
+        // The season stays while the episode changes: only the episode fades.
+        ui::text(list, fonts.semibold, ui::upper(season_name(season)), kColumn, y - 4.0f, 16,
+                 kAccent, gfx::Align::left, 3.0f);
+        y += 30.0f;
+        // Three lines at most, and at least two left for the episode below.
+        const int room = static_cast<int>((last_line - y) / 32.0f) + 1 - 4;
+        if (!about.empty() && room > 0)
+            y = ui::paragraph(list, fonts.regular, about, kColumn, y, 22, kColumnWidth, 32.0f,
+                              kInk.with_alpha(0.62f), std::min(room, 3)) +
+                12.0f;
+
+        list.push_opacity(fade);
+        std::string heading = i18n::format(Text::episode_n, std::to_string(episode->number));
+        if (!episode->title.empty())
+            heading += "  \xC2\xB7  " + episode->title;
+        ui::text(list, fonts.semibold, fit(fonts.semibold, heading, 27, kColumnWidth), kColumn,
+                 y + 8.0f, 27, kInk);
+        y += 50.0f;
+        const int lines = std::clamp(static_cast<int>((last_line - y) / kLine) + 1, 1, 9);
+        if (!episode->overview.empty())
+            ui::paragraph(list, fonts.regular, episode->overview, kColumn, y, 24, kColumnWidth,
+                          kLine, kInk.with_alpha(0.86f), lines);
+        else
+            ui::paragraph(list, fonts.regular, tr(Text::no_description), kColumn, y, 24,
+                          kColumnWidth, kLine, kInk.with_alpha(0.5f), 2);
+        list.pop_opacity();
     }
 
     void draw_toast(gfx::DrawList &list) const
@@ -2832,9 +3334,12 @@ class Mediathek final : public app::Concept
         const ui::GlyphStyle style = ui::GlyphStyle::dark();
         if (screen_ == Screen::details)
         {
-            const ui::Hint hints[] = {{ui::Button::cross, tr(Text::hint_choose)},
-                                      {ui::Button::l1, tr(Text::hint_movie), ui::Button::r1},
-                                      {ui::Button::circle, tr(Text::hint_back)}};
+            const int focused = focused_movie();
+            const bool series = focused >= 0 && movie(focused).show;
+            const ui::Hint hints[] = {
+                {ui::Button::cross, tr(Text::hint_choose)},
+                {ui::Button::l1, tr(series ? Text::hint_series : Text::hint_movie), ui::Button::r1},
+                {ui::Button::circle, tr(Text::hint_back)}};
             ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true, hint_layout());
         }
         else if (tab_ == Tab::settings)
@@ -2881,7 +3386,7 @@ class Mediathek final : public app::Concept
         list.rounded_rect({0, 0, gfx::kVirtualWidth, gfx::kVirtualHeight}, 0, Color::rgb(0x000000));
         if (player == nullptr || playing_ < 0)
             return;
-        const media::Movie &m = movie(playing_);
+        const media::Movie &m = playing_item_;
         const media::PlayerState state = player->state();
 
         if (player->texture() != 0 && player->video_width() > 0)
@@ -2925,8 +3430,10 @@ class Mediathek final : public app::Concept
             {
                 ui::text(list, fonts.display, fit(fonts.display, m.title, 56, 1400), cx, 480, 56,
                          kInk, gfx::Align::center);
-                ui::text(list, fonts.regular, tr(Text::opening), cx, 540, 26, kInk.with_alpha(0.6f),
-                         gfx::Align::center);
+                const std::string under =
+                    playing_label_.empty() ? std::string(tr(Text::opening)) : playing_label_;
+                ui::text(list, fonts.regular, fit(fonts.regular, under, 26, 1400), cx, 540, 26,
+                         kInk.with_alpha(0.6f), gfx::Align::center);
             }
             list.arc(cx, 640, 26, 5, clock_ * 5.5f, 4.4f, kInk.with_alpha(0.9f));
         }
@@ -2946,9 +3453,17 @@ class Mediathek final : public app::Concept
                                Color::rgb(0x000000, 0.88f));
             ui::text(list, fonts.display, fit(fonts.display, m.title, 44, 1300), kMargin, 112, 44,
                      kInk);
-            ui::text(list, fonts.regular, meta_line(m), kMargin, 152, 24, kInk.with_alpha(0.7f));
+            float line_y = 152.0f;
+            // An episode says which one under the series' name.
+            if (!playing_label_.empty())
+            {
+                ui::text(list, fonts.semibold, fit(fonts.semibold, playing_label_, 26, 1300),
+                         kMargin, line_y, 26, kInk.with_alpha(0.92f));
+                line_y += 36.0f;
+            }
+            ui::text(list, fonts.regular, meta_line(m), kMargin, line_y, 24, kInk.with_alpha(0.7f));
             if (info_ && !player->summary().empty())
-                ui::text(list, fonts.mono, player->summary(), kMargin, 192, 22,
+                ui::text(list, fonts.mono, player->summary(), kMargin, line_y + 40, 22,
                          kInk.with_alpha(0.8f));
 
             const double position = player->position();
@@ -2981,11 +3496,15 @@ class Mediathek final : public app::Concept
                 {ui::Button::dpad, tr(Text::hint_seek)},
                 {ui::Button::square, tr(Text::hint_audio)},
                 {ui::Button::triangle, tr(Text::hint_subtitles)},
-                {ui::Button::circle, tr(Text::hint_stop)}};
-            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, 5, 1824, true,
-                           hint_layout());
+                {ui::Button::circle, tr(Text::hint_stop)},
+                {ui::Button::r1, tr(Text::next_episode)}};
+            // The next episode's button only while there is one.
+            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, upcoming().valid() ? 6 : 5,
+                           1824, true, hint_layout());
             list.pop_opacity();
         }
+        if (up_next_visible())
+            draw_up_next(list);
         if (seek_flash_ > 0.0f)
         {
             const float a = tween::clamp01(seek_flash_ * 3.0f);
@@ -2999,6 +3518,50 @@ class Mediathek final : public app::Concept
             list.pop_opacity();
         }
         draw_toast(list);
+    }
+
+    // The card in the last seconds of an episode: what comes next, and when. Top right, where
+    // neither the subtitles nor the controls are.
+    void draw_up_next(gfx::DrawList &list) const
+    {
+        const media::EpisodeRef next = upcoming();
+        const media::Episode *episode = media::episode_at(movie(playing_), next);
+        if (episode == nullptr)
+            return;
+        const ui::Fonts &fonts = context_.fonts;
+        const double left = std::max(0.0, svc_->player->duration() - svc_->player->position());
+        // Slides in over its first half second.
+        const float in = tween::clamp01(static_cast<float>(kUpNextSeconds - left) / 0.5f);
+        const float slide = context_.settings.reduced_motion ? 0.0f : 40.0f * (1.0f - in);
+        const Rect card{gfx::kVirtualWidth - kMargin - 560.0f + slide, 96.0f, 560.0f, 196.0f};
+        list.push_opacity(tween::cubic_out(in));
+        list.shadow({card.x, card.y + 12, card.w, card.h}, 24, 36, Color::rgb(0x000000, 0.6f));
+        list.rounded_rect(card, 24, Color::rgb(0x15161f, 0.94f));
+        list.bordered_rect(card, 24, Color{0, 0, 0, 0}, 1.5f, kInk.with_alpha(0.18f));
+        const float x = card.x + 32.0f;
+        ui::text(list, fonts.semibold, ui::upper(tr(Text::up_next)), x, card.y + 44, 16, kAccent,
+                 gfx::Align::left, 3.0f);
+        std::string name = episode_code(*episode);
+        if (!episode->title.empty())
+            name += "  " + episode->title;
+        ui::text(list, fonts.semibold, fit(fonts.semibold, name, 28, card.w - 64.0f), x,
+                 card.y + 88, 28, kInk);
+        // The time it starts in, as a bar that runs out with it.
+        const Rect bar{x, card.y + 112, card.w - 64.0f, 5.0f};
+        const float share = static_cast<float>(left / kUpNextSeconds);
+        list.rounded_rect(bar, 2.5f, kInk.with_alpha(0.18f));
+        list.rounded_rect({bar.x, bar.y, std::max(5.0f, bar.w * tween::clamp01(share)), bar.h},
+                          2.5f, kAccent);
+        char seconds[16];
+        std::snprintf(seconds, sizeof(seconds), "%d s", static_cast<int>(std::ceil(left)));
+        ui::text(list, fonts.regular, i18n::format(Text::starts_in, seconds), x, card.y + 160, 22,
+                 kInk.with_alpha(0.7f));
+        const ui::Hint hint[] = {{ui::Button::r1, tr(Text::next_episode)}};
+        ui::HintLayout layout = hint_layout();
+        layout.cy = card.y + 152.0f;
+        ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hint, 1, card.x + card.w - 28.0f, true,
+                       layout);
+        list.pop_opacity();
     }
 
     void draw_subtitle(gfx::DrawList &list, const media::Cue &cue) const
@@ -3080,7 +3643,14 @@ class Mediathek final : public app::Concept
     tween::Spring action_position_;
 
     int playing_ = -1;
-    std::string playing_id_; // what playing_ points at, found again after a re-sort
+    std::string playing_id_;        // what playing_ points at, found again after a re-sort
+    media::EpisodeRef playing_ref_; // the episode of the series playing_ that plays, if one does
+    media::Movie playing_item_;     // the file playing: the film, or the episode as one
+    std::string playing_label_;     // "S1 · E3  Title" for an episode, else ""
+    media::EpisodeRef details_ref_; // the episode a series' details page shows
+    tween::Timer episode_swap_;     // the page's episode text fades when another is chosen
+    std::vector<media::ShowProgress> show_states_; // per library index; films have none
+    media::ShowProgress no_show_state_;
     bool paused_ = false;
     bool info_ = false;
     std::map<std::string, std::string> sniffed_subtitles_; // file -> language its text says, or ""

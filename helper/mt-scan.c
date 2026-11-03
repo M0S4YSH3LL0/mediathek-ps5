@@ -4,14 +4,14 @@
  *
  * Mediathek is a sandboxed title: it can open a file whose path it knows but
  * cannot list a folder. This payload runs outside the sandbox (the app sends
- * it to the ELF loader on port 9021), walks the movies folders on the internal
+ * it to the ELF loader on port 9021), walks the movies and series folders on the internal
  * drive and on USB and extended storage, and writes what it found where the
  * app can read it: the title's install folder, which the app sees as /app0.
  *
  *   MT_HOME/mediathek-index.txt
  *     mediathek-index 1
  *     T<TAB>seconds since the epoch     when this scan finished
- *     R<TAB>path                        a movies folder that exists
+ *     R<TAB>path                        a movies or series folder that exists
  *     V<TAB>path<TAB>size<TAB>mtime     a video
  *     I<TAB>path<TAB>readable           a picture beside a video
  *     S<TAB>path<TAB>readable           a subtitle file beside a video
@@ -172,7 +172,7 @@ walk(FILE *out, const char *dir, int depth) {
 /* A USB or extended drive ignores letter case, so ".../movies" and
  * ".../Movies" can be one folder; scanning it twice would list every film
  * twice (and count it twice). Roots are told apart by device and inode. */
-#define MAX_ROOTS 256 /* 48 of our own, and up to 8 extra folders on 12 drives */
+#define MAX_ROOTS 256 /* 132 of our own, and up to 8 extra folders on 12 drives */
 static dev_t g_root_dev[MAX_ROOTS];
 static ino_t g_root_ino[MAX_ROOTS];
 static int g_roots;
@@ -223,8 +223,12 @@ scan_extra(FILE *out) {
 }
 
 #ifndef MT_TEST_ROOT
-/* The movies folders looked for on every drive: 12 drives of 4 stay within MAX_ROOTS. */
-static const char *const MOVIE_FOLDERS[] = {"movies", "Movies", "mediathek/movies", "mediathek/Movies", 0};
+/* The movies and series folders looked for on every drive: 12 drives of 11 stay within MAX_ROOTS.
+ * The app tells a series folder by its name (is_series_folder() in src/media/library.cpp). */
+static const char *const MOVIE_FOLDERS[] = {"movies",   "Movies", "mediathek/movies", "mediathek/Movies",
+                                            "tvshows",  "TVShows", "TV Shows",        "series",
+                                            "Series",   "mediathek/tvshows",          "mediathek/series",
+                                            0};
 
 static void
 scan_drive(FILE *out, const char *drive) {

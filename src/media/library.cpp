@@ -60,6 +60,18 @@ std::string make_id(const std::string &file_name, std::uint64_t size)
     return id;
 }
 
+// Which of two qualities is the better: a series shows its best.
+int quality_rank(const std::string &quality)
+{
+    if (quality == "4K")
+        return 4;
+    if (quality == "1080p")
+        return 3;
+    if (quality == "720p")
+        return 2;
+    return quality == "SD" ? 1 : 0;
+}
+
 bool is_generic_name(const std::string &base)
 {
     const std::string key = lower(base);
@@ -210,7 +222,9 @@ std::vector<std::string> default_roots()
     // The same folders, in the same order, as main() in helper/mt-scan.c.
     std::vector<std::string> roots;
     for (const std::string &drive : scan_drives())
-        for (const char *folder : {"movies", "Movies", "mediathek/movies", "mediathek/Movies"})
+        for (const char *folder :
+             {"movies", "Movies", "mediathek/movies", "mediathek/Movies", "tvshows", "TVShows",
+              "TV Shows", "series", "Series", "mediathek/tvshows", "mediathek/series"})
             roots.push_back(drive + "/" + folder);
     return roots;
 }
@@ -338,6 +352,160 @@ Library Library::from_scan(const ScanResult &scan)
                 found = &root;
         return found;
     };
+    // Subtitles sit beside the video or in a "subs" folder next to it. Beside the video they
+    // must carry its name; in "subs" a video that is alone in its folder owns everything there
+    // ("2_English.srt").
+    const auto subtitles_of = [&](const std::string &folder, const std::string &base, bool alone)
+    {
+        std::vector<SubtitleFile> found;
+        const std::string key = lower(base);
+        std::size_t english_found = 0; // English tracks sit first, in the order they were found
+        for (const char *where : {"", "/subs", "/sub", "/subtitles"})
+        {
+            const auto it = subtitles.find(lower(folder) + where);
+            if (it == subtitles.end())
+                continue;
+            const bool own_folder = where[0] == '\0';
+            for (const FoundFile *subtitle : it->second)
+            {
+                const std::string sub = lower(base_name(subtitle->path));
+                if (sub.compare(0, key.size(), key) != 0 && (own_folder || !alone))
+                    continue;
+                if (found.size() >= kMaxSubtitles)
+                    break;
+                const bool english = sub.find(".en") != std::string::npos ||
+                                     sub.find("english") != std::string::npos ||
+                                     sub.find("eng") != std::string::npos;
+                const std::size_t slash = subtitle->path.rfind('/');
+                const std::string code = language_from_filename(
+                    slash == std::string::npos ? subtitle->path : subtitle->path.substr(slash + 1));
+                SubtitleFile track{subtitle->readable, code.empty() ? "und" : code};
+                const auto at = found.begin() +
+                                static_cast<std::ptrdiff_t>(english ? english_found : found.size());
+                found.insert(at, std::move(track));
+                english_found += english ? 1 : 0;
+            }
+        }
+        return found;
+    };
+
+    // The series, by the key of their name: episodes of one series on two drives meet.
+    struct ShowBuild
+    {
+        Movie show;
+        std::map<int, Season> seasons;
+    };
+    std::map<std::string, ShowBuild> shows;
+    // Files an episode in its series; false when it has no series to go into (a lone
+    // "S01E02.mkv" straight in a movies folder), and it is shown as a film.
+    const auto add_episode = [&](const FoundFile &file, const std::string &id,
+                                 const EpisodeName &name, const std::string *root) -> bool
+    {
+        // The folders between the root and the file: "Show Name", "Season 1".
+        std::vector<std::string> folders;
+        {
+            const std::string rest = root != nullptr ? file.path.substr(root->size() + 1)
+                                                     : file_name_of(directory_of(file.path)) + "/" +
+                                                           file_name_of(file.path);
+            for (const std::string_view part : split(rest, '/'))
+                folders.emplace_back(part);
+            folders.pop_back(); // the file itself
+        }
+        const bool series_root = root != nullptr && is_series_folder(file_name_of(*root));
+        // The series' folder: below a series root the first one ("tvshows/Show/Season 1/x"),
+        // elsewhere the file's own, or the one above it when that is a season.
+        int show_at = -1;
+        if (!folders.empty())
+        {
+            show_at = series_root ? 0 : static_cast<int>(folders.size()) - 1;
+            if (!series_root && season_of_folder(folders.back()) >= 0)
+                --show_at;
+        }
+        int folder_season = -1;
+        for (int i = show_at + 1; i < static_cast<int>(folders.size()); ++i)
+            if (const int season = season_of_folder(folders[static_cast<std::size_t>(i)]);
+                season >= 0)
+                folder_season = season;
+
+        ParsedName show_name;
+        std::string show_folder;
+        if (show_at >= 0)
+        {
+            show_name = parse_file_name(folders[static_cast<std::size_t>(show_at)] + ".mkv");
+            show_folder = root != nullptr ? *root : directory_of(directory_of(file.path));
+            for (int i = 0; i <= show_at; ++i)
+                show_folder += "/" + folders[static_cast<std::size_t>(i)];
+        }
+        else if (!name.show.empty())
+        {
+            show_name = parse_file_name(name.show + ".mkv");
+        }
+        if (show_name.title.empty())
+            return false;
+
+        // The key ignores case, punctuation and a leading article: "The Show" and "the.show" meet.
+        std::string key = sort_key(show_name.title);
+        if (key.empty())
+            key = lower(show_name.title);
+        ShowBuild &build = shows[key];
+        Movie &show = build.show;
+        if (show.id.empty())
+        {
+            char hash[24];
+            std::snprintf(hash, sizeof(hash), "tv%08x", save::crc32("show:" + key));
+            show.id = hash;
+            show.show = true;
+            show.title = show_name.title;
+            show.file_title = show_name.title;
+            show.path = show_folder.empty() ? directory_of(file.path) : show_folder;
+            show.drive = drive_label(file.path);
+        }
+        if (show.year == 0)
+            show.year = show_name.year;
+        if (show.poster.empty() || show.backdrop.empty())
+            if (const auto it = images.find(show_folder);
+                !show_folder.empty() && it != images.end())
+            {
+                const std::string base = file_name_of(show_folder);
+                if (show.poster.empty())
+                    if (const FoundFile *poster =
+                            pick(it->second, base, {"", "-poster", ".poster", "-cover"},
+                                 {"poster", "folder", "cover", "show"}, true))
+                        show.poster = poster->readable;
+                if (show.backdrop.empty())
+                    if (const FoundFile *backdrop =
+                            pick(it->second, base, {"-fanart", "-backdrop", "-background"},
+                                 {"fanart", "backdrop", "background", "landscape"}, true))
+                        show.backdrop = backdrop->readable;
+            }
+
+        Episode episode;
+        episode.id = id;
+        episode.path = file.path;
+        episode.season = name.marked ? name.season : std::max(folder_season, 1);
+        if (!name.marked && folder_season == 0)
+            episode.season = 0;
+        episode.number = name.episode;
+        episode.file_title = name.title;
+        episode.title = name.title;
+        episode.quality = parse_file_name(file_name_of(file.path)).quality;
+        episode.size = file.size;
+        episode.added = file.mtime;
+        episode.drive = drive_label(file.path);
+        const std::string folder = directory_of(file.path);
+        episode.subtitles =
+            subtitles_of(folder, base_name(file.path), videos_per_folder[folder] == 1);
+
+        show.size += file.size;
+        show.added = std::max(show.added, file.mtime);
+        if (quality_rank(episode.quality) > quality_rank(show.quality))
+            show.quality = episode.quality;
+        Season &season = build.seasons[episode.season];
+        season.number = episode.season;
+        season.episodes.push_back(std::move(episode));
+        return true;
+    };
+
     std::set<std::string> seen; // the same file reachable through two roots
     std::map<std::string, int> collection_sizes;
     for (const FoundFile &file : scan.videos)
@@ -345,6 +513,12 @@ Library Library::from_scan(const ScanResult &scan)
         const std::string name = file_name_of(file.path);
         const std::string id = make_id(name, file.size);
         if (!seen.insert(id).second)
+            continue;
+
+        const std::string *root = root_of(file.path);
+        const EpisodeName episode = parse_episode_name(name);
+        if ((episode.marked || (root != nullptr && is_series_folder(file_name_of(*root)))) &&
+            add_episode(file, id, episode, root))
             continue;
 
         Movie movie;
@@ -383,42 +557,11 @@ Library Library::from_scan(const ScanResult &scan)
                          {"fanart", "backdrop", "background", "landscape"}, alone))
                 movie.backdrop = backdrop->readable;
         }
-        // Subtitles sit beside the film or in a "subs" folder next to it. Beside
-        // the film they must carry its name; in "subs" a film that is alone in
-        // its folder owns everything there ("2_English.srt").
-        const std::string key = lower(base);
-        std::size_t english_found = 0; // English tracks sit first, in the order they were found
-        for (const char *where : {"", "/subs", "/sub", "/subtitles"})
-        {
-            const auto it = subtitles.find(lower(folder) + where);
-            if (it == subtitles.end())
-                continue;
-            const bool own_folder = where[0] == '\0';
-            for (const FoundFile *subtitle : it->second)
-            {
-                const std::string sub = lower(base_name(subtitle->path));
-                if (sub.compare(0, key.size(), key) != 0 && (own_folder || !alone))
-                    continue;
-                if (movie.subtitles.size() >= kMaxSubtitles)
-                    break;
-                const bool english = sub.find(".en") != std::string::npos ||
-                                     sub.find("english") != std::string::npos ||
-                                     sub.find("eng") != std::string::npos;
-                const std::size_t slash = subtitle->path.rfind('/');
-                const std::string code = language_from_filename(
-                    slash == std::string::npos ? subtitle->path : subtitle->path.substr(slash + 1));
-                SubtitleFile track{subtitle->readable, code.empty() ? "und" : code};
-                const auto at =
-                    movie.subtitles.begin() +
-                    static_cast<std::ptrdiff_t>(english ? english_found : movie.subtitles.size());
-                movie.subtitles.insert(at, std::move(track));
-                english_found += english ? 1 : 0;
-            }
-        }
+        movie.subtitles = subtitles_of(folder, base, alone);
 
         // The first folder under a movies root names a collection, if it is
         // shared: "movies/Space Sagas/Part 1.mkv" and "…/Part 2.mkv".
-        if (const std::string *root = root_of(file.path); root != nullptr)
+        if (root != nullptr)
         {
             const std::string rest = file.path.substr(root->size() + 1);
             const std::size_t slash = rest.find('/');
@@ -441,8 +584,131 @@ Library Library::from_scan(const ScanResult &scan)
             movie.collection.clear();
     }
 
+    for (auto &entry : shows)
+    {
+        Movie &show = entry.second.show;
+        for (auto &numbered : entry.second.seasons)
+        {
+            Season &season = numbered.second;
+            std::stable_sort(season.episodes.begin(), season.episodes.end(),
+                             [](const Episode &a, const Episode &b)
+                             {
+                                 // Numbered first, in order; the rest by their file names.
+                                 if ((a.number == 0) != (b.number == 0))
+                                     return a.number != 0;
+                                 if (a.number != b.number)
+                                     return a.number < b.number;
+                                 return lower(file_name_of(a.path)) < lower(file_name_of(b.path));
+                             });
+            // A season whose files carry no numbers is counted in the order of their names.
+            if (std::all_of(season.episodes.begin(), season.episodes.end(),
+                            [](const Episode &e) { return e.number == 0; }))
+                for (std::size_t i = 0; i < season.episodes.size(); ++i)
+                    season.episodes[i].number = static_cast<int>(i) + 1;
+            show.seasons.push_back(std::move(season));
+        }
+        // std::map orders the seasons 0, 1, 2 ...: the specials go to the end.
+        if (show.seasons.size() > 1 && show.seasons.front().number == 0)
+            std::rotate(show.seasons.begin(), show.seasons.begin() + 1, show.seasons.end());
+        library.movies_.push_back(std::move(show));
+    }
+
     library.sort();
     return library;
+}
+
+int Library::find_episode(std::string_view id, EpisodeRef *ref) const
+{
+    for (std::size_t i = 0; i < movies_.size(); ++i)
+    {
+        if (!movies_[i].show)
+            continue;
+        const EpisodeRef found = media::find_episode(movies_[i], id);
+        if (found.valid())
+        {
+            if (ref != nullptr)
+                *ref = found;
+            return static_cast<int>(i);
+        }
+    }
+    if (ref != nullptr)
+        *ref = EpisodeRef{};
+    return -1;
+}
+
+std::size_t Library::film_count() const
+{
+    return static_cast<std::size_t>(
+        std::count_if(movies_.begin(), movies_.end(), [](const Movie &m) { return !m.show; }));
+}
+
+std::size_t Library::show_count() const
+{
+    return movies_.size() - film_count();
+}
+
+const Episode *episode_at(const Movie &show, EpisodeRef ref)
+{
+    if (!ref.valid() || static_cast<std::size_t>(ref.season) >= show.seasons.size())
+        return nullptr;
+    const Season &season = show.seasons[static_cast<std::size_t>(ref.season)];
+    if (static_cast<std::size_t>(ref.episode) >= season.episodes.size())
+        return nullptr;
+    return &season.episodes[static_cast<std::size_t>(ref.episode)];
+}
+
+EpisodeRef find_episode(const Movie &show, std::string_view id)
+{
+    for (std::size_t s = 0; s < show.seasons.size(); ++s)
+        for (std::size_t e = 0; e < show.seasons[s].episodes.size(); ++e)
+            if (show.seasons[s].episodes[e].id == id)
+                return {static_cast<int>(s), static_cast<int>(e)};
+    return {};
+}
+
+EpisodeRef first_episode(const Movie &show)
+{
+    // The specials are last (from_scan), so the first season with episodes is a numbered one
+    // whenever there is one.
+    for (std::size_t s = 0; s < show.seasons.size(); ++s)
+        if (!show.seasons[s].episodes.empty())
+            return {static_cast<int>(s), 0};
+    return {};
+}
+
+EpisodeRef next_episode(const Movie &show, EpisodeRef ref)
+{
+    if (episode_at(show, ref) == nullptr)
+        return {};
+    if (static_cast<std::size_t>(ref.episode) + 1 <
+        show.seasons[static_cast<std::size_t>(ref.season)].episodes.size())
+        return {ref.season, ref.episode + 1};
+    for (std::size_t s = static_cast<std::size_t>(ref.season) + 1; s < show.seasons.size(); ++s)
+        if (!show.seasons[s].episodes.empty() && show.seasons[s].number != 0)
+            return {static_cast<int>(s), 0};
+    return {};
+}
+
+std::size_t episode_count(const Movie &show)
+{
+    std::size_t count = 0;
+    for (const Season &season : show.seasons)
+        count += season.episodes.size();
+    return count;
+}
+
+std::size_t season_total(const Movie &show)
+{
+    const std::size_t numbered = static_cast<std::size_t>(std::count_if(
+        show.seasons.begin(), show.seasons.end(), [](const Season &s) { return s.number > 0; }));
+    return numbered > 0 ? numbered : show.seasons.size();
+}
+
+bool is_series_folder(std::string_view folder_name)
+{
+    const std::string key = lower(folder_name);
+    return key == "tvshows" || key == "tv shows" || key == "tv-shows" || key == "tv_shows" ||
+           key == "series" || key == "serien" || key == "shows";
 }
 
 void Library::sort()

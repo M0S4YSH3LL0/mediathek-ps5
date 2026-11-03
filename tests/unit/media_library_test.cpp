@@ -269,7 +269,7 @@ TEST(MovieLibrary, FindsSubtitlesInASubsFolder)
     }
 }
 
-TEST(MovieLibrary, SearchesMoviesAndMediathekMoviesOnEveryDrive)
+TEST(MovieLibrary, SearchesMovieAndSeriesFoldersOnEveryDrive)
 {
     const std::vector<std::string> roots = default_roots();
     const auto has = [&](const std::string &root)
@@ -281,8 +281,14 @@ TEST(MovieLibrary, SearchesMoviesAndMediathekMoviesOnEveryDrive)
         EXPECT_TRUE(has(drive + "/Movies")) << drive;
         EXPECT_TRUE(has(drive + "/mediathek/movies")) << drive;
         EXPECT_TRUE(has(drive + "/mediathek/Movies")) << drive;
+        EXPECT_TRUE(has(drive + "/tvshows")) << drive;
+        EXPECT_TRUE(has(drive + "/series")) << drive;
+        EXPECT_TRUE(has(drive + "/mediathek/tvshows")) << drive;
+        EXPECT_TRUE(has(drive + "/mediathek/series")) << drive;
     }
-    EXPECT_EQ(roots.size(), 48u); // helper/mt-scan.c keeps at most 64
+    // helper/mt-scan.c keeps at most 256, and up to 8 extra folders on 12 drives come on top.
+    EXPECT_EQ(roots.size(), 132u);
+    EXPECT_LE(roots.size() + 8u * 12u, 256u);
 }
 
 // A collection folder is the first one under the root, also when the root is

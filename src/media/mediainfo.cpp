@@ -306,7 +306,8 @@ std::string genre_name(int tmdb_id)
         {36, Text::genre_history},     {27, Text::genre_horror},     {10402, Text::genre_music},
         {9648, Text::genre_mystery},   {10749, Text::genre_romance}, {878, Text::genre_scifi},
         {10770, Text::genre_tv_movie}, {53, Text::genre_thriller},   {10752, Text::genre_war},
-        {37, Text::genre_western},
+        {37, Text::genre_western},     {10763, Text::genre_news},    {10764, Text::genre_reality},
+        {10766, Text::genre_soap},     {10767, Text::genre_talk},
     };
     for (const Genre &genre : kGenres)
         if (genre.id == tmdb_id)

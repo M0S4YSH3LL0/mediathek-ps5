@@ -358,7 +358,14 @@ int main()
         job.want_wallpaper = ours(movie.backdrop);
         job.want_overview = true; // the description is always ours
         job.again = true;
-        info.refresh(movie.id, movie.path); // the file too: it may have been replaced
+        job.show = movie.show;
+        job.seasons = media::season_jobs(movie); // a series' seasons and episodes, all of them
+        // The file too: it may have been replaced. A series has one per episode.
+        if (!movie.show)
+            info.refresh(movie.id, movie.path);
+        for (const media::Season &season : movie.seasons)
+            for (const media::Episode &episode : season.episodes)
+                info.refresh(episode.id, episode.path);
         if (!tmdb.usable())
             return tmdb.problem;
         covers.redo(job);
@@ -374,7 +381,8 @@ int main()
         covers.enqueue(media::missing_covers(services.library, covers.store()));
         posters.clear();
         ++services.revision;
-        sys::log("[HUI] library movies=%zu roots=%zu", services.library.size(), scan.roots.size());
+        sys::log("[HUI] library movies=%zu series=%zu roots=%zu", services.library.film_count(),
+                 services.library.show_count(), scan.roots.size());
     };
     // Looks for the movies: the folders directly (a console that allows
     // listing), else through the helper payload, whose answer arrives later.

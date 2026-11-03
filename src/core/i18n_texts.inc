@@ -14,6 +14,17 @@ HUI_TEXT(shelf_yours, "Your Movies", "Deine Filme")
 HUI_TEXT(decade, "{}s", "{}er")
 HUI_TEXT(tab_home, "Home", "Start")
 HUI_TEXT(tab_movies, "Movies", "Filme")
+HUI_TEXT(tab_series, "Series", "Serien")
+HUI_TEXT(shelf_all_series, "All Series", "Alle Serien")
+HUI_TEXT(series_one, "1 series", "1 Serie")
+HUI_TEXT(series_many, "{} series", "{} Serien")
+HUI_TEXT(seasons_one, "1 season", "1 Staffel")
+HUI_TEXT(seasons_many, "{} seasons", "{} Staffeln")
+HUI_TEXT(episodes_one, "1 episode", "1 Folge")
+HUI_TEXT(episodes_many, "{} episodes", "{} Folgen")
+HUI_TEXT(season_n, "Season {}", "Staffel {}")
+HUI_TEXT(specials, "Specials", "Specials")
+HUI_TEXT(episode_n, "Episode {}", "Folge {}")
 HUI_TEXT(movies_one, "1 movie", "1 Film")
 HUI_TEXT(movies_many, "{} movies", "{} Filme")
 HUI_TEXT(scanning, "Scanning\xE2\x80\xA6", "Suche\xE2\x80\xA6")
@@ -32,6 +43,15 @@ HUI_TEXT(search_active, "Search: {}", "Suche: {}")
 HUI_TEXT(search_none, "No movie matches your search", "Kein Film passt zu deiner Suche")
 HUI_TEXT(search_none_hint, "Change the search or press Back to see all movies",
          "\xC3\x84ndere die Suche oder dr\xC3\xBC" "cke Zur\xC3\xBC" "ck f\xC3\xBCr alle Filme")
+HUI_TEXT(search_title_series, "Search series", "Serien suchen")
+HUI_TEXT(search_none_series, "No series matches your search", "Keine Serie passt zu deiner Suche")
+HUI_TEXT(search_none_series_hint, "Change the search or press Back to see all series",
+         "\xC3\x84ndere die Suche oder dr\xC3\xBC" "cke Zur\xC3\xBC" "ck f\xC3\xBCr alle Serien")
+HUI_TEXT(no_series, "No series found", "Keine Serien gefunden")
+HUI_TEXT(no_series_hint,
+         "Put each series in its own folder in tvshows or series: tvshows/Name/Season 1/Name S01E01.mkv",
+         "Lege jede Serie in einen eigenen Ordner in tvshows oder series: "
+         "tvshows/Name/Season 1/Name S01E01.mkv")
 HUI_TEXT(hint_search, "Search", "Suchen")
 
 // ---- the settings page
@@ -84,9 +104,10 @@ HUI_TEXT(settings_reload_hint, "Fetches cover, wallpaper and description of ever
          "Holt Cover, Hintergrund und Beschreibung aller Filme erneut von TMDB")
 HUI_TEXT(reload_title, "Reload everything?", "Alles neu laden?")
 HUI_TEXT(reload_body,
-         "Covers, wallpapers and descriptions of all {} movies are fetched again and every file "
-         "is read again. This can take a while. Pictures you put beside a film stay.",
-         "Cover, Hintergr\xC3\xBCnde und Beschreibungen aller {} Filme werden erneut geholt und jede "
+         "Covers, wallpapers and descriptions of all {} movies and series are fetched again and "
+         "every file is read again. This can take a while. Pictures you put beside a film stay.",
+         "Cover, Hintergr\xC3\xBCnde und Beschreibungen aller {} Filme und Serien werden erneut "
+         "geholt und jede "
          "Datei wird neu gelesen. Das kann dauern. Bilder, die du neben einen Film legst, bleiben.")
 HUI_TEXT(reload_do, "Reload", "Neu laden")
 HUI_TEXT(reload_cancel, "Cancel", "Abbrechen")
@@ -96,8 +117,8 @@ HUI_TEXT(reload_finished, "Finished fetching covers and infos", "Cover und Infos
 HUI_TEXT(reload_nothing, "No movies to reload", "Keine Filme zum Neuladen")
 HUI_TEXT(settings_folders, "Movie folders", "Filmordner")
 HUI_TEXT(settings_folders_always, "Always searched", "Immer durchsucht")
-HUI_TEXT(settings_folders_default, "movies, mediathek/movies on every drive",
-         "movies, mediathek/movies auf jedem Laufwerk")
+HUI_TEXT(settings_folders_default, "movies, tvshows, series on every drive",
+         "movies, tvshows, series auf jedem Laufwerk")
 HUI_TEXT(settings_folder_everywhere, "On every drive", "Auf jedem Laufwerk")
 HUI_TEXT(settings_folder_hint, "Choose it to stop searching this folder",
          "Ausw\xC3\xA4hlen, um diesen Ordner nicht mehr zu durchsuchen")
@@ -141,11 +162,20 @@ HUI_TEXT(name_them,
          "cover.",
          "Benenne sie wie \xE2\x80\x9E" "Blue Harbor (2011).mkv\xE2\x80\x9C; eine poster.jpg neben "
          "einem Film wird sein Cover.")
+HUI_TEXT(series_folder, "Series go in a folder called tvshows or series, one folder per series.",
+         "Serien kommen in einen Ordner namens tvshows oder series, ein Ordner pro Serie.")
 
 // ---- the billboard, the details page and its actions
 HUI_TEXT(button_resume, "Resume", "Fortsetzen")
 HUI_TEXT(button_play, "Play", "Abspielen")
 HUI_TEXT(resume_from, "Resume from {}", "Fortsetzen ab {}")
+HUI_TEXT(play_episode, "Play {}", "{} abspielen")
+HUI_TEXT(resume_episode, "Resume {}", "{} fortsetzen")
+HUI_TEXT(next_episode, "Next episode", "N\xC3\xA4" "chste Folge")
+HUI_TEXT(up_next, "Up next", "Als N\xC3\xA4" "chstes")
+HUI_TEXT(starts_in, "Starts in {}", "Beginnt in {}")
+HUI_TEXT(label_season, "SEASON {}", "STAFFEL {}")
+HUI_TEXT(label_episode, "EPISODE {}", "FOLGE {}")
 HUI_TEXT(start_over, "Start from the beginning", "Von vorn beginnen")
 HUI_TEXT(mark_watched, "Mark as watched", "Als gesehen markieren")
 HUI_TEXT(mark_unwatched, "Mark as not watched", "Als nicht gesehen markieren")
@@ -168,6 +198,9 @@ HUI_TEXT(fetching_info, "Fetching cover, wallpaper and description\xE2\x80\xA6",
          "Lade Cover, Hintergrundbild und Beschreibung\xE2\x80\xA6")
 HUI_TEXT(marked_watched, "Marked as watched", "Als gesehen markiert")
 HUI_TEXT(marked_unwatched, "Marked as not watched", "Als nicht gesehen markiert")
+HUI_TEXT(marked_show_watched, "Series marked as watched", "Serie als gesehen markiert")
+HUI_TEXT(marked_show_unwatched, "Series marked as not watched",
+         "Serie als nicht gesehen markiert")
 HUI_TEXT(playback_unavailable, "Playback is not available", "Wiedergabe nicht verf\xC3\xBC" "gbar")
 HUI_TEXT(finished, "Finished", "Beendet")
 HUI_TEXT(audio_track, "Audio: {}", "Ton: {}")
@@ -186,6 +219,8 @@ HUI_TEXT(hint_watched, "Watched", "Gesehen")
 HUI_TEXT(hint_tab, "Tab", "Reiter")
 HUI_TEXT(hint_shelves, "Shelves", "Regale")
 HUI_TEXT(hint_movie, "Movie", "Film")
+HUI_TEXT(hint_series, "Series", "Serie")
+HUI_TEXT(hint_season_episode, "Season, episode", "Staffel, Folge")
 HUI_TEXT(hint_sort, "Sort", "Sortieren")
 HUI_TEXT(hint_pause, "Pause", "Pause")
 HUI_TEXT(hint_seek, "Seek", "Spulen")
@@ -234,6 +269,8 @@ HUI_TEXT(tmdb_bad_key, "TMDB_API_KEY has characters that do not belong in a key"
          "TMDB_API_KEY enth\xC3\xA4lt Zeichen, die nicht in einen Schl\xC3\xBC" "ssel geh\xC3\xB6" "ren")
 HUI_TEXT(tmdb_not_a_picture, "The service answered with something that is not a picture",
          "Der Dienst hat etwas geliefert, das kein Bild ist")
+HUI_TEXT(tmdb_bad_answer, "The service answered with something unexpected",
+         "Der Dienst hat etwas Unerwartetes geliefert")
 HUI_TEXT(tmdb_cannot_save_cover, "Cannot save a cover: {}",
          "Cover kann nicht gespeichert werden: {}")
 HUI_TEXT(tmdb_cannot_save_description, "Cannot save a description: {}",
@@ -297,3 +334,7 @@ HUI_TEXT(genre_tv_movie, "TV Movie", "TV-Film")
 HUI_TEXT(genre_thriller, "Thriller", "Thriller")
 HUI_TEXT(genre_war, "War", "Kriegsfilm")
 HUI_TEXT(genre_western, "Western", "Western")
+HUI_TEXT(genre_news, "News", "Nachrichten")
+HUI_TEXT(genre_reality, "Reality", "Reality")
+HUI_TEXT(genre_soap, "Soap", "Seifenoper")
+HUI_TEXT(genre_talk, "Talk", "Talkshow")

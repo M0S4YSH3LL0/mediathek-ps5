@@ -150,4 +150,27 @@ TEST(Paragraph, EmptyTextIsOneEmptyLine)
     EXPECT_FALSE(m.truncated);
 }
 
+TEST(Upper, CapitalisesAsciiAndLatinOneLetters)
+{
+    EXPECT_EQ(hui::ui::upper("Up next"), "UP NEXT");
+    // "Als Nächstes", "Komödie", "Café": the umlaut and the accent become capitals.
+    EXPECT_EQ(hui::ui::upper("Als N\xC3\xA4"
+                             "chstes"),
+              "ALS N\xC3\x84"
+              "CHSTES");
+    EXPECT_EQ(hui::ui::upper("Kom\xC3\xB6"
+                             "die"),
+              "KOM\xC3\x96"
+              "DIE");
+    EXPECT_EQ(hui::ui::upper("Caf\xC3\xA9"), "CAF\xC3\x89");
+    // No capital in Latin-1: the sharp s stays, and so does the division sign.
+    EXPECT_EQ(hui::ui::upper("Stra\xC3\x9F"
+                             "e"),
+              "STRA\xC3\x9F"
+              "E");
+    EXPECT_EQ(hui::ui::upper("\xC3\xB7"), "\xC3\xB7");
+    // Other scripts pass through.
+    EXPECT_EQ(hui::ui::upper("\xD0\xB4"), "\xD0\xB4");
+}
+
 } // namespace

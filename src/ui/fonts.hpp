@@ -49,13 +49,25 @@ inline float text(gfx::DrawList &list, const FontRef &font, std::string_view val
 }
 
 // ASCII upper case, for small tracked labels ("CONTINUE PLAYING").
+// Upper case for captions: ASCII and the Latin-1 letters ("Komödie", "Als Nächstes"), which the
+// baked fonts carry in both cases. A UTF-8 letter from U+00E0 to U+00FE is C3 A0..BE and its
+// capital 32 below (C3 80..9E); the division sign C3 B7 is no letter, and the sharp s and the
+// y with diaeresis have no capital in that block, so they stay.
 inline std::string upper(std::string_view value)
 {
     std::string result(value);
-    for (char &c : result)
+    for (std::size_t i = 0; i < result.size(); ++i)
     {
+        char &c = result[i];
         if (c >= 'a' && c <= 'z')
             c = static_cast<char>(c - 'a' + 'A');
+        else if (c == '\xC3' && i + 1 < result.size())
+        {
+            const auto next = static_cast<unsigned char>(result[i + 1]);
+            if (next >= 0xA0 && next <= 0xBE && next != 0xB7)
+                result[i + 1] = static_cast<char>(next - 0x20);
+            ++i;
+        }
     }
     return result;
 }

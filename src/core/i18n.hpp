@@ -54,5 +54,8 @@ std::string format(Text text, std::string_view value);
 
 // "1 Film", "26 Filme": the count line of the page header.
 std::string movie_count(std::size_t count);
+std::string series_count(std::size_t count);
+std::string season_count(std::size_t count);
+std::string episode_count(std::size_t count);
 
 } // namespace hui::i18n

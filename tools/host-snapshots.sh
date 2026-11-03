@@ -47,7 +47,12 @@ if ! ninja_run >"$build/build.log" 2>&1; then
 fi
 grep -E 'warning' -A4 "$build/build.log" | head -40 >&2 || true
 
-export HUI_MOVIES=${HUI_MOVIES:-"$root/build/sample-movies/movies"}
+samples="$root/build/sample-movies"
+# The samples gained series (tvshows/ and series/ beside movies/): an older folder is redone.
+if [[ -z ${HUI_MOVIES:-} && ! -d $samples/tvshows ]]; then
+    rm -rf "$samples"
+fi
+export HUI_MOVIES=${HUI_MOVIES:-"$samples/movies"}
 [[ -d $HUI_MOVIES ]] || python3 "$root/tools/make-sample-movies.py" "$(dirname "$HUI_MOVIES")" >&2
 output=${1:-"$root/build/snapshots"}
 mkdir -p "$output"
