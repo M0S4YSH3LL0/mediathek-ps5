@@ -16,19 +16,11 @@ Put your films in a `movies` folder. Mediathek finds them, fetches their posters
 
 **[Get it on ProsperoStore](https://prosperostore.net/app/PPSA66120/)**
 
-[Install](#install) · [Your files](#your-files) · [Formats](#formats) · [Covers](#covers-and-descriptions) · [Controls](#controls) · [FAQ](#faq) · [Build](#build-from-source)
+[Install](#install) · [Your files](#your-files) · [Formats](#formats) · [Covers](#covers-and-descriptions) · [Controls](#controls) · [Screenshots](#screenshots) · [FAQ](#faq) · [Build](#build-from-source)
 
 </div>
 
 ![Home: the billboard and the shelves](docs/screenshots/home.jpg)
-
-| | |
-| --- | --- |
-| ![All movies](docs/screenshots/movies.jpg) | ![Details](docs/screenshots/details.jpg) |
-| ![Genre shelves on Home](docs/screenshots/genres.jpg) | ![Search on the Movies page](docs/screenshots/search.jpg) |
-| ![Settings](docs/screenshots/settings.jpg) | ![Home, in German](docs/screenshots/home-de.jpg) |
-
-*Pictures from the PC preview, with invented films.*
 
 ## Features
 
@@ -198,6 +190,16 @@ Circle to go back. Changes apply at once and save themselves.
 
 *Automatic* follows the console, German on a German console and English otherwise. Set
 `UI_LANGUAGE` in `mediathek.env` to change what *Automatic* picks.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![All movies](docs/screenshots/movies.jpg) | ![Details](docs/screenshots/details.jpg) |
+| ![Genre shelves on Home](docs/screenshots/genres.jpg) | ![Search on the Movies page](docs/screenshots/search.jpg) |
+| ![Settings](docs/screenshots/settings.jpg) | ![Home, in German](docs/screenshots/home-de.jpg) |
+
+*Pictures from the PC preview, with invented films.*
 
 ## FAQ
 
