@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 (01.000.090)
 
 - New: series. A *Series* tab between Movies and Settings lists them with search and sorting,
   and Home mixes them in with the films: *Continue Watching* (with the episode up next),
