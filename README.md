@@ -95,7 +95,7 @@ every drive. Up to eight. Left and right on a folder choose what it holds:
 - **Series:** every video in it is an episode, and the first folder below it is the series,
   as in `tvshows`.
 
-Choose a folder to remove it. Cross on the "No movies found" screen goes straight there.
+Choose a folder to remove it. Cross on the "No media found" screen goes straight there.
 
 - **Collections:** a subfolder with two or more films becomes its own shelf.
 - **Pictures:** `<film>-poster.jpg` and `<film>-fanart.jpg` beside the film. A film

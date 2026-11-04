@@ -1093,9 +1093,9 @@ TEST_F(MediathekTest, AnotherMessageIsNotOverwrittenByAReloadInProgress)
     start_reload(*design);
     send(*design, idle(), 0.5f);
 
-    send(*design, press(Action::menu), 0.5f); // "Looking for movies..."
+    send(*design, press(Action::menu), 0.5f); // "Looking for media..."
     EXPECT_EQ(scans, 1);
-    EXPECT_EQ(toast_width(*design), toast_width_of(tr(Text::looking_for_movies)));
+    EXPECT_EQ(toast_width(*design), toast_width_of(tr(Text::looking_for_media)));
     send(*design, idle(), 4.0f);
     EXPECT_EQ(toast_width(*design),
               toast_width_of(hui::i18n::format(Text::reload_progress, "5/8")));

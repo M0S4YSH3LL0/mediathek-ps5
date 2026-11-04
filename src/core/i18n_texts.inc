@@ -48,10 +48,8 @@ HUI_TEXT(search_none_series, "No series matches your search", "Keine Serie passt
 HUI_TEXT(search_none_series_hint, "Change the search or press Back to see all series",
          "\xC3\x84ndere die Suche oder dr\xC3\xBC" "cke Zur\xC3\xBC" "ck f\xC3\xBCr alle Serien")
 HUI_TEXT(no_series, "No series found", "Keine Serien gefunden")
-HUI_TEXT(no_series_hint,
-         "Put each series in its own folder in tvshows or series: tvshows/Name/Season 1/Name S01E01.mkv",
-         "Lege jede Serie in einen eigenen Ordner in tvshows oder series: "
-         "tvshows/Name/Season 1/Name S01E01.mkv")
+HUI_TEXT(no_series_hint, "Put each series in its own folder in tvshows or series",
+         "Lege jede Serie in einen eigenen Ordner in tvshows oder series")
 HUI_TEXT(hint_search, "Search", "Suchen")
 
 // ---- the settings page
@@ -150,24 +148,26 @@ HUI_TEXT(hint_change, "Change", "\xC3\x84ndern")
 HUI_TEXT(hint_open, "Open", "\xC3\x96" "ffnen")
 
 // ---- nothing found yet
-HUI_TEXT(looking_for_movies, "Looking for movies\xE2\x80\xA6", "Suche nach Filmen\xE2\x80\xA6")
+HUI_TEXT(looking_for_media, "Looking for media\xE2\x80\xA6", "Suche nach Medien\xE2\x80\xA6")
 HUI_TEXT(scan_found, "Found {}", "{} gefunden")
 HUI_TEXT(no_movies_found, "No movies found", "Keine Filme gefunden")
+HUI_TEXT(no_media_found, "No media found", "Keine Medien gefunden")
 HUI_TEXT(put_files_in, "Put your files in a folder called movies:",
          "Lege deine Dateien in einen Ordner namens movies:")
 HUI_TEXT(place_internal, "/data/movies  (internal)", "/data/movies  (intern)")
-HUI_TEXT(place_usb, "/mnt/usb0/movies  (USB drive)", "/mnt/usb0/movies  (USB-Laufwerk)")
-HUI_TEXT(place_extended, "/mnt/ext0/movies  (extended storage)",
-         "/mnt/ext0/movies  (erweiterter Speicher)")
-HUI_TEXT(other_folder, "Movies in another folder? Add it in {}.",
-         "Filme in einem anderen Ordner? F\xC3\xBCge ihn unter {} hinzu.")
-HUI_TEXT(name_them,
-         "Name them like \"Blue Harbor (2011).mkv\"; a poster.jpg next to a movie becomes its "
-         "cover.",
-         "Benenne sie wie \xE2\x80\x9E" "Blue Harbor (2011).mkv\xE2\x80\x9C; eine poster.jpg neben "
-         "einem Film wird sein Cover.")
-HUI_TEXT(series_folder, "Series go in a folder called tvshows or series, one folder per series.",
-         "Serien kommen in einen Ordner namens tvshows oder series, ein Ordner pro Serie.")
+HUI_TEXT(other_folder, "Movies or series in another folder? Add it in {}.",
+         "Filme oder Serien in einem anderen Ordner? F\xC3\xBCge ihn unter {} hinzu.")
+// The start page with nothing found: films and series, each in its folder on a drive.
+HUI_TEXT(put_media_in, "Put movies in a folder called movies, and series in one called tvshows:",
+         "Lege Filme in einen Ordner namens movies und Serien in einen namens tvshows:")
+HUI_TEXT(media_place_internal, "/data/movies   /data/tvshows   (internal)",
+         "/data/movies   /data/tvshows   (intern)")
+HUI_TEXT(media_place_usb, "/mnt/usb0/movies   /mnt/usb0/tvshows   (USB drive)",
+         "/mnt/usb0/movies   /mnt/usb0/tvshows   (USB-Laufwerk)")
+HUI_TEXT(media_place_extended, "/mnt/ext0/movies   /mnt/ext0/tvshows   (extended storage)",
+         "/mnt/ext0/movies   /mnt/ext0/tvshows   (erweiterter Speicher)")
+HUI_TEXT(series_folder, "One folder per series. A folder called series works as well as tvshows.",
+         "Ein Ordner pro Serie. Ein Ordner namens series geht genauso wie tvshows.")
 
 // ---- the billboard, the details page and its actions
 HUI_TEXT(button_resume, "Resume", "Fortsetzen")

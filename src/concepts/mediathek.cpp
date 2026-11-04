@@ -807,7 +807,7 @@ class Mediathek final : public app::Concept
         if (input.is_pressed(Action::menu) && svc_->rescan && !svc_->scanning)
         {
             svc_->rescan();
-            notify(feedback, tr(Text::looking_for_movies), audio::Cue::notify);
+            notify(feedback, tr(Text::looking_for_media), audio::Cue::notify);
         }
 
         if (tab_ == Tab::settings)
@@ -2874,28 +2874,30 @@ class Mediathek final : public app::Concept
                         kInk.with_alpha(0.55f));
         }
         list.circle(cx, cy - 120, 9, kInk.with_alpha(0.7f));
-        ui::text(list, fonts.display,
-                 tr(svc_->scanning ? Text::looking_for_movies : Text::no_movies_found), cx, cy + 30,
-                 52, kInk, gfx::Align::center);
-        ui::text(list, fonts.regular, tr(Text::put_files_in), cx, cy + 90, 26,
+        // Every tab shows this page while the library is empty; the title says what the tab
+        // would hold, the lines below where both kinds of file go.
+        const Text nothing = tab_ == Tab::movies   ? Text::no_movies_found
+                             : tab_ == Tab::series ? Text::no_series
+                                                   : Text::no_media_found;
+        ui::text(list, fonts.display, tr(svc_->scanning ? Text::looking_for_media : nothing), cx,
+                 cy + 30, 52, kInk, gfx::Align::center);
+        ui::text(list, fonts.regular, tr(Text::put_media_in), cx, cy + 90, 26,
                  kInk.with_alpha(0.7f), gfx::Align::center);
-        const char *places[] = {tr(Text::place_internal), tr(Text::place_usb),
-                                tr(Text::place_extended)};
+        const char *places[] = {tr(Text::media_place_internal), tr(Text::media_place_usb),
+                                tr(Text::media_place_extended)};
         for (int i = 0; i < 3; ++i)
             ui::text(list, fonts.mono, places[i], cx, cy + 148 + static_cast<float>(i) * 40, 24,
                      kInk.with_alpha(0.9f), gfx::Align::center);
-        ui::text(list, fonts.regular, tr(Text::name_them), cx, cy + 290, 22, kInk.with_alpha(0.55f),
-                 gfx::Align::center);
-        ui::text(list, fonts.regular, tr(Text::series_folder), cx, cy + 326, 22,
+        ui::text(list, fonts.regular, tr(Text::series_folder), cx, cy + 290, 22,
                  kInk.with_alpha(0.55f), gfx::Align::center);
         // Films kept elsewhere need not be moved: the folder can be added (Cross goes there).
         // A plain ">": the baked fonts have no single angle quote.
         ui::text(list, fonts.regular,
                  i18n::format(Text::other_folder, std::string(tr(Text::settings_title)) + " > " +
                                                       tr(Text::settings_library)),
-                 cx, cy + 362, 22, kInk.with_alpha(0.55f), gfx::Align::center);
+                 cx, cy + 326, 22, kInk.with_alpha(0.55f), gfx::Align::center);
         if (!svc_->scan_note.empty())
-            ui::text(list, fonts.regular, svc_->scan_note, cx, cy + 410, 22, kAccent,
+            ui::text(list, fonts.regular, svc_->scan_note, cx, cy + 374, 22, kAccent,
                      gfx::Align::center);
         list.pop_opacity();
     }
