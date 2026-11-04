@@ -31,10 +31,14 @@
   had been shrunk to fit; captions turn umlauts and accents into capitals too ("KOMÖDIE",
   "ALS NÄCHSTES", which read "KOMöDIE"); the billboard's *Abspielen* button is wide enough
   for its word.
-- New in Settings, under Library: *Movie folders*. Add folders to search besides `movies` and
-  `mediathek/movies`, either a path (`/mnt/usb0/Films`) or a name looked for on every drive
-  (`Films`), up to eight; choose one to remove it. Every change scans again. The list is kept
-  in `/download0/hui/scan-folders.txt`, and the scan helper gets it written into its own bytes.
+- New in Settings, under Library: *Media folders*. Add folders to search besides the default
+  ones, either a path (`/mnt/usb0/Media`) or a name looked for on every drive (`Media`), up to
+  eight; choose one to remove it. Left and right choose what each holds: *Automatic* (the
+  default) finds series in a `series`, `Serien` or `tvshows` folder anywhere inside it and
+  episodes by their mark, *Movies* makes every video a film, *Series* every video an episode
+  with the first folder below as its series. Every change scans again. The list is kept in
+  `/download0/hui/scan-folders.txt` (a chosen content after a tab), and the scan helper gets it
+  written into its own bytes.
 - The "No movies found" screen points to Settings > Library, and Cross there opens *Add folder*.
 - Films are shown with their title from TMDB, colons, commas and dashes included, instead of
   the one read from the file name, which loses them. The file

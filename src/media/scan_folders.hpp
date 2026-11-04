@@ -1,8 +1,10 @@
-// Mediathek - Extra movie folders: what the viewer typed, the roots it means, the helper's copy.
+// Mediathek - Extra media folders: what the viewer typed, the roots it means, the helper's copy.
 // Copyright (C) 2026 BlackBearReloaded
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+
+#include "media/library.hpp"
 
 #include <cstddef>
 #include <string>
@@ -17,6 +19,16 @@ namespace hui::media
 constexpr std::size_t kMaxScanFolders = 8;
 constexpr std::size_t kMaxScanFolderLength = 160;
 
+// One folder of the viewer's: a path, or a name looked for on every drive, as
+// clean_scan_folder() leaves it, and what it holds.
+struct ScanFolder
+{
+    std::string path;
+    FolderContent content = FolderContent::automatic;
+
+    bool operator==(const ScanFolder &) const = default;
+};
+
 // What the viewer typed, tidied: blanks around it go, backslashes become slashes, doubled and
 // trailing slashes go ("/mnt/usb0//Films/" -> "/mnt/usb0/Films"). A folder that starts with
 // "/" is that folder; any other ("Films", "media/films") is looked for on every drive, like
@@ -26,15 +38,21 @@ std::string clean_scan_folder(std::string_view typed);
 
 // The folders to scan for the extra folders, in order and without repeats: a path as it is,
 // a name on each of scan_drives().
-std::vector<std::string> scan_folder_roots(const std::vector<std::string> &folders);
+std::vector<std::string> scan_folder_roots(const std::vector<ScanFolder> &folders);
 
 // default_roots() followed by scan_folder_roots(), without repeats: what a scan walks.
-std::vector<std::string> scan_roots(const std::vector<std::string> &folders);
+std::vector<std::string> scan_roots(const std::vector<ScanFolder> &folders);
 
-// The saved list: one folder a line. Lines that clean_scan_folder() refuses, repeats and
-// those past kMaxScanFolders are dropped, so a hand-edited file cannot break a scan.
-std::vector<std::string> parse_scan_folders(std::string_view text);
-std::string format_scan_folders(const std::vector<std::string> &folders);
+// The roots of the folders whose content was chosen, for Library::from_scan. A root reached
+// through two folders takes the first one's, as scan_folder_roots() keeps the first.
+RootContents root_contents(const std::vector<ScanFolder> &folders);
+
+// The saved list: one folder a line, then a tab and "movies" or "series" when the content was
+// chosen (a folder cannot hold a tab). Lines that clean_scan_folder() refuses, repeats and
+// those past kMaxScanFolders are dropped, so a hand-edited file cannot break a scan; a word
+// it does not know is Automatic. A build before the choice drops a line with a tab.
+std::vector<ScanFolder> parse_scan_folders(std::string_view text);
+std::string format_scan_folders(const std::vector<ScanFolder> &folders);
 
 // The scan helper (helper/mt-scan.c) cannot be given arguments: the ELF loader only runs it.
 // It carries a block in its data instead, kHelperRootsSize bytes that start with

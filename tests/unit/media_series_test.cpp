@@ -181,6 +181,61 @@ TEST(SeriesLibrary, GroupsEpisodesIntoSeriesAndSeasons)
     EXPECT_EQ(lone->seasons[0].number, 2);
 }
 
+TEST(SeriesLibrary, ASeriesFolderInsideAnExtraFolderHoldsSeries)
+{
+    ScanResult scan;
+    scan.roots = {"/mnt/usb0/Media", "/data/tvshows"};
+    scan.videos = {
+        // No mark: only the "Serien" folder says this is an episode.
+        video("/mnt/usb0/Media/Serien/Harbor Lights/Staffel 1/05 - Pilot.mkv"),
+        video("/mnt/usb0/Media/Filme/Blue Harbor (2011).mkv"),
+        // A series root keeps its first folder as the series, even one named like a root.
+        video("/data/tvshows/Shows/Season 1/Episode 1.mkv"),
+    };
+    const Library library = Library::from_scan(scan);
+    EXPECT_EQ(library.film_count(), 1u);
+    EXPECT_EQ(library.show_count(), 2u);
+
+    const Movie *harbor = find_titled(library, "Harbor Lights");
+    ASSERT_NE(harbor, nullptr);
+    EXPECT_EQ(harbor->path, "/mnt/usb0/Media/Serien/Harbor Lights");
+    ASSERT_EQ(harbor->seasons.size(), 1u);
+    EXPECT_EQ(harbor->seasons[0].number, 1);
+    ASSERT_EQ(harbor->seasons[0].episodes.size(), 1u);
+    EXPECT_EQ(harbor->seasons[0].episodes[0].number, 5);
+    EXPECT_NE(find_titled(library, "Shows"), nullptr);
+    EXPECT_NE(find_titled(library, "Blue Harbor"), nullptr);
+}
+
+TEST(SeriesLibrary, AnExtraFolderCanBeToldWhatItHolds)
+{
+    ScanResult scan;
+    scan.roots = {"/mnt/usb0/Anime", "/mnt/usb0/Kino"};
+    scan.videos = {
+        // A series folder of any name: the first folder is the series, as under tvshows.
+        video("/mnt/usb0/Anime/Star Courier/Season 2/03 - Relay.mkv"),
+        // Films only: a mark or a "Serien" folder makes no episode here.
+        video("/mnt/usb0/Kino/Night.Train.S01E01.mkv"),
+        video("/mnt/usb0/Kino/Serien/Glass Coast/Episode 1.mkv"),
+    };
+    RootContents contents;
+    contents["/mnt/usb0/Anime"] = FolderContent::series;
+    contents["/mnt/usb0/Kino"] = FolderContent::movies;
+    const Library library = Library::from_scan(scan, contents);
+    EXPECT_EQ(library.show_count(), 1u);
+    EXPECT_EQ(library.film_count(), 2u);
+    const Movie *courier = find_titled(library, "Star Courier");
+    ASSERT_NE(courier, nullptr);
+    ASSERT_EQ(courier->seasons.size(), 1u);
+    EXPECT_EQ(courier->seasons[0].number, 2);
+    EXPECT_EQ(courier->seasons[0].episodes[0].number, 3);
+
+    // The same files with nothing chosen: Automatic goes by the names.
+    const Library automatic = Library::from_scan(scan);
+    EXPECT_EQ(automatic.show_count(), 2u); // Night Train (marked) and Glass Coast (Serien)
+    EXPECT_EQ(automatic.film_count(), 1u); // the Anime folder's file has no mark
+}
+
 TEST(SeriesLibrary, FindsAnEpisodeByItsId)
 {
     const Library library = Library::from_scan(series_scan());

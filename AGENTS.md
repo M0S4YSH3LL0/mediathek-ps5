@@ -182,7 +182,12 @@ there, one a line (`media::embed_helper_roots`; the mark and the size are writte
 change both). The helper scans them after its own folders. The viewer's list (Settings > Library,
 `Services::scan_folders`, at most 8) is kept in `/download0/hui/scan-folders.txt`, one a line: a
 path starting with `/` is that folder, any other name is looked for on every drive
-(`scan_folder_roots`). Two helpers at once would write the same index, so a change during a scan
+(`scan_folder_roots`). After a tab comes `movies` or `series` when the viewer chose what the
+folder holds (`media::FolderContent`, left and right on its row; Cross there opens the remove
+dialog, not the next choice); no tab is Automatic. `root_contents` turns that into a map of roots
+for `Library::from_scan`; the helper never sees it. Automatic makes a series root of the first
+folder below the root named like one (`is_series_folder`), so `Media/Serien/Show/...` works as
+under `tvshows`; Movies makes no episodes at all. Two helpers at once would write the same index, so a change during a scan
 waits for it. The log says `[HUI] scan extra roots=N embedded`; `NOT embedded` means an old helper.
 A film's collection is named from the deepest root it is under, as an extra folder may hold a
 `movies` folder.

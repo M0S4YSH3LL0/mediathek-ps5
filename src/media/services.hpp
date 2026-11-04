@@ -10,6 +10,7 @@
 #include "media/player.hpp"
 #include "media/poster_cache.hpp"
 #include "media/progress.hpp"
+#include "media/scan_folders.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -39,9 +40,10 @@ struct Services
     std::function<void()> quit;
     // Asks the platform to scan again. Null when scanning is not possible.
     std::function<void()> rescan;
-    // The folders scanned besides movies and mediathek/movies (Settings > Library), as
-    // clean_scan_folder() leaves them: a path, or a name looked for on every drive.
-    std::vector<std::string> scan_folders;
+    // The folders scanned besides the default ones (Settings > Library), as
+    // clean_scan_folder() leaves them: a path, or a name looked for on every drive, and what
+    // each holds.
+    std::vector<ScanFolder> scan_folders;
     // Keeps `scan_folders` after the screen changed them and scans again (after the scan
     // that is running, if one is). Null where they cannot be kept.
     std::function<void()> scan_folders_changed;

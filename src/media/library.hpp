@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -108,6 +109,19 @@ std::size_t season_total(const Movie &show);
 // Every video below one is an episode.
 bool is_series_folder(std::string_view folder_name);
 
+// What a folder holds, as the viewer chose it for an extra folder (Settings > Library).
+// Automatic goes by the names: a series folder (is_series_folder) anywhere below it holds
+// series, and a file with an episode mark is one. Series: every video is an episode, the first
+// folder below the root its series, as under "tvshows". Movies: every video is a film.
+enum class FolderContent : std::uint8_t
+{
+    automatic,
+    movies,
+    series,
+};
+// The roots whose content was chosen; a root missing here is Automatic.
+using RootContents = std::map<std::string, FolderContent>;
+
 // Whether a movie answers a search. `query` is what the viewer typed; every word of it must
 // appear in the title, ignoring case and accents. An empty query matches everything.
 bool matches_search(const Movie &movie, std::string_view query);
@@ -179,8 +193,9 @@ std::string drive_label(std::string_view path);
 class Library
 {
   public:
-    // Pairs videos with posters, backdrops and subtitles and sorts by title.
-    static Library from_scan(const ScanResult &scan);
+    // Pairs videos with posters, backdrops and subtitles and sorts by title. A file follows
+    // the content of the deepest root it is under.
+    static Library from_scan(const ScanResult &scan, const RootContents &contents = {});
 
     const std::vector<Movie> &movies() const
     {

@@ -84,10 +84,18 @@ six levels deep:
 It searches `movies` and `mediathek/movies`, and the [series folders](#series), on `/data`,
 `/`, `/mnt/usb0-7` and `/mnt/ext0-1`. Press **Options** to scan again.
 
-Films somewhere else? Add the folder in **Settings > Library > Add folder**: a full path
-such as `/mnt/usb0/Films`, or just a name such as `Films`, which is then looked for on
-every drive. Up to eight; choose one in the list to remove it. Cross on the "No movies
-found" screen goes straight there.
+Films or series somewhere else? Add the folder in **Settings > Library > Add folder**: a full
+path such as `/mnt/usb0/Media`, or just a name such as `Media`, which is then looked for on
+every drive. Up to eight. Left and right on a folder choose what it holds:
+
+- **Automatic** (the default): a `series`, `Serien`, `tvshows` or `TV Shows` folder anywhere
+  inside it holds series, one folder per series; a file with an episode mark is an episode;
+  everything else is a film.
+- **Movies:** every video in it is a film, episode marks or not.
+- **Series:** every video in it is an episode, and the first folder below it is the series,
+  as in `tvshows`.
+
+Choose a folder to remove it. Cross on the "No movies found" screen goes straight there.
 
 - **Collections:** a subfolder with two or more films becomes its own shelf.
 - **Pictures:** `<film>-poster.jpg` and `<film>-fanart.jpg` beside the film. A film
@@ -219,7 +227,7 @@ Circle to go back. Changes apply at once and save themselves.
 | General | App language | Automatic, English or Deutsch. |
 | General | UI sounds | Menu sounds on or off. |
 | Library | Reload all covers and infos | Fetches everything from TMDB again, with a message that counts the progress. |
-| Library | Movie folders | Folders searched besides `movies`, `tvshows`, `series` and those below `mediathek`: add a path or a name, or choose one to remove it. Each change scans again. |
+| Library | Media folders | Folders searched besides `movies`, `tvshows`, `series` and those below `mediathek`: add a path or a name, choose Automatic, Movies or Series for each with left and right, or choose one to remove it. Each change scans again. |
 | About | Version | The version and when this build was made. |
 | About | Author | Who made the app. |
 | About | Debug info | Frame rate in the corner. |

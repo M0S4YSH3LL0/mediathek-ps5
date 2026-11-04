@@ -1,4 +1,4 @@
-// Mediathek - Extra movie folders: what the viewer typed, the roots it means, the helper's copy.
+// Mediathek - Extra media folders: what the viewer typed, the roots it means, the helper's copy.
 // Copyright (C) 2026 BlackBearReloaded
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 
 namespace hui::media
 {
@@ -20,6 +21,22 @@ void add_once(std::vector<std::string> *list, std::string item)
     if (std::find(list->begin(), list->end(), item) == list->end())
         list->push_back(std::move(item));
 }
+
+// A path is itself; a name is that folder on every drive.
+std::vector<std::string> roots_of(const std::string &folder)
+{
+    std::vector<std::string> roots;
+    if (folder.empty())
+        return roots;
+    if (folder.front() == '/')
+        roots.push_back(folder);
+    else
+        for (const std::string &drive : scan_drives())
+            roots.push_back(drive + "/" + folder);
+    return roots;
+}
+
+constexpr std::string_view kContentWords[] = {"", "movies", "series"}; // as FolderContent
 
 } // namespace
 
@@ -57,24 +74,32 @@ std::string clean_scan_folder(std::string_view typed)
     return folder;
 }
 
-std::vector<std::string> scan_folder_roots(const std::vector<std::string> &folders)
+std::vector<std::string> scan_folder_roots(const std::vector<ScanFolder> &folders)
 {
     std::vector<std::string> roots;
-    const std::vector<std::string> drives = scan_drives();
-    for (const std::string &folder : folders)
-    {
-        if (folder.empty())
-            continue;
-        if (folder.front() == '/')
-            add_once(&roots, folder);
-        else
-            for (const std::string &drive : drives)
-                add_once(&roots, drive + "/" + folder);
-    }
+    for (const ScanFolder &folder : folders)
+        for (std::string &root : roots_of(folder.path))
+            add_once(&roots, std::move(root));
     return roots;
 }
 
-std::vector<std::string> scan_roots(const std::vector<std::string> &folders)
+RootContents root_contents(const std::vector<ScanFolder> &folders)
+{
+    RootContents contents;
+    std::vector<std::string> seen;
+    for (const ScanFolder &folder : folders)
+        for (std::string &root : roots_of(folder.path))
+        {
+            if (std::find(seen.begin(), seen.end(), root) != seen.end())
+                continue;
+            seen.push_back(root);
+            if (folder.content != FolderContent::automatic)
+                contents.emplace(std::move(root), folder.content);
+        }
+    return contents;
+}
+
+std::vector<std::string> scan_roots(const std::vector<ScanFolder> &folders)
 {
     std::vector<std::string> roots = default_roots();
     for (std::string &root : scan_folder_roots(folders))
@@ -82,9 +107,9 @@ std::vector<std::string> scan_roots(const std::vector<std::string> &folders)
     return roots;
 }
 
-std::vector<std::string> parse_scan_folders(std::string_view text)
+std::vector<ScanFolder> parse_scan_folders(std::string_view text)
 {
-    std::vector<std::string> folders;
+    std::vector<ScanFolder> folders;
     while (!text.empty() && folders.size() < kMaxScanFolders)
     {
         const std::size_t end = std::min(text.find('\n'), text.size());
@@ -92,17 +117,36 @@ std::vector<std::string> parse_scan_folders(std::string_view text)
         if (!line.empty() && line.back() == '\r')
             line.remove_suffix(1);
         text.remove_prefix(std::min(end + 1, text.size()));
-        if (std::string folder = clean_scan_folder(line); !folder.empty())
-            add_once(&folders, std::move(folder));
+        ScanFolder folder;
+        if (const std::size_t tab = line.find('\t'); tab != std::string_view::npos)
+        {
+            const std::string_view word = line.substr(tab + 1);
+            for (std::size_t i = 1; i < std::size(kContentWords); ++i)
+                if (word == kContentWords[i])
+                    folder.content = static_cast<FolderContent>(i);
+            line = line.substr(0, tab);
+        }
+        folder.path = clean_scan_folder(line);
+        if (folder.path.empty())
+            continue;
+        const bool known = std::any_of(folders.begin(), folders.end(), [&](const ScanFolder &other)
+                                       { return other.path == folder.path; });
+        if (!known)
+            folders.push_back(std::move(folder));
     }
     return folders;
 }
 
-std::string format_scan_folders(const std::vector<std::string> &folders)
+std::string format_scan_folders(const std::vector<ScanFolder> &folders)
 {
     std::string text;
-    for (const std::string &folder : folders)
-        text += folder + "\n";
+    for (const ScanFolder &folder : folders)
+    {
+        text += folder.path;
+        if (folder.content != FolderContent::automatic)
+            text += "\t" + std::string(kContentWords[static_cast<std::size_t>(folder.content)]);
+        text += "\n";
+    }
     return text;
 }
 

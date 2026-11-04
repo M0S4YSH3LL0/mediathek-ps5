@@ -325,7 +325,7 @@ bool matches_search(const Movie &movie, std::string_view query)
     return true;
 }
 
-Library Library::from_scan(const ScanResult &scan)
+Library Library::from_scan(const ScanResult &scan, const RootContents &contents)
 {
     Library library;
     library.roots_ = scan.roots;
@@ -351,6 +351,27 @@ Library Library::from_scan(const ScanResult &scan)
                 (found == nullptr || root.size() > found->size()))
                 found = &root;
         return found;
+    };
+    // The series folder a file is under, empty if none: the root itself when it is named like
+    // one, else the first such folder below it. Extra folders are roots of any name, and the
+    // viewer files series in them as on a drive ("Media/Serien/Show/Staffel 1/05.mkv"). The
+    // first one wins, so a series root keeps a series named "Shows" as a series.
+    const auto series_root_of = [&](const std::string &path, const std::string *root)
+    {
+        if (root == nullptr || is_series_folder(file_name_of(*root)))
+            return root != nullptr ? *root : std::string();
+        std::string folder = *root;
+        const std::string rest = path.substr(root->size() + 1);
+        std::vector<std::string_view> parts = split(rest, '/');
+        parts.pop_back(); // the file itself
+        for (const std::string_view part : parts)
+        {
+            folder += "/";
+            folder += part;
+            if (is_series_folder(part))
+                return folder;
+        }
+        return std::string();
     };
     // Subtitles sit beside the video or in a "subs" folder next to it. Beside the video they
     // must carry its name; in "subs" a video that is alone in its folder owns everything there
@@ -398,8 +419,10 @@ Library Library::from_scan(const ScanResult &scan)
     std::map<std::string, ShowBuild> shows;
     // Files an episode in its series; false when it has no series to go into (a lone
     // "S01E02.mkv" straight in a movies folder), and it is shown as a film.
+    // `series_root`: below `root` every folder is a series ("tvshows", or one chosen so).
     const auto add_episode = [&](const FoundFile &file, const std::string &id,
-                                 const EpisodeName &name, const std::string *root) -> bool
+                                 const EpisodeName &name, const std::string *root,
+                                 bool series_root) -> bool
     {
         // The folders between the root and the file: "Show Name", "Season 1".
         std::vector<std::string> folders;
@@ -411,7 +434,7 @@ Library Library::from_scan(const ScanResult &scan)
                 folders.emplace_back(part);
             folders.pop_back(); // the file itself
         }
-        const bool series_root = root != nullptr && is_series_folder(file_name_of(*root));
+        series_root = series_root && root != nullptr;
         // The series' folder: below a series root the first one ("tvshows/Show/Season 1/x"),
         // elsewhere the file's own, or the one above it when that is a season.
         int show_at = -1;
@@ -517,8 +540,17 @@ Library Library::from_scan(const ScanResult &scan)
 
         const std::string *root = root_of(file.path);
         const EpisodeName episode = parse_episode_name(name);
-        if ((episode.marked || (root != nullptr && is_series_folder(file_name_of(*root)))) &&
-            add_episode(file, id, episode, root))
+        FolderContent content = FolderContent::automatic;
+        if (const auto chosen = root != nullptr ? contents.find(*root) : contents.end();
+            chosen != contents.end())
+            content = chosen->second;
+        const std::string series_root = content == FolderContent::series ? *root
+                                        : content == FolderContent::automatic
+                                            ? series_root_of(file.path, root)
+                                            : std::string();
+        if (content != FolderContent::movies && (episode.marked || !series_root.empty()) &&
+            add_episode(file, id, episode, series_root.empty() ? root : &series_root,
+                        !series_root.empty()))
             continue;
 
         Movie movie;

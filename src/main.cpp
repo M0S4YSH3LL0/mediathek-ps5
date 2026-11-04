@@ -384,7 +384,8 @@ int main()
     }
     const auto adopt = [&](const media::ScanResult &scan)
     {
-        services.library = media::Library::from_scan(scan);
+        services.library =
+            media::Library::from_scan(scan, media::root_contents(services.scan_folders));
         if (added.apply(&services.library, services.clock()))
         {
             const std::string failure = save::write_atomic(kAddedPath, added.encode());

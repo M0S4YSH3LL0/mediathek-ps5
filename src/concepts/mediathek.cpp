@@ -1065,13 +1065,18 @@ class Mediathek final : public app::Concept
                                      tr(Text::settings_folders_default));
             for (std::size_t i = 0; i < svc_->scan_folders.size(); ++i)
             {
-                const std::string &folder = svc_->scan_folders[i];
-                ui::FormRow &row =
-                    settings_form_.add_action(kRowFolderFirst + static_cast<int>(i), folder);
+                // Left and right choose what the folder holds (in the order of
+                // media::FolderContent); confirm offers to remove it (handle_settings).
+                const media::ScanFolder &folder = svc_->scan_folders[i];
+                ui::FormRow &row = settings_form_.add_choice(
+                    kRowFolderFirst + static_cast<int>(i), folder.path,
+                    {tr(Text::folder_content_auto), tr(Text::tab_movies), tr(Text::tab_series)},
+                    static_cast<int>(folder.content));
                 // A path names its drive; a name is looked for on all of them.
-                row.text = folder.front() == '/' ? media::drive_label(folder + "/")
-                                                 : tr(Text::settings_folder_everywhere);
-                row.description = tr(Text::settings_folder_hint);
+                row.description = i18n::format(
+                    Text::settings_folder_hint,
+                    folder.path.front() == '/' ? media::drive_label(folder.path + "/")
+                                               : std::string(tr(Text::settings_folder_everywhere)));
             }
             if (svc_->scan_folders_changed)
             {
@@ -1198,11 +1203,25 @@ class Mediathek final : public app::Concept
                 return;
             }
         }
+        // A folder's row is a choice of what it holds, but confirm there offers to remove the
+        // folder, as before: the form would only step to the next choice.
+        if (const int focused = settings_form_.focus_id();
+            input.is_pressed(Action::confirm) && is_folder_row(focused))
+        {
+            activate_setting(focused, feedback);
+            return;
+        }
         const ui::Event event = settings_form_.handle(input, feedback);
         if (event == ui::Event::changed)
             apply_setting(settings_form_.changed_id());
         else if (event == ui::Event::activated)
             activate_setting(settings_form_.changed_id(), feedback);
+    }
+
+    bool is_folder_row(int row) const
+    {
+        return row >= kRowFolderFirst &&
+               static_cast<std::size_t>(row - kRowFolderFirst) < svc_->scan_folders.size();
     }
 
     void activate_setting(int row, app::Feedback &feedback)
@@ -1220,15 +1239,14 @@ class Mediathek final : public app::Concept
             else
                 folder_prompt_.open(feedback);
         }
-        else if (row >= kRowFolderFirst &&
-                 static_cast<std::size_t>(row - kRowFolderFirst) < svc_->scan_folders.size())
+        else if (is_folder_row(row))
         {
             folder_removing_ = static_cast<std::size_t>(row - kRowFolderFirst);
             ui::DialogContent content;
             content.icon = ui::StatusKind::question;
             content.title = tr(Text::folder_remove_title);
             content.body =
-                i18n::format(Text::folder_remove_body, svc_->scan_folders[folder_removing_]);
+                i18n::format(Text::folder_remove_body, svc_->scan_folders[folder_removing_].path);
             content.buttons = {{tr(Text::folder_cancel)},
                                {tr(Text::folder_remove_do), ui::ButtonKind::primary}};
             content.default_button = 0;
@@ -1241,18 +1259,21 @@ class Mediathek final : public app::Concept
     void add_folder(const std::string &typed, app::Feedback &feedback)
     {
         const std::string folder = media::clean_scan_folder(typed);
-        std::vector<std::string> &folders = svc_->scan_folders;
+        std::vector<media::ScanFolder> &folders = svc_->scan_folders;
         if (folder.empty())
         {
             notify(feedback, tr(Text::folder_invalid), audio::Cue::error);
             return;
         }
-        if (std::find(folders.begin(), folders.end(), folder) != folders.end())
+        if (std::any_of(folders.begin(), folders.end(),
+                        [&](const media::ScanFolder &known) { return known.path == folder; }))
         {
             notify(feedback, tr(Text::folder_known), audio::Cue::error);
             return;
         }
-        folders.push_back(folder);
+        media::ScanFolder added;
+        added.path = folder;
+        folders.push_back(added);
         folders_changed();
         settings_form_.focus_row(kRowFolderFirst + static_cast<int>(folders.size()) - 1, true);
         notify(feedback, tr(Text::folder_added), audio::Cue::notify);
@@ -1260,7 +1281,7 @@ class Mediathek final : public app::Concept
 
     void remove_folder(app::Feedback &feedback)
     {
-        std::vector<std::string> &folders = svc_->scan_folders;
+        std::vector<media::ScanFolder> &folders = svc_->scan_folders;
         if (folder_removing_ >= folders.size())
             return;
         folders.erase(folders.begin() + static_cast<std::ptrdiff_t>(folder_removing_));
@@ -1295,6 +1316,15 @@ class Mediathek final : public app::Concept
     void apply_setting(int row)
     {
         Settings &settings = context_.settings;
+        if (is_folder_row(row))
+        {
+            // Saved and scanned again at once; the form keeps its rows and its focus.
+            svc_->scan_folders[static_cast<std::size_t>(row - kRowFolderFirst)].content =
+                static_cast<media::FolderContent>(settings_form_.choice_index(row));
+            if (svc_->scan_folders_changed)
+                svc_->scan_folders_changed();
+            return;
+        }
         if (row == kRowUiSounds)
         {
             // Off is volume 0; on is the volume the app starts with.
@@ -3347,8 +3377,11 @@ class Mediathek final : public app::Concept
         }
         else if (tab_ == Tab::settings)
         {
-            const ui::Hint hints[] = {{ui::Button::cross, settings_in_form_ ? tr(Text::hint_change)
-                                                                            : tr(Text::hint_open)},
+            // Confirm on a folder's row removes it; left and right change what it holds.
+            const Text cross = !settings_in_form_                         ? Text::hint_open
+                               : is_folder_row(settings_form_.focus_id()) ? Text::folder_remove_do
+                                                                          : Text::hint_change;
+            const ui::Hint hints[] = {{ui::Button::cross, tr(cross)},
                                       {ui::Button::circle, tr(Text::hint_back)},
                                       {ui::Button::l1, tr(Text::hint_tab), ui::Button::r1}};
             ui::draw_hints(list, context_.fonts, style, hints, 3, 1824, true, hint_layout());

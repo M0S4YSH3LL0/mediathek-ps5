@@ -42,7 +42,8 @@ TEST(ScanFolders, RefusesWhatCannotBeAFolder)
 
 TEST(ScanFolders, APathIsItselfAndANameIsOnEveryDrive)
 {
-    const std::vector<std::string> roots = scan_folder_roots({"/mnt/usb1/Films", "Docs"});
+    const std::vector<std::string> roots = scan_folder_roots(
+        {{"/mnt/usb1/Films", FolderContent::automatic}, {"Docs", FolderContent::automatic}});
     ASSERT_EQ(roots.size(), 1u + scan_drives().size());
     EXPECT_EQ(roots[0], "/mnt/usb1/Films");
     EXPECT_EQ(roots[1], "/data/Docs");
@@ -50,26 +51,46 @@ TEST(ScanFolders, APathIsItselfAndANameIsOnEveryDrive)
     EXPECT_NE(std::find(roots.begin(), roots.end(), "/mnt/ext1/Docs"), roots.end());
 
     // After the default folders, and nothing twice: "movies" is one of them already.
-    const std::vector<std::string> all =
-        scan_roots({"movies", "/mnt/usb1/Films", "/mnt/usb1/Films"});
+    const std::vector<std::string> all = scan_roots({{"movies", FolderContent::automatic},
+                                                     {"/mnt/usb1/Films", FolderContent::automatic},
+                                                     {"/mnt/usb1/Films", FolderContent::movies}});
     EXPECT_EQ(all.size(), default_roots().size() + 1);
     EXPECT_EQ(all.back(), "/mnt/usb1/Films");
 }
 
 TEST(ScanFolders, TheSavedListSurvivesHandEditing)
 {
-    const std::vector<std::string> folders = {"/mnt/usb0/Films", "Docs"};
+    const std::vector<ScanFolder> folders = {{"/mnt/usb0/Films", FolderContent::automatic},
+                                             {"Docs", FolderContent::series},
+                                             {"/data/Kino", FolderContent::movies}};
+    EXPECT_EQ(format_scan_folders(folders), "/mnt/usb0/Films\nDocs\tseries\n/data/Kino\tmovies\n");
     EXPECT_EQ(parse_scan_folders(format_scan_folders(folders)), folders);
     // Windows line ends, blank lines, a repeat, a refused line, and too many.
     std::string text = "/mnt/usb0/Films\r\n\r\n/mnt/usb0/Films/\n/\nDocs\n";
     for (int i = 0; i < 20; ++i)
         text += "/extra/" + std::to_string(i) + "\n";
-    const std::vector<std::string> read = parse_scan_folders(text);
+    const std::vector<ScanFolder> read = parse_scan_folders(text);
     ASSERT_EQ(read.size(), kMaxScanFolders);
-    EXPECT_EQ(read[0], "/mnt/usb0/Films");
-    EXPECT_EQ(read[1], "Docs");
-    EXPECT_EQ(read[2], "/extra/0");
+    EXPECT_EQ(read[0].path, "/mnt/usb0/Films");
+    EXPECT_EQ(read[1].path, "Docs");
+    EXPECT_EQ(read[2].path, "/extra/0");
     EXPECT_TRUE(parse_scan_folders("").empty());
+    // A content word it does not know is Automatic; the folder is kept.
+    const std::vector<ScanFolder> odd = parse_scan_folders("/a\tcartoons\n/b\tseries\r\n");
+    ASSERT_EQ(odd.size(), 2u);
+    EXPECT_EQ(odd[0].content, FolderContent::automatic);
+    EXPECT_EQ(odd[1].content, FolderContent::series);
+}
+
+TEST(ScanFolders, TheContentChosenGoesWithEveryRootOfAFolder)
+{
+    const RootContents contents = root_contents({{"/mnt/usb1/Films", FolderContent::movies},
+                                                 {"Anime", FolderContent::series},
+                                                 {"Docs", FolderContent::automatic}});
+    EXPECT_EQ(contents.size(), 1u + scan_drives().size()); // Automatic is no entry
+    EXPECT_EQ(contents.at("/mnt/usb1/Films"), FolderContent::movies);
+    EXPECT_EQ(contents.at("/mnt/ext1/Anime"), FolderContent::series);
+    EXPECT_EQ(contents.count("/data/Docs"), 0u);
 }
 
 // Bytes shaped like the helper: something before, the block, something after.
@@ -115,9 +136,10 @@ TEST(ScanFolders, AHelperWithoutABlockOrRootsThatDoNotFitAreLeftAlone)
     EXPECT_EQ(elf, original);
 
     // The worst the settings allow fits: every folder a long name, on every drive.
-    std::vector<std::string> longest;
+    std::vector<ScanFolder> longest;
     for (std::size_t i = 0; i < kMaxScanFolders; ++i)
-        longest.push_back(std::string(kMaxScanFolderLength - 1, 'a') + std::to_string(i));
+        longest.push_back({std::string(kMaxScanFolderLength - 1, 'a') + std::to_string(i),
+                           FolderContent::series});
     EXPECT_TRUE(embed_helper_roots(&elf, scan_folder_roots(longest)));
 
     std::string twice = fake_helper() + fake_helper();

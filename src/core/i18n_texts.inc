@@ -115,33 +115,37 @@ HUI_TEXT(reload_progress, "Fetching {} covers and infos\xE2\x80\xA6",
          "Lade {} Cover und Infos\xE2\x80\xA6")
 HUI_TEXT(reload_finished, "Finished fetching covers and infos", "Cover und Infos fertig geladen")
 HUI_TEXT(reload_nothing, "No movies to reload", "Keine Filme zum Neuladen")
-HUI_TEXT(settings_folders, "Movie folders", "Filmordner")
+HUI_TEXT(settings_folders, "Media folders", "Mediaordner")
 HUI_TEXT(settings_folders_always, "Always searched", "Immer durchsucht")
 HUI_TEXT(settings_folders_default, "movies, tvshows, series on every drive",
          "movies, tvshows, series auf jedem Laufwerk")
 HUI_TEXT(settings_folder_everywhere, "On every drive", "Auf jedem Laufwerk")
-HUI_TEXT(settings_folder_hint, "Choose it to stop searching this folder",
-         "Ausw\xC3\xA4hlen, um diesen Ordner nicht mehr zu durchsuchen")
+HUI_TEXT(settings_folder_hint,
+         "{}. Automatic finds series in a folder called series or tvshows inside it",
+         "{}. Automatisch findet Serien in einem Ordner namens Serien oder tvshows darin")
+HUI_TEXT(folder_content_auto, "Automatic", "Automatisch")
 HUI_TEXT(settings_add_folder, "Add folder", "Ordner hinzuf\xC3\xBCgen")
 HUI_TEXT(settings_add_folder_hint,
-         "A path such as /mnt/usb0/Films, or a folder name to look for on every drive",
-         "Ein Pfad wie /mnt/usb0/Filme oder ein Ordnername, der auf jedem Laufwerk gesucht wird")
-HUI_TEXT(folder_prompt_title, "Add a movie folder", "Filmordner hinzuf\xC3\xBCgen")
-HUI_TEXT(folder_prompt_placeholder, "/mnt/usb0/Films or Films", "/mnt/usb0/Filme oder Filme")
+         "A path such as /mnt/usb0/Media, or a name to look for on every drive",
+         "Ein Pfad wie /mnt/usb0/Medien oder ein Name, der auf jedem Laufwerk gesucht wird")
+HUI_TEXT(folder_prompt_title, "Add a media folder", "Mediaordner hinzuf\xC3\xBCgen")
+HUI_TEXT(folder_prompt_placeholder, "/mnt/usb0/Media or Media", "/mnt/usb0/Medien oder Medien")
 HUI_TEXT(folder_add, "Add", "Hinzuf\xC3\xBCgen")
 HUI_TEXT(folder_cancel, "Cancel", "Abbrechen")
 HUI_TEXT(folder_invalid, "That is not a folder that can be searched",
          "Diesen Ordner kann die App nicht durchsuchen")
 HUI_TEXT(folder_known, "That folder is already in the list", "Der Ordner steht schon in der Liste")
 HUI_TEXT(folder_full, "At most {} folders", "H\xC3\xB6" "chstens {} Ordner")
-HUI_TEXT(folder_added, "Folder added. Looking for movies\xE2\x80\xA6",
-         "Ordner hinzugef\xC3\xBCgt. Suche nach Filmen\xE2\x80\xA6")
+HUI_TEXT(folder_added, "Folder added. Looking for movies and series\xE2\x80\xA6",
+         "Ordner hinzugef\xC3\xBCgt. Suche nach Filmen und Serien\xE2\x80\xA6")
 HUI_TEXT(folder_remove_title, "Stop searching this folder?", "Diesen Ordner nicht mehr durchsuchen?")
-HUI_TEXT(folder_remove_body, "{}\nIts movies leave the library. The files stay where they are.",
-         "{}\nSeine Filme verschwinden aus der Mediathek. Die Dateien bleiben, wo sie sind.")
+HUI_TEXT(folder_remove_body,
+         "{}\nIts movies and series leave the library. The files stay where they are.",
+         "{}\nSeine Filme und Serien verschwinden aus der Mediathek. Die Dateien bleiben, wo sie "
+         "sind.")
 HUI_TEXT(folder_remove_do, "Remove", "Entfernen")
-HUI_TEXT(folder_removed, "Folder removed. Looking for movies\xE2\x80\xA6",
-         "Ordner entfernt. Suche nach Filmen\xE2\x80\xA6")
+HUI_TEXT(folder_removed, "Folder removed. Looking for movies and series\xE2\x80\xA6",
+         "Ordner entfernt. Suche nach Filmen und Serien\xE2\x80\xA6")
 HUI_TEXT(hint_change, "Change", "\xC3\x84ndern")
 HUI_TEXT(hint_open, "Open", "\xC3\x96" "ffnen")
 
