@@ -403,4 +403,6 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   1080p with tone mapping, Force subtitles and Subtitle language, the regrouped Settings and the
   one-shelf Home and details page were checked in 0.8.0. Since then (unreleased): series (scan,
   TMDB seasons and episodes, season and episode choice, next episode in the player, the up-next
-  card), Recently Added by first-seen date (`added.txt`) and the wider *Abspielen* button.
+  card), Recently Added by first-seen date (`added.txt`) and the wider *Abspielen* button; the media
+  folders' content choice (Automatic, Movies, Series) with series folders inside an extra folder, and
+  the empty pages ("No media found", per tab).

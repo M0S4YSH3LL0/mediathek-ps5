@@ -319,7 +319,8 @@ films on the hardware decoder with tone mapping, and (0.8.0) HDR films up to 108
 mapping, forced subtitles and the subtitle language, the regrouped Settings, and the simpler
 Home and details page; and, not yet released, series (the scan of the series folders, TMDB's
 season and episode descriptions, choosing season and episode, the next episode in the
-player) and *Recently Added* going by the day a film was found. The loader
+player), *Recently Added* going by the day a film was found, and the media folders with
+their choice of Automatic, Movies or Series. The loader
 version was not recorded. Reports from other firmware are welcome.
 
 **Not checked on a console:** 4K H.264, HLG and Dolby Vision films, and the fallback to the
