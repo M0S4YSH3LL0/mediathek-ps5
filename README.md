@@ -4,7 +4,7 @@
 
 ---
 
-**A Netflix-style movie library for your PS5.**<br>
+**A Netflix-style library for your movies and series on PS5.**<br>
 Put your films in a `movies` folder and your series in `tvshows`. Mediathek finds them, fetches their posters and plays them.
 
 [![Version 0.8.0](https://img.shields.io/badge/version-0.8.0-blue)](CHANGELOG.md)

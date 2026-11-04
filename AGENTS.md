@@ -5,7 +5,7 @@ repository is, where to look, how to work in it, and what "done" means here.
 
 ## What this is
 
-**Mediathek**: a Netflix-style movie library and player for the PS5, a native
+**Mediathek**: a Netflix-style library and player for movies and series on the PS5, a native
 C++20 app drawn with OpenGL 4.6 (title id `PPSA66120`, version in
 `sce_sys/param.json`). It finds films in `movies` and `mediathek/movies` folders, and series in
 `tvshows` and `series` folders, on the internal drive,
