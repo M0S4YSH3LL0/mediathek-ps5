@@ -164,11 +164,6 @@ struct Nal
 
 } // namespace
 
-bool wants_hw_decoder(int width, int height)
-{
-    return width > 1920 || height > 1088;
-}
-
 std::optional<HwMode> hw_mode(HwCodec codec, int profile, int depth, bool yuv420, int width,
                               int height)
 {

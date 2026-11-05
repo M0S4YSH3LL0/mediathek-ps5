@@ -29,13 +29,24 @@ Bytes cleaned(const Bytes &unit)
     return out;
 }
 
-TEST(HwMode, OnlyFilmsBeyond1080pAskForTheHardware)
+// Every size goes to the hardware, each decoder sized for its own film's coded picture.
+TEST(HwMode, FilmsUpTo1080pAreSizedForTheirOwnPicture)
 {
-    EXPECT_FALSE(wants_hw_decoder(1920, 1080));
-    EXPECT_FALSE(wants_hw_decoder(1920, 1088));
-    EXPECT_FALSE(wants_hw_decoder(1280, 720));
-    EXPECT_TRUE(wants_hw_decoder(2560, 1440));
-    EXPECT_TRUE(wants_hw_decoder(3840, 2160));
+    const auto full_hd = hw_mode(HwCodec::h264, 100, 8, true, 1920, 1080);
+    ASSERT_TRUE(full_hd.has_value());
+    EXPECT_EQ(full_hd->max_width, 1920);
+    EXPECT_EQ(full_hd->max_height, 1088);
+
+    const auto hd = hw_mode(HwCodec::hevc, 2, 10, true, 1280, 720);
+    ASSERT_TRUE(hd.has_value());
+    EXPECT_EQ(hd->profile, 2u);
+    EXPECT_EQ(hd->max_width, 1280);
+    EXPECT_EQ(hd->max_height, 768);
+
+    const auto pal = hw_mode(HwCodec::h264, 77, 8, true, 720, 576);
+    ASSERT_TRUE(pal.has_value());
+    EXPECT_EQ(pal->max_width, 768);
+    EXPECT_EQ(pal->max_height, 576);
 }
 
 TEST(HwMode, FourKHevcIsSizedForTheCodedPictureAtLevelFiveTwoThenFiveOne)

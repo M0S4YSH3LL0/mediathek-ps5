@@ -29,10 +29,7 @@ struct HwMode
     int max_height = 0;
 };
 
-// Films up to 1080p stay on FFmpeg: it plays them well, on the app's own memory.
-bool wants_hw_decoder(int width, int height);
-
-// The mode for a film, or nothing when the hardware cannot play it. `profile` is
+// The mode for a film of any size, or nothing when the hardware cannot play it. `profile` is
 // the number FFmpeg reports (negative: it does not know), `depth` the bits per sample.
 std::optional<HwMode> hw_mode(HwCodec codec, int profile, int depth, bool yuv420, int width,
                               int height);

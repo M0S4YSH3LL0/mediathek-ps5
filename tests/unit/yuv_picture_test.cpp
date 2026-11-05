@@ -123,6 +123,18 @@ TEST(YuvPicture, AtHalfTheSizeEachPixelIsTheMeanOfItsFourLumaSamples)
     EXPECT_EQ(rgba[4], 0) << "the next pixel is black";
 }
 
+TEST(YuvPicture, AtItsOwnSizeEachPixelIsItsOwnSample)
+{
+    Flat<std::uint8_t> flat(4, 4, 16, 128, 128);
+    flat.luma[0] = 235;
+    flat.luma[13] = 235; // the row below, one to the right: stride is 4 + 8
+    const auto rgba = convert(flat.picture, 4, 4);
+    EXPECT_EQ(rgba[0], 255) << "white, not mixed with its black neighbours";
+    EXPECT_EQ(rgba[4], 0) << "the next pixel is black";
+    EXPECT_EQ(rgba[16], 0) << "the one below is black";
+    EXPECT_EQ(rgba[20], 255) << "and the one below the next is white";
+}
+
 TEST(YuvPicture, ChromaFromTheRightPlaceAtHalfTheSize)
 {
     Flat<std::uint8_t> flat(8, 4, 128, 128, 128);

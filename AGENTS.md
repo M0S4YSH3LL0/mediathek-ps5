@@ -245,9 +245,12 @@ over 0.3 s or read over 16 MiB logs `[HUI] seek to ... took ... and read ... MB 
 points)`: few seek points and many MB mean such a file. Remuxing it (`ffmpeg -i in.mkv -c copy
 out.mkv`) writes the index.
 
-**The hardware decoder.** Films beyond 1080p (`media::wants_hw_decoder`) go to `libSceVideodec2`
-(`src/platform/ps5/hw_decoder.cpp`), because the CPU tops out near 31 fps on a 4K60 10-bit film; FFmpeg still
-demuxes, decodes the sound and plays the rest. No public documentation exists: the structures and
+**The hardware decoder.** Every H.264 and HEVC film that `media::hw_mode` accepts, at any size, goes to
+`libSceVideodec2` (`src/platform/ps5/hw_decoder.cpp`), as in VLC's PS5 port: the CPU tops out near 31 fps on
+a 4K60 10-bit film, and the hardware leaves the CPU and the heap free at 1080p too. FFmpeg still demuxes,
+decodes the sound and decodes the pictures of every other film, and of one the hardware refuses at
+open or gives up on mid-way (`[HUI] hw decoder: FFmpeg takes over`, from where the film is). A codec
+it has no mode for logs `[HUI] hw decoder: not for <codec>`. No public documentation exists: the structures and
 the call order come from EVO Player and ps5-hardware-video-decoding-research. The SDK has no stub, so
 `tools/build.sh` builds one from `tooling/native/stubs/videodec2_stub.c` and links it *before*
 `--as-needed`. Every name in it must exist on the console, or the app does not start at all (no log,
@@ -273,7 +276,7 @@ memory, so it does not touch the heap. The klog names each step *before* it ente
 the default one. Evidence to ask for: `[HUI] heap` (`of=` shows whether the bigger pool applied),
 `[HUI] hw decoder`, and `(hardware)` with the times in `[HUI] playing/stall`.
 
-**Playback.** Below that, software decode on up to 4 frame threads, an audio-clock-driven
+**Playback.** The fallback, and every codec but H.264 and HEVC: software decode on up to 4 frame threads, an audio-clock-driven
 `StreamRing`, a 4 MB AVIO read buffer. Pausing and resuming re-seeks. 4K on this path is not
 expected to be smooth. HDR (PQ, HLG) leaves swscale out: `show_planes` copies FFmpeg's three planes
 (`yuv420p`, `yuv420p10le`) into the hardware decoder's layout (`media::copy_planes` interleaves U and
@@ -407,4 +410,5 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   folders' content choice (Automatic, Movies, Series) with series folders inside an extra folder,
   the empty pages ("No media found", per tab), TMDB's titles (`<id>.title`), the three-line titles
   on cards without a poster, the billboard's long titles, capital umlauts in captions, and the red
-  light bar.
+  light bar. Checked after 0.9.0: H.264 and HEVC of every size on the hardware decoder (1080p H.264
+  and 10-bit HEVC, smaller films, interlaced recordings, seeking).

@@ -139,15 +139,14 @@ Put series in a `tvshows` or `series` folder (also `TV Shows`, `mediathek/tvshow
 | **Subtitles** | `.srt` files only. Tracks inside the film are not shown. |
 | **Pictures** | `.jpg` `.jpeg` `.png` |
 
-Films up to 1080p are decoded in software on the CPU, by FFmpeg. Films beyond 1080p
-(H.264, HEVC Main and Main10, up to 3840 x 2176) go to the console's hardware decoder,
-with FFmpeg as the fallback. HDR films (HDR10 and HLG) are tone-mapped for an ordinary
+H.264 (up to High) and HEVC (Main and Main10) films of any size up to 3840 x 2176 go to
+the console's hardware decoder; FFmpeg decodes everything else on the CPU, and takes over
+a film the hardware refuses or gives up on. HDR films (HDR10 and HLG) are tone-mapped for an ordinary
 screen on both, as long as the software-decoded ones are 8- or 10-bit 4:2:0, which is
 what HDR films are.
 
-- **Plays smoothly:** a large 1080p H.264 MKV. It is the one video format tested at
-  length.
-- **Plays smoothly on the hardware decoder:** 4K HEVC, HDR included (two films checked).
+- **Plays smoothly on the hardware decoder:** H.264 and HEVC at every size: 4K HEVC, HDR
+  included, and 1080p H.264 and 10-bit HEVC, smaller films and interlaced recordings.
 - **Do not expect smooth playback:** 4K films the hardware decoder will not take (VP9,
   4:2:2, 12-bit, wider than 3840).
 - **Does not play:** AV1, at any size. The build has no software decoder for it, and the

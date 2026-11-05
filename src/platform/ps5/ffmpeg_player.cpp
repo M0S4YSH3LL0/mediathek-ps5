@@ -434,17 +434,21 @@ class Session
         return capacity > live + player ? capacity - live - player : 0;
     }
 
-    // The console's picture decoder, for a film it can take and FFmpeg cannot play in
-    // time. False leaves the film to FFmpeg, which also gets it if this fails later.
+    // The console's picture decoder, for every film it can take, whatever its size: it
+    // leaves the CPU to the sound and the heap to the queues, and it keeps up where FFmpeg
+    // cannot. False leaves the film to FFmpeg, which also gets it if this fails later.
     bool open_hardware(const AVCodecParameters *parameters)
     {
-        if (!hardware_ || !media::wants_hw_decoder(parameters->width, parameters->height))
+        if (!hardware_)
             return false;
         media::HwCodec codec = media::HwCodec::h264;
         if (parameters->codec_id == AV_CODEC_ID_HEVC)
             codec = media::HwCodec::hevc;
         else if (parameters->codec_id != AV_CODEC_ID_H264)
+        {
+            sys::log("[HUI] hw decoder: not for %s", video_name(parameters->codec_id));
             return false;
+        }
         const AVPixFmtDescriptor *format =
             av_pix_fmt_desc_get(static_cast<AVPixelFormat>(parameters->format));
         const int depth =

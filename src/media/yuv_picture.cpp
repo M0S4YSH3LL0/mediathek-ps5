@@ -68,7 +68,7 @@ void half_row(const Sample *top, const Sample *bottom, const Sample *chroma, int
 
 template <class Sample>
 void any_row(const Sample *top, const Sample *bottom, const Sample *chroma, int shift,
-             const Factors &f, std::uint8_t *out, int width, int source_width)
+             const Factors &f, std::uint8_t *out, int width, int source_width, bool same)
 {
     constexpr int extra = Reading<Sample>::kExtra;
     constexpr int round = 2 << extra;
@@ -77,7 +77,7 @@ void any_row(const Sample *top, const Sample *bottom, const Sample *chroma, int 
     for (int x = 0; x < width; ++x, position += step)
     {
         const int left = static_cast<int>(position >> 16);
-        const int right = std::min(left + 1, source_width - 1);
+        const int right = same ? left : std::min(left + 1, source_width - 1);
         const int sum = (top[left] >> shift) + (top[right] >> shift) + (bottom[left] >> shift) +
                         (bottom[right] >> shift);
         const int y = f.luma * (((sum + round) >> (2 + extra)) - f.black) + 128;
@@ -95,12 +95,15 @@ template <class Sample>
 void convert(const YuvPicture &picture, const Factors &f, std::uint8_t *rgba, int width, int height)
 {
     const bool half = picture.width == 2 * width && picture.height == 2 * height;
+    // At its own size each pixel is its own sample: averaging it with the next ones would
+    // soften a 1080p film by half a pixel, and the hardware decoder now gives those too.
+    const bool same = picture.width == width && picture.height == height;
     const std::int64_t step = (static_cast<std::int64_t>(picture.height) << 16) / height;
     std::int64_t position = 0;
     for (int row = 0; row < height; ++row, position += step)
     {
         const int line = static_cast<int>(position >> 16);
-        const int below = std::min(line + 1, picture.height - 1);
+        const int below = same ? line : std::min(line + 1, picture.height - 1);
         const auto *top = reinterpret_cast<const Sample *>(
             picture.luma + static_cast<std::size_t>(line) * picture.pitch);
         const auto *bottom = reinterpret_cast<const Sample *>(
@@ -111,7 +114,7 @@ void convert(const YuvPicture &picture, const Factors &f, std::uint8_t *rgba, in
         if (half)
             half_row(top, bottom, chroma, picture.shift, f, out, width);
         else
-            any_row(top, bottom, chroma, picture.shift, f, out, width, picture.width);
+            any_row(top, bottom, chroma, picture.shift, f, out, width, picture.width, same);
     }
 }
 
