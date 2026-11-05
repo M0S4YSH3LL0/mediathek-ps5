@@ -226,6 +226,7 @@ Circle to go back. Changes apply at once and save themselves.
 | Appearance | Wallpaper on the details page | Shows the film's wallpaper behind its details. |
 | Playback | Force subtitles | A film with subtitles starts with them on. Off by default. |
 | Playback | Subtitle language | None, German or English: the subtitles chosen first, when forced on or switched on with Triangle. |
+| Playback | Subtitle source | Automatic (the film's own tracks and the `.srt` files beside it, the film's own first), Embedded only or SRT only. |
 | General | App language | Automatic, English or Deutsch. |
 | General | UI sounds | Menu sounds on or off. |
 | Library | Reload all covers and infos | Fetches everything from TMDB again, with a message that counts the progress. |

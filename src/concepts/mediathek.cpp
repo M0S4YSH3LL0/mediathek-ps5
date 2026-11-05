@@ -84,6 +84,7 @@ enum SettingsRow : int
     kRowLanguage,
     kRowForceSubtitles,
     kRowSubtitleLanguage,
+    kRowSubtitleSource,
     kRowReload,
     kRowDebug,
     kRowVersion,
@@ -100,6 +101,14 @@ enum HomeShelves : int
     kShelvesOwn,
     kShelvesGenres,
     kShelvesDecades,
+};
+
+// What Settings::subtitle_source holds, in the order of the row's options.
+enum SubtitleSource : int
+{
+    kSubtitlesBoth,
+    kSubtitlesEmbeddedOnly,
+    kSubtitlesFilesOnly,
 };
 
 // The list on the left of the settings page, top to bottom; its focus is one of these.
@@ -1056,6 +1065,13 @@ class Mediathek final : public app::Concept
                     kRowSubtitleLanguage, tr(Text::settings_subtitle_language),
                     {tr(Text::settings_subtitle_none), tr(Text::lang_ger), tr(Text::lang_eng)})
                 .description = tr(Text::settings_subtitle_language_hint);
+            // In the order of Settings::subtitle_source.
+            settings_form_
+                .add_choice(kRowSubtitleSource, tr(Text::settings_subtitle_source),
+                            {tr(Text::settings_language_auto),
+                             tr(Text::settings_subtitle_source_embedded),
+                             tr(Text::settings_subtitle_source_srt)})
+                .description = tr(Text::settings_subtitle_source_hint);
             break;
         case kCategoryGeneral:
             settings_form_.add_choice(kRowLanguage, tr(Text::settings_ui_language),
@@ -1125,6 +1141,7 @@ class Mediathek final : public app::Concept
         settings_form_.set_choice(kRowLanguage, context_.settings.ui_language);
         settings_form_.set_toggle(kRowForceSubtitles, context_.settings.force_subtitles);
         settings_form_.set_choice(kRowSubtitleLanguage, context_.settings.subtitle_language);
+        settings_form_.set_choice(kRowSubtitleSource, context_.settings.subtitle_source);
     }
 
     void open_settings()
@@ -1361,6 +1378,10 @@ class Mediathek final : public app::Concept
         else if (row == kRowSubtitleLanguage)
         {
             settings.subtitle_language = settings_form_.choice_index(row);
+        }
+        else if (row == kRowSubtitleSource)
+        {
+            settings.subtitle_source = settings_form_.choice_index(row);
         }
         else if (row == kRowDebug)
         {
@@ -2110,17 +2131,20 @@ class Mediathek final : public app::Concept
     // numbers stay when the film's own are added behind them, and Triangle's order on top
     // (media::subtitle_order): the preferred language first, so that switching them on finds
     // it too, not only forcing them on, and in it the film's own tracks before the files.
+    // Subtitle source leaves out the kind the viewer does not want.
     void list_subtitles(const media::Movie &m, const std::vector<media::SubtitleTrack> &embedded)
     {
         subtitle_entries_.clear();
-        for (std::size_t i = 0; i < m.subtitles.size(); ++i)
+        const bool files = context_.settings.subtitle_source != kSubtitlesEmbeddedOnly;
+        const bool own = context_.settings.subtitle_source != kSubtitlesFilesOnly;
+        for (std::size_t i = 0; files && i < m.subtitles.size(); ++i)
         {
             SubtitleEntry entry;
             entry.index = static_cast<int>(i);
             entry.choice.language = subtitle_language(m.subtitles[i]);
             subtitle_entries_.push_back(entry);
         }
-        for (std::size_t i = 0; i < embedded.size(); ++i)
+        for (std::size_t i = 0; own && i < embedded.size(); ++i)
         {
             SubtitleEntry entry;
             entry.index = static_cast<int>(i);
@@ -3223,15 +3247,19 @@ class Mediathek final : public app::Concept
                   kColumn, 400.0f, true);
         caption(tr(Text::label_subtitles), kSecond, facts_y - 100);
         // The file's own tracks (read from it, so they may still be on their way), then the
-        // .srt files beside it.
+        // .srt files beside it: those the player will offer, as Subtitle source says.
         std::vector<std::string> subtitle_languages;
-        if (content != nullptr)
+        const bool own_subtitles = context_.settings.subtitle_source != kSubtitlesFilesOnly;
+        if (content != nullptr && own_subtitles)
             for (const std::string &language : content->subtitle_languages)
                 media::add_language(&subtitle_languages, language);
-        for (const media::SubtitleFile &sub : episode != nullptr ? episode->subtitles : m.subtitles)
-            media::add_language(&subtitle_languages, subtitle_language(sub));
+        if (context_.settings.subtitle_source != kSubtitlesEmbeddedOnly)
+            for (const media::SubtitleFile &sub :
+                 episode != nullptr ? episode->subtitles : m.subtitles)
+                media::add_language(&subtitle_languages, subtitle_language(sub));
         languages(media::language_names(subtitle_languages), kSecond, 1360.0f - kSecond,
-                  content == nullptr && lookup.state == media::InfoService::State::pending);
+                  own_subtitles && content == nullptr &&
+                      lookup.state == media::InfoService::State::pending);
         // FILE, the drive it is on and its size.
         std::string file_caption = tr(Text::label_file);
         const std::string &drive = episode != nullptr ? episode->drive : m.drive;

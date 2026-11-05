@@ -17,6 +17,9 @@
   of them. The message says where each is from and what kind it is ("German · embedded",
   "German · SRT", "English · SDH · embedded"). The details page lists the languages of both.
   The file information each film keeps is read once more, for its subtitle tracks.
+- New: *Subtitle source* under Settings > Playback: Automatic (both, the film's own first),
+  Embedded only or SRT only. Triangle, *Force subtitles* and the details page follow it. The
+  settings file gains one byte (format version 7); earlier files load as Automatic.
 
 ## 0.9.0 (01.000.090)
 

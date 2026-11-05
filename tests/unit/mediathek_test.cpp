@@ -457,6 +457,43 @@ TEST_F(MediathekTest, AFilmWithOnlyItsOwnSubtitlesStillSwitchesThemOn)
     EXPECT_EQ(player_->subtitle_track(), 0);
 }
 
+TEST_F(MediathekTest, SubtitleSourceEmbeddedOnlyLeavesTheFilesOut)
+{
+    settings_.force_subtitles = true;
+    settings_.subtitle_language = 1; // German
+    settings_.subtitle_source = 1;   // embedded only
+    use_embedded_subtitles();
+    fill_library_with_subtitles();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    EXPECT_EQ(player_->subtitle_track(), 1);
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(
+        toast_width(*design),
+        subtitle_toast({Text::lang_ger, Text::subtitles_sdh, Text::subtitles_embedded}, 2, 3));
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(toast_width(*design),
+              subtitle_toast({Text::lang_eng, Text::subtitles_embedded}, 3, 3));
+    EXPECT_EQ(player_->subtitle_track(), 0);
+}
+
+TEST_F(MediathekTest, SubtitleSourceSrtOnlyLeavesTheFilmsOwnTracksOut)
+{
+    settings_.force_subtitles = true;
+    settings_.subtitle_language = 1; // German
+    settings_.subtitle_source = 2;   // .srt only
+    use_embedded_subtitles();
+    fill_library_with_subtitles();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    EXPECT_EQ(player_->subtitle_track(), -1) << "the German file, not the film's track";
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(toast_width(*design), subtitle_toast({Text::lang_eng, Text::subtitles_srt}, 2, 2));
+    EXPECT_EQ(player_->subtitle_track(), -1);
+}
+
 TEST_F(MediathekTest, TheSubtitleSettingsAreAFormOfTheirOwn)
 {
     auto design = make();
@@ -470,6 +507,11 @@ TEST_F(MediathekTest, TheSubtitleSettingsAreAFormOfTheirOwn)
     EXPECT_EQ(settings_.subtitle_language, 1); // German
     send(*design, nav(Direction::right), 0.3f);
     EXPECT_EQ(settings_.subtitle_language, 2); // English
+    send(*design, nav(Direction::down), 0.3f); // Subtitle source: Automatic
+    send(*design, nav(Direction::right), 0.3f);
+    EXPECT_EQ(settings_.subtitle_source, 1); // embedded only
+    send(*design, nav(Direction::right), 0.3f);
+    EXPECT_EQ(settings_.subtitle_source, 2); // .srt only
 }
 
 TEST_F(MediathekTest, TheTabKeysSwitchBetweenHomeAndTheMovieGrid)

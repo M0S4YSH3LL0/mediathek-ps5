@@ -215,7 +215,7 @@ when the list's focus moves (`build_settings_form`). Right or Cross enters the f
 returns, except that a choice row keeps left and right for itself. Switches change with Cross only.
 It edits the kit's `Settings`: *UI sounds* is `ui_volume` (0 off, else the default), *Debug
 info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` (on by default; keeps
-`hero_` open on every shelf, `animate()`; the settings file is format version 6, older ones still
+`hero_` open on every shelf, `animate()`; the settings file is format version 7, older ones still
 load with the defaults; *App language* is `ui_language`, *Wallpaper on the details page* is
 `details_wallpaper`, read by `draw_details_art`; *Shelves on Home* is `home_shelves`, read by
 `rebuild`: Continue Watching always, then all, own (Recently Added, collections, All Movies, All Series), genres
@@ -226,7 +226,9 @@ or decades, with the All Movies and Series shelves as the fallback when the choi
 `.srt` files and full tracks before forced ones. `subtitle_entries_` holds the files, then the
 player's tracks (`Player::subtitle_tracks`, known only once the film is open), so the forced
 choice is made in `add_embedded_subtitles` when the player leaves `opening`, unless Triangle was
-pressed before.
+pressed before. *Subtitle source* is `subtitle_source` (0 automatic, 1 embedded only, 2 `.srt`
+only, `SubtitleSource`): `list_subtitles` leaves the other kind out, and the details page lists
+only the languages the player will offer.
 A value is added within format version 5: an older build reading 3 clamps it to genres. The categories are Appearance, Playback, General, Library and About (`SettingsCategory`). A read-only *Version* row under About shows
 the version and `build_time()` (`core/build_info.cpp`, `__DATE__`/`__TIME__`; `tools/build.sh` touches the file so every build
 stamps it). A change sets `context_.settings_changed`;

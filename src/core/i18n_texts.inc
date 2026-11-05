@@ -92,6 +92,11 @@ HUI_TEXT(settings_subtitle_language, "Subtitle language", "Untertitelsprache")
 HUI_TEXT(settings_subtitle_language_hint, "Chosen first when a film has subtitles in it",
          "Wird zuerst gew\xC3\xA4hlt, wenn ein Film Untertitel in dieser Sprache hat")
 HUI_TEXT(settings_subtitle_none, "None", "Keine")
+HUI_TEXT(settings_subtitle_source, "Subtitle source", "Untertitelquelle")
+HUI_TEXT(settings_subtitle_source_hint, "Tracks inside the film, .srt files beside it, or both",
+         "Spuren im Film, .srt-Dateien daneben oder beides")
+HUI_TEXT(settings_subtitle_source_embedded, "Embedded only", "Nur eingebettete")
+HUI_TEXT(settings_subtitle_source_srt, "SRT only", "Nur SRT")
 HUI_TEXT(settings_about, "About", "\xC3\x9C" "ber")
 HUI_TEXT(settings_debug, "Debug info", "Debug-Infos")
 HUI_TEXT(settings_debug_hint, "Frame rate and drawing statistics in the corner of the screen",

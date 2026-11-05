@@ -107,6 +107,7 @@ TEST(Settings, RoundTripsEveryField)
 TEST(Settings, AFileFromBeforeTheFixedBillboardStillLoadsWithItsDefault)
 {
     std::string data = hui::encode_settings(hui::Settings{});
+    data.pop_back(); // the subtitle source
     data.pop_back(); // the subtitle language
     data.pop_back(); // forced subtitles
     data.pop_back(); // the shelves on Home
@@ -137,8 +138,9 @@ TEST(Settings, TheWallpaperChoiceIsSavedAndAnOlderFileKeepsTheWallpaper)
     EXPECT_FALSE(read.details_wallpaper);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 4); // the subtitles, the shelves on Home, the wallpaper
-    data[0] = 3;                  // saved by the build with the language setting only
+    data.resize(data.size() -
+                5); // the subtitle source and settings, the shelves on Home, the wallpaper
+    data[0] = 3;    // saved by the build with the language setting only
     read.details_wallpaper = false;
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_TRUE(read.details_wallpaper);
@@ -153,14 +155,16 @@ TEST(Settings, TheLanguageChoiceIsSavedAndAFileWithoutItMeansAutomatic)
     EXPECT_EQ(read.ui_language, 2);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 5); // the subtitles, the shelves on Home, the wallpaper, the language
-    data[0] = 2;                  // saved by 0.6.0 and 0.6.1, before the language setting
+    data.resize(
+        data.size() -
+        6); // the subtitle source and settings, the shelves on Home, the wallpaper, the language
+    data[0] = 2; // saved by 0.6.0 and 0.6.1, before the language setting
     read.ui_language = 1;
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.ui_language, 0);
 
     data = hui::encode_settings(settings);
-    data[data.size() - 5] = 9; // not a language
+    data[data.size() - 6] = 9; // not a language
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.ui_language, 2);
 }
@@ -175,14 +179,14 @@ TEST(Settings, TheHomeShelvesChoiceIsSavedAndAnOlderFileShowsAll)
     EXPECT_EQ(read.home_shelves, 2);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 3); // the subtitles, the shelves on Home
+    data.resize(data.size() - 4); // the subtitle source and settings, the shelves on Home
     data[0] = 4;                  // saved by 0.6.2
     read.home_shelves = 1;
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.home_shelves, 0);
 
     data = hui::encode_settings(settings);
-    data[data.size() - 3] = 9; // not an option
+    data[data.size() - 4] = 9; // not an option
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.home_shelves, 3);
 }
@@ -200,16 +204,37 @@ TEST(Settings, TheSubtitleChoicesAreSavedAndAnOlderFileLeavesSubtitlesOff)
     EXPECT_EQ(read.subtitle_language, 1);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 2);
+    data.resize(data.size() - 3);
     data[0] = 5; // saved by 0.7.0
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_FALSE(read.force_subtitles);
     EXPECT_EQ(read.subtitle_language, 0);
 
     data = hui::encode_settings(settings);
-    data.back() = 9; // not a language
+    data[data.size() - 2] = 9; // not a language
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.subtitle_language, 2);
+}
+
+TEST(Settings, TheSubtitleSourceIsSavedAndAnOlderFileOffersBoth)
+{
+    hui::Settings settings;
+    ASSERT_EQ(settings.subtitle_source, 0);
+    settings.subtitle_source = 2;
+    hui::Settings read;
+    ASSERT_TRUE(hui::decode_settings(hui::encode_settings(settings), &read));
+    EXPECT_EQ(read.subtitle_source, 2);
+
+    std::string data = hui::encode_settings(settings);
+    data.resize(data.size() - 1);
+    data[0] = 6; // saved by 0.8.0 and 0.9.0
+    ASSERT_TRUE(hui::decode_settings(data, &read));
+    EXPECT_EQ(read.subtitle_source, 0);
+
+    data = hui::encode_settings(settings);
+    data.back() = 9; // not a source
+    ASSERT_TRUE(hui::decode_settings(data, &read));
+    EXPECT_EQ(read.subtitle_source, 2);
 }
 
 TEST(Settings, ClampsOutOfRangeValuesAndRejectsGarbage)

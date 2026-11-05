@@ -14,14 +14,15 @@ namespace hui
 namespace
 {
 // Version 2 appends pin_billboard, version 3 ui_language, version 4 details_wallpaper, version
-// 5 home_shelves and version 6 force_subtitles and subtitle_language; older files are still read
-// (the settings they lack keep their defaults).
-constexpr std::uint8_t kVersion = 6;
+// 5 home_shelves, version 6 force_subtitles and subtitle_language and version 7 subtitle_source;
+// older files are still read (the settings they lack keep their defaults).
+constexpr std::uint8_t kVersion = 7;
 constexpr std::uint8_t kVersionWithoutPin = 1;
 constexpr std::uint8_t kVersionWithoutLanguage = 2;
 constexpr std::uint8_t kVersionWithoutWallpaper = 3;
 constexpr std::uint8_t kVersionWithoutHomeShelves = 4;
 constexpr std::uint8_t kVersionWithoutSubtitles = 5;
+constexpr std::uint8_t kVersionWithoutSubtitleSource = 6;
 } // namespace
 
 std::string encode_settings(const Settings &settings)
@@ -45,6 +46,7 @@ std::string encode_settings(const Settings &settings)
     w.put(static_cast<std::uint8_t>(settings.home_shelves));
     w.put_bool(settings.force_subtitles);
     w.put(static_cast<std::uint8_t>(settings.subtitle_language));
+    w.put(static_cast<std::uint8_t>(settings.subtitle_source));
     return w.data();
 }
 
@@ -79,6 +81,8 @@ bool decode_settings(std::string_view data, Settings *settings)
         s.force_subtitles = r.get_bool();
         s.subtitle_language = std::clamp<int>(r.get<std::uint8_t>(), 0, 2);
     }
+    if (version > kVersionWithoutSubtitleSource)
+        s.subtitle_source = std::clamp<int>(r.get<std::uint8_t>(), 0, 2);
     if (!r.finished())
         return false;
     *settings = s;
