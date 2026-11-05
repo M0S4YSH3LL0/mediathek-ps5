@@ -87,6 +87,7 @@ enum SettingsRow : int
     kRowSubtitleSource,
     kRowHdrOutput,
     kRowAudioOutput,
+    kRowAudioLanguage,
     kRowReload,
     kRowDebug,
     kRowVersion,
@@ -1067,6 +1068,7 @@ class Mediathek final : public app::Concept
                 .description = tr(Text::settings_details_wallpaper_hint);
             break;
         case kCategoryPlayback:
+            settings_form_.add_header(tr(Text::settings_group_subtitles));
             settings_form_.add_toggle(kRowForceSubtitles, tr(Text::settings_force_subtitles))
                 .description = tr(Text::settings_force_subtitles_hint);
             // In the order of Settings::subtitle_language.
@@ -1082,14 +1084,22 @@ class Mediathek final : public app::Concept
                              tr(Text::settings_subtitle_source_embedded),
                              tr(Text::settings_subtitle_source_srt)})
                 .description = tr(Text::settings_subtitle_source_hint);
+            settings_form_.add_header(tr(Text::settings_group_audio));
+            // In the order of Settings::audio_language.
             settings_form_
-                .add_choice(kRowHdrOutput, tr(Text::settings_hdr_output),
-                            {tr(Text::settings_language_auto), tr(Text::settings_off)})
-                .description = tr(Text::settings_hdr_output_hint);
+                .add_choice(
+                    kRowAudioLanguage, tr(Text::settings_audio_language),
+                    {tr(Text::settings_language_auto), tr(Text::lang_ger), tr(Text::lang_eng)})
+                .description = tr(Text::settings_audio_language_hint);
             settings_form_
                 .add_choice(kRowAudioOutput, tr(Text::settings_audio_output),
                             {tr(Text::settings_language_auto), tr(Text::settings_audio_stereo)})
                 .description = tr(Text::settings_audio_output_hint);
+            settings_form_.add_header(tr(Text::settings_group_video));
+            settings_form_
+                .add_choice(kRowHdrOutput, tr(Text::settings_hdr_output),
+                            {tr(Text::settings_language_auto), tr(Text::settings_off)})
+                .description = tr(Text::settings_hdr_output_hint);
             break;
         case kCategoryGeneral:
             settings_form_.add_choice(kRowLanguage, tr(Text::settings_ui_language),
@@ -1162,6 +1172,7 @@ class Mediathek final : public app::Concept
         settings_form_.set_choice(kRowSubtitleSource, context_.settings.subtitle_source);
         settings_form_.set_choice(kRowHdrOutput, context_.settings.hdr_output);
         settings_form_.set_choice(kRowAudioOutput, context_.settings.audio_output);
+        settings_form_.set_choice(kRowAudioLanguage, context_.settings.audio_language);
     }
 
     void open_settings()
@@ -1410,6 +1421,10 @@ class Mediathek final : public app::Concept
         else if (row == kRowAudioOutput)
         {
             settings.audio_output = settings_form_.choice_index(row);
+        }
+        else if (row == kRowAudioLanguage)
+        {
+            settings.audio_language = settings_form_.choice_index(row);
         }
         else if (row == kRowDebug)
         {
@@ -2136,15 +2151,7 @@ class Mediathek final : public app::Concept
     // The subtitle language Settings::subtitle_language names, "" for none.
     std::string preferred_subtitle_language() const
     {
-        switch (context_.settings.subtitle_language)
-        {
-        case 1:
-            return "ger";
-        case 2:
-            return "eng";
-        default:
-            return {};
-        }
+        return Settings::language_code(context_.settings.subtitle_language);
     }
 
     // A subtitle track Triangle can choose: a file beside the film or a track inside it.

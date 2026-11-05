@@ -31,6 +31,12 @@
   itself for a TV or headset with two channels. Menu sounds play in front. *Audio output* under
   Settings > Playback (Automatic, Stereo) keeps the app's own stereo mix, from the next film. The
   settings file gains one byte (format version 9); earlier files load as Automatic.
+- New: *Audio language* under Settings > Playback: Automatic, German or English. A film starts
+  with the main track in that language (a commentary or audio description only when there is no
+  other), else in English, else the one the file chooses. Automatic leaves the choice to the
+  file, as before. From the next film. The settings file gains one byte (format version 10);
+  earlier files load as Automatic.
+- Settings > Playback is grouped under Subtitles, Audio and Video, as Library is.
 
 ## 0.9.0 (01.000.090)
 

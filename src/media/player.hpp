@@ -109,6 +109,13 @@ class Player
     {
         static_cast<void>(allowed);
     }
+    // The language a film starts in (Settings *Audio language*): a canonical ISO 639-2 code
+    // such as "ger", "" for Automatic (media::preferred_audio_track). Applies from
+    // the next film.
+    virtual void set_audio_language(std::string language)
+    {
+        static_cast<void>(language);
+    }
 
     // The film's own subtitle tracks: empty until it is open (state() past opening).
     virtual const std::vector<SubtitleTrack> &subtitle_tracks() const = 0;

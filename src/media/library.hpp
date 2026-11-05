@@ -147,6 +147,22 @@ struct SubtitleChoice
 std::vector<int> subtitle_order(const std::vector<SubtitleChoice> &tracks,
                                 std::string_view preferred);
 
+// A sound track of a film as the choice below sees it.
+struct AudioChoice
+{
+    std::string language = "und"; // canonical ISO 639-2 code
+    bool default_track = false;   // the file marks it as the one to play
+    bool extra = false;           // a commentary or an audio description for the blind
+    bool best = false;            // FFmpeg's own pick (av_find_best_stream)
+};
+
+// The track a film starts with (an index into `tracks`, 0 when there are none). Automatic
+// (`preferred` is "") takes the file's choice: FFmpeg's pick, else the track marked default,
+// else the first. A language (such as "ger") takes its track, else an English one, else the
+// file's choice; within a language a main track before an extra one and the file's default
+// before the others.
+int preferred_audio_track(const std::vector<AudioChoice> &tracks, std::string_view preferred);
+
 // The films of one genre shelf (indices into the movie list).
 struct GenreShelf
 {

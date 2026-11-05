@@ -525,6 +525,54 @@ TEST(SubtitleOrder, TheFilmsOwnTracksComeBeforeTheFilesBesideIt)
     EXPECT_EQ(subtitle_order(tracks, ""), (std::vector<int>{2, 3, 0, 1}));
 }
 
+AudioChoice sound(const char *language, bool default_track = false, bool extra = false,
+                  bool best = false)
+{
+    AudioChoice choice;
+    choice.language = language;
+    choice.default_track = default_track;
+    choice.extra = extra;
+    choice.best = best;
+    return choice;
+}
+
+TEST(AudioTrack, AutomaticTakesTheFilesChoice)
+{
+    // FFmpeg's pick, whatever its language.
+    EXPECT_EQ(preferred_audio_track({sound("eng"), sound("ger", true, false, true)}, ""), 1);
+    EXPECT_EQ(preferred_audio_track({sound("ger", true, false, true), sound("eng")}, ""), 0);
+    // No pick: the track the file marks as its default, else the first.
+    EXPECT_EQ(preferred_audio_track({sound("eng"), sound("fre", true)}, ""), 1);
+    EXPECT_EQ(preferred_audio_track({sound("ger"), sound("eng")}, ""), 0);
+    EXPECT_EQ(preferred_audio_track({}, ""), 0);
+}
+
+TEST(AudioTrack, ThePreferredLanguageWinsOverTheFilesDefault)
+{
+    const std::vector<AudioChoice> tracks{sound("eng", true, false, true), sound("ger"),
+                                          sound("ger")};
+    EXPECT_EQ(preferred_audio_track(tracks, "ger"), 1);
+    EXPECT_EQ(preferred_audio_track(tracks, "eng"), 0);
+    // None in that language: English, else the file's choice.
+    EXPECT_EQ(preferred_audio_track({sound("und"), sound("eng")}, "ger"), 1);
+    EXPECT_EQ(preferred_audio_track({sound("fre"), sound("ita", false, false, true)}, "ger"), 1);
+    // Neither, and no pick: the file's default, else the first.
+    EXPECT_EQ(preferred_audio_track({sound("und"), sound("fre", true)}, "ger"), 1);
+    EXPECT_EQ(preferred_audio_track({sound("und"), sound("fre")}, "ger"), 0);
+}
+
+// A commentary or an audio description is never the film to start in when the film is there.
+TEST(AudioTrack, AMainTrackComesBeforeACommentaryInTheSameLanguage)
+{
+    const std::vector<AudioChoice> tracks{sound("eng", true), sound("ger", false, true),
+                                          sound("ger")};
+    EXPECT_EQ(preferred_audio_track(tracks, "ger"), 2);
+    // Within the language, the file's default first.
+    EXPECT_EQ(preferred_audio_track({sound("ger"), sound("ger", true)}, "ger"), 1);
+    // Only a commentary in it: still that one.
+    EXPECT_EQ(preferred_audio_track({sound("eng", true), sound("ger", false, true)}, "ger"), 1);
+}
+
 TEST(SubtitleOrder, AForcedTrackComesAfterTheFullOnesOfItsLanguage)
 {
     // Forcing subtitles on means every line, not just the signs.

@@ -284,6 +284,34 @@ std::vector<int> subtitle_order(const std::vector<SubtitleChoice> &tracks,
     return order;
 }
 
+int preferred_audio_track(const std::vector<AudioChoice> &tracks, std::string_view preferred)
+{
+    // A wanted language falls back to English because it is the language a film most often
+    // has besides its own. Automatic, and a film with neither, leave it to the file: FFmpeg's
+    // pick weighs the default flag and leaves out tracks for the impaired, and equal ranks
+    // keep the first track.
+    int best = -1;
+    int best_rank = 0;
+    for (std::size_t i = 0; i < tracks.size(); ++i)
+    {
+        const AudioChoice &track = tracks[i];
+        const int tier = preferred.empty()             ? 2
+                         : track.language == preferred ? 0
+                         : track.language == "eng"     ? 1
+                                                       : 2;
+        const int rank = tier < 2 ? tier * 4 + (track.extra ? 2 : 0) + (track.default_track ? 0 : 1)
+                         : track.best          ? 8
+                         : track.default_track ? 9
+                                               : 10;
+        if (best < 0 || rank < best_rank)
+        {
+            best = static_cast<int>(i);
+            best_rank = rank;
+        }
+    }
+    return std::max(best, 0);
+}
+
 std::vector<int> main_genres(const Movie &movie)
 {
     std::vector<int> out;

@@ -107,6 +107,7 @@ TEST(Settings, RoundTripsEveryField)
 TEST(Settings, AFileFromBeforeTheFixedBillboardStillLoadsWithItsDefault)
 {
     std::string data = hui::encode_settings(hui::Settings{});
+    data.pop_back(); // audio language
     data.pop_back(); // audio output
     data.pop_back(); // HDR output
     data.pop_back(); // the subtitle source
@@ -140,7 +141,7 @@ TEST(Settings, TheWallpaperChoiceIsSavedAndAnOlderFileKeepsTheWallpaper)
     EXPECT_FALSE(read.details_wallpaper);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 7); // everything after the language setting
+    data.resize(data.size() - 8); // everything after the language setting
     data[0] = 3;                  // saved by the build with the language setting only
     read.details_wallpaper = false;
     ASSERT_TRUE(hui::decode_settings(data, &read));
@@ -156,14 +157,14 @@ TEST(Settings, TheLanguageChoiceIsSavedAndAFileWithoutItMeansAutomatic)
     EXPECT_EQ(read.ui_language, 2);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 8); // the language setting and everything after it
+    data.resize(data.size() - 9); // the language setting and everything after it
     data[0] = 2;                  // saved by 0.6.0 and 0.6.1, before the language setting
     read.ui_language = 1;
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.ui_language, 0);
 
     data = hui::encode_settings(settings);
-    data[data.size() - 8] = 9; // not a language
+    data[data.size() - 9] = 9; // not a language
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.ui_language, 2);
 }
@@ -178,14 +179,14 @@ TEST(Settings, TheHomeShelvesChoiceIsSavedAndAnOlderFileShowsAll)
     EXPECT_EQ(read.home_shelves, 2);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 6); // the shelves on Home and everything after them
+    data.resize(data.size() - 7); // the shelves on Home and everything after them
     data[0] = 4;                  // saved by 0.6.2
     read.home_shelves = 1;
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.home_shelves, 0);
 
     data = hui::encode_settings(settings);
-    data[data.size() - 6] = 9; // not an option
+    data[data.size() - 7] = 9; // not an option
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.home_shelves, 3);
 }
@@ -203,14 +204,14 @@ TEST(Settings, TheSubtitleChoicesAreSavedAndAnOlderFileLeavesSubtitlesOff)
     EXPECT_EQ(read.subtitle_language, 1);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 5);
+    data.resize(data.size() - 6);
     data[0] = 5; // saved by 0.7.0
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_FALSE(read.force_subtitles);
     EXPECT_EQ(read.subtitle_language, 0);
 
     data = hui::encode_settings(settings);
-    data[data.size() - 4] = 9; // not a language
+    data[data.size() - 5] = 9; // not a language
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.subtitle_language, 2);
 }
@@ -225,13 +226,13 @@ TEST(Settings, TheSubtitleSourceIsSavedAndAnOlderFileOffersBoth)
     EXPECT_EQ(read.subtitle_source, 2);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 3);
+    data.resize(data.size() - 4);
     data[0] = 6; // saved by 0.8.0 and 0.9.0
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.subtitle_source, 0);
 
     data = hui::encode_settings(settings);
-    data[data.size() - 3] = 9; // not a source
+    data[data.size() - 4] = 9; // not a source
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.subtitle_source, 2);
 }
@@ -246,13 +247,13 @@ TEST(Settings, HdrOutputIsSavedAndAnOlderFileIsAutomatic)
     EXPECT_EQ(read.hdr_output, 1);
 
     std::string data = hui::encode_settings(settings);
-    data.resize(data.size() - 2);
+    data.resize(data.size() - 3);
     data[0] = 7; // saved before HDR output
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.hdr_output, 0);
 
     data = hui::encode_settings(settings);
-    data[data.size() - 2] = 9; // not an option
+    data[data.size() - 3] = 9; // not an option
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.hdr_output, 1);
 }
@@ -267,15 +268,39 @@ TEST(Settings, AudioOutputIsSavedAndAnOlderFileIsAutomatic)
     EXPECT_EQ(read.audio_output, 1);
 
     std::string data = hui::encode_settings(settings);
-    data.pop_back();
+    data.resize(data.size() - 2);
     data[0] = 8; // saved before the audio output setting
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.audio_output, 0);
 
     data = hui::encode_settings(settings);
-    data.back() = 9; // not an option
+    data[data.size() - 2] = 9; // not an option
     ASSERT_TRUE(hui::decode_settings(data, &read));
     EXPECT_EQ(read.audio_output, 1);
+}
+
+TEST(Settings, TheAudioLanguageIsSavedAndAnOlderFileIsAutomatic)
+{
+    hui::Settings settings;
+    ASSERT_EQ(settings.audio_language, 0);
+    settings.audio_language = 2;
+    hui::Settings read;
+    ASSERT_TRUE(hui::decode_settings(hui::encode_settings(settings), &read));
+    EXPECT_EQ(read.audio_language, 2);
+
+    std::string data = hui::encode_settings(settings);
+    data.pop_back();
+    data[0] = 9; // saved before the audio language setting
+    ASSERT_TRUE(hui::decode_settings(data, &read));
+    EXPECT_EQ(read.audio_language, 0);
+
+    data = hui::encode_settings(settings);
+    data.back() = 9; // not a language
+    ASSERT_TRUE(hui::decode_settings(data, &read));
+    EXPECT_EQ(read.audio_language, 2);
+    EXPECT_STREQ(hui::Settings::language_code(1), "ger");
+    EXPECT_STREQ(hui::Settings::language_code(2), "eng");
+    EXPECT_STREQ(hui::Settings::language_code(0), "");
 }
 
 TEST(Settings, ClampsOutOfRangeValuesAndRejectsGarbage)

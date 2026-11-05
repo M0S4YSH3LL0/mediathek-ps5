@@ -226,11 +226,12 @@ Circle to go back. Changes apply at once and save themselves.
 | Appearance | Fixed billboard | Keeps the Play button on screen while you scroll the shelves. |
 | Appearance | Shelves on Home | *Continue Watching* always, then all shelves, your own collections only (*Recently Added*, collections, *All Movies*, *All Series*), genres only or decades only. |
 | Appearance | Wallpaper on the details page | Shows the film's wallpaper behind its details. |
-| Playback | Force subtitles | A film with subtitles starts with them on. Off by default. |
-| Playback | Subtitle language | None, German or English: the subtitles chosen first, when forced on or switched on with Triangle. |
-| Playback | HDR output | Automatic: an HDR film goes to an HDR TV as HDR10 while it plays. Off: always tone-mapped to SDR. |
-| Playback | Audio output | Automatic: a 5.1 or 7.1 track plays on as many channels (the console mixes it down for two speakers). Stereo: the app mixes it down. From the next film. |
-| Playback | Subtitle source | Automatic (the film's own tracks and the `.srt` files beside it, the film's own first), Embedded only or SRT only. |
+| Playback: Subtitles | Force subtitles | A film with subtitles starts with them on. Off by default. |
+| Playback: Subtitles | Subtitle language | None, German or English: the subtitles chosen first, when forced on or switched on with Triangle. |
+| Playback: Subtitles | Subtitle source | Automatic (the film's own tracks and the `.srt` files beside it, the film's own first), Embedded only or SRT only. |
+| Playback: Audio | Audio language | Automatic, German or English: the sound track a film starts with. Automatic plays the track the file chooses; German or English plays that language, else English, else as Automatic. Within a language the main track comes before a commentary. From the next film. |
+| Playback: Audio | Audio output | Automatic: a 5.1 or 7.1 track plays on as many channels (the console mixes it down for two speakers). Stereo: the app mixes it down. From the next film. |
+| Playback: Video | HDR output | Automatic: an HDR film goes to an HDR TV as HDR10 while it plays. Off: always tone-mapped to SDR. |
 | General | App language | Automatic, English or Deutsch. |
 | General | UI sounds | Menu sounds on or off. |
 | Library | Reload all covers and infos | Fetches everything from TMDB again, with a message that counts the progress. |

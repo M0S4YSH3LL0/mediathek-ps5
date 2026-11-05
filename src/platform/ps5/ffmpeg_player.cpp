@@ -11,6 +11,7 @@
 #include "media/decode_pace.hpp"
 #include "media/embedded_subtitles.hpp"
 #include "media/hw_stream.hpp"
+#include "media/library.hpp"
 #include "media/mediainfo.hpp"
 #include "media/yuv_picture.hpp"
 #include "platform/ps5/av_names.hpp"
@@ -226,9 +227,10 @@ class Session
 {
   public:
     Session(std::string path, double start, audio::StreamRing *ring, bool hardware,
-            bool gpu_pictures, bool surround)
+            bool gpu_pictures, bool surround, std::string audio_language)
         : path_(std::move(path)), ring_(ring), hardware_(hardware), surround_(surround),
-          gpu_pictures_(gpu_pictures), discard_before_(start)
+          audio_language_(std::move(audio_language)), gpu_pictures_(gpu_pictures),
+          discard_before_(start)
     {
         pthread_mutex_init(&mutex_, nullptr);
         pthread_cond_init(&wake_, nullptr);
@@ -692,19 +694,24 @@ class Session
 
         video_stream_ = av_find_best_stream(format_, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
         const int best_audio = av_find_best_stream(format_, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
-        int first = 0;
+        std::vector<media::AudioChoice> choices;
         for (unsigned i = 0; i < format_->nb_streams; ++i)
         {
             const AVStream *stream = format_->streams[i];
             if (stream->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
                 continue;
-            if (static_cast<int>(i) == best_audio)
-                first = static_cast<int>(audio_streams_.size());
             audio_streams_.push_back(static_cast<int>(i));
             media::Track track;
             track.index = static_cast<int>(audio_streams_.size()) - 1;
             const AVDictionaryEntry *language =
                 av_dict_get(stream->metadata, "language", nullptr, 0);
+            media::AudioChoice choice;
+            choice.language = media::canonical_language(language != nullptr ? language->value : "");
+            choice.default_track = (stream->disposition & AV_DISPOSITION_DEFAULT) != 0;
+            choice.extra = (stream->disposition &
+                            (AV_DISPOSITION_COMMENT | AV_DISPOSITION_VISUAL_IMPAIRED)) != 0;
+            choice.best = static_cast<int>(i) == best_audio;
+            choices.push_back(choice);
             const int channels = stream->codecpar->ch_layout.nb_channels;
             char label[96];
             std::snprintf(label, sizeof(label), "%s%s%s %s",
@@ -713,7 +720,12 @@ class Session
             track.label = label;
             tracks_.push_back(track);
         }
+        const int first = media::preferred_audio_track(choices, audio_language_);
         audio_choice_.store(first);
+        if (choices.size() > 1)
+            sys::log("[HUI] audio: track %d of %zu (%s), wanted %s", first + 1, choices.size(),
+                     choices[static_cast<std::size_t>(first)].language.c_str(),
+                     audio_language_.empty() ? "automatic" : audio_language_.c_str());
         find_subtitle_tracks();
         if (video_stream_ < 0 && audio_streams_.empty())
             return fail(i18n::tr(i18n::Text::err_nothing_to_play), AVERROR_STREAM_NOT_FOUND);
@@ -1820,7 +1832,8 @@ class Session
     std::string path_;
     audio::StreamRing *ring_;
     const bool hardware_;
-    const bool surround_; // 5.1 and 7.1 tracks keep their channels
+    const bool surround_;              // 5.1 and 7.1 tracks keep their channels
+    const std::string audio_language_; // the language to start in, "" for automatic
     // Pictures from the hardware decoder, and HDR pictures from FFmpeg, go to the
     // graphics chip as planes.
     std::atomic<bool> gpu_pictures_;
@@ -1968,9 +1981,9 @@ class FfmpegPlayer final : public media::Player
         scrub_ = false;
         subtitle_choice_ = -1;
         subtitle_tracks_.clear();
-        session_ =
-            std::make_unique<Session>(path, clock_, ring_, hardware_,
-                                      static_cast<bool>(surface_.update_yuv) && gpu_ok_, surround_);
+        session_ = std::make_unique<Session>(path, clock_, ring_, hardware_,
+                                             static_cast<bool>(surface_.update_yuv) && gpu_ok_,
+                                             surround_, audio_language_);
         state_ = PlayerState::opening;
     }
 
@@ -2192,6 +2205,10 @@ class FfmpegPlayer final : public media::Player
     void set_surround(bool allowed) override
     {
         surround_ = allowed;
+    }
+    void set_audio_language(std::string language) override
+    {
+        audio_language_ = std::move(language);
     }
     void select_audio(int index) override
     {
@@ -2484,6 +2501,7 @@ class FfmpegPlayer final : public media::Player
     std::function<void(bool)> sound_;
     bool hardware_;
     bool surround_ = true;
+    std::string audio_language_;
     std::unique_ptr<Session> session_;
     PlayerState state_ = PlayerState::idle;
     double clock_ = 0.0;

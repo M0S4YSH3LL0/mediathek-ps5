@@ -100,6 +100,13 @@ HUI_TEXT(settings_subtitle_source_srt, "SRT only", "Nur SRT")
 HUI_TEXT(settings_hdr_output, "HDR output", "HDR-Ausgabe")
 HUI_TEXT(settings_hdr_output_hint, "HDR films reach an HDR TV as HDR. Off: always converted to SDR",
          "HDR-Filme gehen als HDR an einen HDR-Fernseher. Aus: immer in SDR")
+HUI_TEXT(settings_group_subtitles, "Subtitles", "Untertitel")
+HUI_TEXT(settings_group_audio, "Audio", "Ton")
+HUI_TEXT(settings_group_video, "Video", "Bild")
+HUI_TEXT(settings_audio_language, "Audio language", "Tonsprache")
+HUI_TEXT(settings_audio_language_hint,
+         "The track a film starts with. Automatic: the file's choice. Missing: English first",
+         "Die Tonspur, mit der ein Film beginnt. Automatisch: die der Datei. Fehlt sie: Englisch")
 HUI_TEXT(settings_audio_output, "Audio output", "Tonausgabe")
 HUI_TEXT(settings_audio_stereo, "Stereo", "Stereo")
 HUI_TEXT(settings_audio_output_hint,

@@ -50,6 +50,9 @@ struct Settings
     // Mediathek: 0 automatic (a 5.1 or 7.1 track plays on the console's 8-channel output,
     // which the system mixes down for two speakers), 1 stereo (FFmpeg mixes it down).
     int audio_output = 0;
+    // Mediathek: the sound track a film starts in. 0 automatic (the file's choice), 1 German,
+    // 2 English; a language the film lacks falls back to English (media::preferred_audio_track).
+    int audio_language = 0;
     // Display resolution, an index into kResolutions; applies at the next start.
     int resolution = 2;
     // How large on-screen controller hints are: 0 small, 1 medium, 2 large.
@@ -67,6 +70,12 @@ struct Settings
     static constexpr Resolution kResolutions[kResolutionCount] = {
         {1920, 1080, "1080p"}, {2560, 1440, "1440p"}, {3840, 2160, "4K"}};
 
+    // The ISO 639-2 code a language choice names (subtitle_language, audio_language: 1 German,
+    // 2 English), "" for none.
+    static const char *language_code(int choice)
+    {
+        return choice == 1 ? "ger" : choice == 2 ? "eng" : "";
+    }
     static float gain(int volume)
     {
         // Perceptual curve: 0..10 steps map to roughly -40..0 dB.

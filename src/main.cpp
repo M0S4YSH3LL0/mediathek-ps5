@@ -610,6 +610,7 @@ int main()
             const Settings &settings = shell.settings();
             apply_ui_sounds(settings);
             player->set_surround(settings.audio_output == 0);
+            player->set_audio_language(Settings::language_code(settings.audio_language));
             InputSettings input_settings = tracker.settings();
             input_settings.swap_confirm = settings.swap_confirm;
             tracker.set_settings(input_settings);
