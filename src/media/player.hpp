@@ -29,13 +29,17 @@ enum class PlayerState : std::uint8_t
 struct Track
 {
     int index = 0;
-    std::string label; // "English · AC3 5.1"
+    std::string label;            // "English · AC3 5.1"
+    std::string language = "und"; // canonical ISO 639-2 code
 };
 
 // A subtitle track inside the film.
 struct SubtitleTrack
 {
     std::string language = "und"; // canonical ISO 639-2 code
+    // Only the lines in another language than the film's (a sign, a scene abroad): shown on
+    // their own while no full subtitles are on, never offered with them.
+    bool forced = false;
     bool hearing_impaired = false;
     bool picture = false; // PGS, VobSub, DVB: drawn as a picture rather than as text
 };

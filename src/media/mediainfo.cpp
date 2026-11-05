@@ -105,7 +105,11 @@ std::string language_name(std::string_view canonical)
     return upper;
 }
 
-std::string language_from_filename(std::string_view file_name)
+namespace
+{
+
+// The words of a file name in lower case, without its extension.
+std::vector<std::string> file_name_words(std::string_view file_name)
 {
     std::string name = lower(file_name);
     if (const std::size_t dot = name.rfind('.'); dot != std::string::npos)
@@ -125,6 +129,23 @@ std::string language_from_filename(std::string_view file_name)
     }
     if (!current.empty())
         words.push_back(std::move(current));
+    return words;
+}
+
+} // namespace
+
+bool forced_from_filename(std::string_view file_name)
+{
+    const std::vector<std::string> words = file_name_words(file_name);
+    for (std::size_t at = words.size(); at > 1 && words.size() - at < 3; --at)
+        if (words[at - 1] == "forced" || words[at - 1] == "erzwungen")
+            return true;
+    return false;
+}
+
+std::string language_from_filename(std::string_view file_name)
+{
+    const std::vector<std::string> words = file_name_words(file_name);
     // "It (2017).srt" is a film called It, not Italian: a language needs a name before it.
     for (std::size_t at = words.size(); at > 1 && words.size() - at < 3; --at)
         if (const Language *known = find_language(words[at - 1]); known != nullptr)
@@ -364,8 +385,8 @@ namespace
 
 // Version 2 offers only audio tracks the app can decode; a version 1 file may list more and
 // is read again. Version 3 adds the subtitle tracks inside the file, which version 2 did not
-// look at: its files are read again too. Version 4 leaves forced subtitle tracks out, as the
-// player does, so a language with only those is no longer listed.
+// look at: its files are read again too. Version 4 leaves forced subtitle tracks out (they show
+// by themselves, not as a language to choose), so a language with only those is not listed.
 constexpr const char *kHeader = "mediainfo 4";
 
 // One value per line; a value never holds a line break.

@@ -223,7 +223,11 @@ or decades, with the All Movies and Series shelves as the fallback when the choi
 *Force subtitles* is `force_subtitles` and *Subtitle language* `subtitle_language` (0 none,
 1 German, 2 English): a film starts with no subtitles unless forced, and Triangle steps through
 `media::subtitle_order`, the preferred language first, in it the film's own tracks before the
-`.srt` files. `subtitle_entries_` holds the files, then the
+`.srt` files, and never a forced one. While no full track is chosen (`subtitle_track_` -1),
+`show_subtitles` shows the forced one `media::forced_subtitle` finds in `forced_language()`: the
+Subtitle language, else the language of the sound track playing (`Track::language`), so Square
+calls it too; `shown_subtitle_` keeps a track already showing from being chosen again, which would
+drop what the player decoded. `subtitle_entries_` holds the files, then the
 player's tracks (`Player::subtitle_tracks`, known only once the film is open), so the forced
 choice is made in `add_embedded_subtitles` when the player leaves `opening`, unless Triangle was
 pressed before. *Subtitle source* is `subtitle_source` (0 automatic, 1 embedded only, 2 `.srt`
@@ -352,10 +356,12 @@ canvas has the film's size (DVD), else a frame of the canvas's shape fitted to t
 Blu-ray's 1920 x 1080 subtitles belong where they are even when the film is cropped to 1920 x 800.
 While the controls show, a picture moves up above them as text does. A seek, an audio change or a
 new track clears what was decoded. A forced track (the flag, or "Forced" in its title,
-`av::forced_subtitle`) is left out by the player and the probe alike: it holds only signs and
-foreign lines, so it mostly shows nothing. The log says `[HUI] subtitles: N tracks in the file, M
-forced left out` and `[HUI] subtitles: track N, <decoder>`. The info cache (`info/<id>.info`, header
-`mediainfo 4`) lists the tracks' languages for the details page; older files are read again.
+`av::forced_subtitle`; a file's name, `media::forced_from_filename`) holds only signs and foreign
+lines: the player marks it (`SubtitleTrack::forced`), the design shows it by itself (see the
+settings page above), and the probe leaves it out of the details page's languages. The log says
+`[HUI] subtitles: N tracks in the file, M of them forced` and `[HUI] subtitles: track N (forced),
+<decoder>`. The info cache (`info/<id>.info`, header `mediainfo 4`) lists the tracks' languages for
+the details page; older files are read again.
 
 **AV1 does not play, at any size.** FFmpeg's `av1` decoder is only a front for hardware decoding,
 PacBrew's FFmpeg has no `libdav1d` or `libaom`, and no AV1 codec of `libSceVideodec2` is known (VLC's

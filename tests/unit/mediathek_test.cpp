@@ -450,11 +450,47 @@ TEST_F(MediathekTest, AFilmWithOnlyItsOwnSubtitlesStillSwitchesThemOn)
     auto design = make();
     send(*design, press(Action::west), 2.0f);
     ASSERT_EQ(player_->state(), media::PlayerState::playing);
-    EXPECT_EQ(player_->subtitle_track(), -1) << "off unless forced";
+    // No full subtitles unless forced on, but the forced track in the sound's language.
+    EXPECT_EQ(player_->subtitle_track(), 3);
     send(*design, press(Action::north), 0.5f);
     EXPECT_EQ(toast_width(*design),
               subtitle_toast({Text::lang_eng, Text::subtitles_embedded}, 1, 3));
     EXPECT_EQ(player_->subtitle_track(), 0);
+}
+
+// The simulated film has an English forced track (3) and English and German sound.
+TEST_F(MediathekTest, AForcedTrackShowsWhileNoFullSubtitlesAreOn)
+{
+    use_embedded_subtitles();
+    fill_library();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    EXPECT_EQ(player_->subtitle_track(), 3) << "the sound is English";
+    // German sound: there is no German forced track.
+    send(*design, press(Action::west), 0.5f);
+    EXPECT_EQ(player_->subtitle_track(), -1);
+    send(*design, press(Action::west), 0.5f);
+    EXPECT_EQ(player_->subtitle_track(), 3);
+    // Triangle steps through the three full tracks only, and off brings the forced one back.
+    for (const int full : {0, 1, 2})
+    {
+        send(*design, press(Action::north), 0.5f);
+        EXPECT_EQ(player_->subtitle_track(), full);
+    }
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(player_->subtitle_track(), 3);
+}
+
+TEST_F(MediathekTest, AForcedTrackFollowsTheSubtitleLanguageFirst)
+{
+    settings_.subtitle_language = 1; // German: the film has no German forced track
+    use_embedded_subtitles();
+    fill_library();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    EXPECT_EQ(player_->subtitle_track(), -1) << "not the English one the sound would pick";
 }
 
 TEST_F(MediathekTest, SubtitleSourceEmbeddedOnlyLeavesTheFilesOut)

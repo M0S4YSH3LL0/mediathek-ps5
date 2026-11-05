@@ -277,11 +277,26 @@ std::vector<int> subtitle_order(const std::vector<SubtitleChoice> &tracks,
         const bool wanted = !preferred.empty() && track.language == preferred;
         return (wanted ? 0 : 2) + (track.embedded ? 0 : 1);
     };
-    std::vector<int> order(tracks.size());
-    for (std::size_t i = 0; i < order.size(); ++i)
-        order[i] = static_cast<int>(i);
+    std::vector<int> order;
+    for (std::size_t i = 0; i < tracks.size(); ++i)
+        if (!tracks[i].forced)
+            order.push_back(static_cast<int>(i));
     std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return rank(a) < rank(b); });
     return order;
+}
+
+int forced_subtitle(const std::vector<SubtitleChoice> &tracks, std::string_view language)
+{
+    int found = -1;
+    for (std::size_t i = 0; i < tracks.size() && !language.empty(); ++i)
+    {
+        const SubtitleChoice &track = tracks[i];
+        if (!track.forced || track.language != language)
+            continue;
+        if (found < 0 || (track.embedded && !tracks[static_cast<std::size_t>(found)].embedded))
+            found = static_cast<int>(i);
+    }
+    return found;
 }
 
 int preferred_audio_track(const std::vector<AudioChoice> &tracks, std::string_view preferred)
@@ -425,9 +440,13 @@ Library Library::from_scan(const ScanResult &scan, const RootContents &contents)
                                      sub.find("english") != std::string::npos ||
                                      sub.find("eng") != std::string::npos;
                 const std::size_t slash = subtitle->path.rfind('/');
-                const std::string code = language_from_filename(
-                    slash == std::string::npos ? subtitle->path : subtitle->path.substr(slash + 1));
-                SubtitleFile track{subtitle->readable, code.empty() ? "und" : code};
+                const std::string name =
+                    slash == std::string::npos ? subtitle->path : subtitle->path.substr(slash + 1);
+                const std::string code = language_from_filename(name);
+                SubtitleFile track;
+                track.file = subtitle->readable;
+                track.language = code.empty() ? "und" : code;
+                track.forced = forced_from_filename(name);
                 const auto at = found.begin() +
                                 static_cast<std::ptrdiff_t>(english ? english_found : found.size());
                 found.insert(at, std::move(track));

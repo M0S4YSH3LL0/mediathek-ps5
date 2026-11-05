@@ -161,6 +161,19 @@ TEST(MediaInfo, ALanguageComesFromTheTailOfASubtitleFileName)
     EXPECT_EQ(language_from_filename("it.srt"), "");
 }
 
+TEST(MediaInfo, ASubtitleFileNameSaysWhenItIsForced)
+{
+    EXPECT_TRUE(forced_from_filename("Blue Harbor (2011).de.forced.srt"));
+    EXPECT_TRUE(forced_from_filename("Film.German.Forced.srt"));
+    EXPECT_TRUE(forced_from_filename("Film_2019_ger_forced.srt"));
+    EXPECT_TRUE(forced_from_filename("Deutsch.forced.srt"));
+    EXPECT_TRUE(forced_from_filename("Film.de.erzwungen.srt"));
+    EXPECT_FALSE(forced_from_filename("Blue Harbor (2011).de.srt"));
+    // A film called Forced Entry is not a forced track: the word must come after a name.
+    EXPECT_FALSE(forced_from_filename("Forced Entry (2020).de.srt"));
+    EXPECT_FALSE(forced_from_filename("forced.srt"));
+}
+
 namespace
 {
 

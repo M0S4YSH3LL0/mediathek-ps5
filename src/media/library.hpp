@@ -22,6 +22,7 @@ struct SubtitleFile
 {
     std::string file; // the readable copy
     std::string language;
+    bool forced = false; // its name says so (forced_from_filename)
 };
 
 // One file of a series. Its id is made like a film's, so resume points, the file's details and
@@ -137,13 +138,19 @@ struct SubtitleChoice
 {
     std::string language;  // canonical ISO 639-2 code, "und" when not known
     bool embedded = false; // a track of the film itself
+    bool forced = false;   // only the lines in another language than the film's
 };
 
 // The order the subtitle tracks of a film are offered in (indices into `tracks`): those in
 // `preferred` (such as "ger") first; within that, the film's own tracks before the .srt files
-// beside it, which are more often a poor match for its cut. Otherwise the order given.
+// beside it, which are more often a poor match for its cut. Otherwise the order given. A forced
+// track is not among them: it shows on its own (forced_subtitle).
 std::vector<int> subtitle_order(const std::vector<SubtitleChoice> &tracks,
                                 std::string_view preferred);
+
+// The forced track to show while no full subtitles are on (an index into `tracks`, -1 for none):
+// the first in `language` ("" for none), the film's own before a file.
+int forced_subtitle(const std::vector<SubtitleChoice> &tracks, std::string_view language);
 
 // A sound track of a film as the choice below sees it.
 struct AudioChoice

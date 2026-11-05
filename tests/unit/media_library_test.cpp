@@ -230,11 +230,13 @@ TEST(MovieLibrary, FindsSubtitlesInASubsFolder)
                    file("/data/movies/Bb (2002)/Bb (2002).mkv", "", 11),
                    file("/data/movies/Shared/One.mkv", "", 12),
                    file("/data/movies/Shared/Two.mkv", "", 13)};
-    scan.subtitles = {file("/data/movies/Aa (2001)/Subs/2_French.srt", "/art/fr.srt", 0),
-                      file("/data/movies/Aa (2001)/Subs/3_English.srt", "/art/en.srt", 0),
-                      file("/data/movies/Bb (2002)/subs/Bb (2002).de.srt", "/art/de.srt", 0),
-                      file("/data/movies/Shared/subs/One.srt", "/art/one.srt", 0),
-                      file("/data/movies/Shared/subs/2_English.srt", "/art/other.srt", 0)};
+    scan.subtitles = {
+        file("/data/movies/Aa (2001)/Subs/2_French.srt", "/art/fr.srt", 0),
+        file("/data/movies/Aa (2001)/Subs/3_English.srt", "/art/en.srt", 0),
+        file("/data/movies/Bb (2002)/subs/Bb (2002).de.srt", "/art/de.srt", 0),
+        file("/data/movies/Bb (2002)/subs/Bb (2002).de.forced.srt", "/art/def.srt", 0),
+        file("/data/movies/Shared/subs/One.srt", "/art/one.srt", 0),
+        file("/data/movies/Shared/subs/2_English.srt", "/art/other.srt", 0)};
     const Library library = Library::from_scan(scan);
     ASSERT_EQ(library.size(), 4u);
     for (std::size_t i = 0; i < library.size(); ++i)
@@ -253,9 +255,12 @@ TEST(MovieLibrary, FindsSubtitlesInASubsFolder)
         }
         else if (movie.title == "Bb")
         {
-            ASSERT_EQ(movie.subtitles.size(), 1u);
+            ASSERT_EQ(movie.subtitles.size(), 2u);
             EXPECT_EQ(movie.subtitles[0].file, "/art/de.srt");
             EXPECT_EQ(movie.subtitles[0].language, "ger");
+            EXPECT_FALSE(movie.subtitles[0].forced);
+            EXPECT_EQ(movie.subtitles[1].language, "ger");
+            EXPECT_TRUE(movie.subtitles[1].forced);
         }
         else if (movie.title == "One")
         {
@@ -497,11 +502,12 @@ std::vector<SubtitleChoice> files(std::initializer_list<const char *> languages)
     return out;
 }
 
-SubtitleChoice track(const char *language, bool embedded)
+SubtitleChoice track(const char *language, bool embedded, bool forced = false)
 {
     SubtitleChoice choice;
     choice.language = language;
     choice.embedded = embedded;
+    choice.forced = forced;
     return choice;
 }
 
@@ -522,6 +528,28 @@ TEST(SubtitleOrder, TheFilmsOwnTracksComeBeforeTheFilesBesideIt)
                                              track("eng", true), track("ger", true)};
     EXPECT_EQ(subtitle_order(tracks, "ger"), (std::vector<int>{3, 0, 2, 1}));
     EXPECT_EQ(subtitle_order(tracks, ""), (std::vector<int>{2, 3, 0, 1}));
+}
+
+// A forced track holds only a few lines: it shows on its own (below), Triangle never offers it.
+TEST(SubtitleOrder, LeavesTheForcedTracksOut)
+{
+    const std::vector<SubtitleChoice> tracks{track("ger", true, true), track("ger", false),
+                                             track("ger", true), track("eng", true),
+                                             track("eng", false, true)};
+    EXPECT_EQ(subtitle_order(tracks, "ger"), (std::vector<int>{2, 1, 3}));
+    EXPECT_TRUE(subtitle_order({track("ger", true, true)}, "ger").empty());
+}
+
+TEST(ForcedSubtitle, TakesTheForcedTrackInTheLanguageTheFilmsOwnFirst)
+{
+    const std::vector<SubtitleChoice> tracks{track("ger", false), track("ger", false, true),
+                                             track("eng", true), track("ger", true, true)};
+    EXPECT_EQ(forced_subtitle(tracks, "ger"), 3);
+    EXPECT_EQ(forced_subtitle({track("ger", false, true), track("eng", true, true)}, "ger"), 0);
+    // No forced track in it, or no language: none.
+    EXPECT_EQ(forced_subtitle(tracks, "eng"), -1);
+    EXPECT_EQ(forced_subtitle(tracks, ""), -1);
+    EXPECT_EQ(forced_subtitle({}, "ger"), -1);
 }
 
 AudioChoice sound(const char *language, bool default_track = false, bool extra = false,

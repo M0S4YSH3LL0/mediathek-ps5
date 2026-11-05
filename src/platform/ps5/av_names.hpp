@@ -66,8 +66,8 @@ inline const char *layout_name(int channels)
 }
 
 // A forced subtitle track holds only the lines in another language than the film's (a sign, a
-// scene abroad), so most of the film it shows nothing: the app offers none. Release groups say so
-// in the title more often than in the flag.
+// scene abroad): it shows by itself rather than being offered with the full ones. Release groups
+// say so in the title more often than in the flag.
 inline bool forced_subtitle(const AVStream *stream)
 {
     if ((stream->disposition & AV_DISPOSITION_FORCED) != 0)

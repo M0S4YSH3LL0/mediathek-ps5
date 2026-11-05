@@ -25,7 +25,8 @@ constexpr int kCardWidth = 640;
 constexpr int kCardHeight = 360;
 constexpr float kPaperWhite = 203.0f;
 // Embedded subtitles: one every few seconds, in English and German words, and a picture
-// track standing in for PGS (bars where a disc's subtitle would have its letters).
+// track standing in for PGS (bars where a disc's subtitle would have its letters). A forced
+// English track has a line in every other gap, as if a scene were in another language.
 constexpr double kCueEvery = 5.0;
 constexpr double kCueShows = 4.0;
 constexpr int kCanvasWidth = 1920;
@@ -34,6 +35,7 @@ constexpr const char *kEnglishLines[] = {"The tide is late tonight.",
                                          "Then we wait for it.\nWe always have."};
 constexpr const char *kGermanLines[] = {"Die Flut kommt heute sp\xC3\xA4t.",
                                         "Dann warten wir.\nDas tun wir immer."};
+constexpr const char *kForcedLine = "Where does the ferry leave from?";
 
 // One colour in nits, BT.709 primaries, as 10-bit limited-range BT.2020 Y'CbCr with PQ:
 // what an HDR10 film holds.
@@ -72,7 +74,7 @@ class SimulatedPlayer final : public Player
     SimulatedPlayer(const VideoSurface &surface, double duration, bool hdr, bool subtitles)
         : surface_(surface), duration_(duration), hdr_(hdr && surface.update_yuv)
     {
-        tracks_ = {{0, "English · AC3 5.1"}, {1, "Deutsch · AAC 2.0"}};
+        tracks_ = {{0, "English · AC3 5.1", "eng"}, {1, "Deutsch · AAC 2.0", "ger"}};
         SubtitleTrack english;
         english.language = "eng";
         SubtitleTrack german;
@@ -81,8 +83,11 @@ class SimulatedPlayer final : public Player
         picture.language = "ger";
         picture.picture = true;
         picture.hearing_impaired = true;
+        SubtitleTrack forced;
+        forced.language = "eng";
+        forced.forced = true;
         if (subtitles)
-            subtitle_list_ = {english, german, picture};
+            subtitle_list_ = {english, german, picture, forced};
         if (hdr_)
             make_card();
         make_subtitle_picture();
@@ -244,7 +249,11 @@ class SimulatedPlayer final : public Player
             subtitle_picture_.h = subtitle_bitmap_.h;
             return;
         }
-        subtitle_text_ = subtitle_ == 0 ? kEnglishLines[line] : kGermanLines[line];
+        const SubtitleTrack &track = subtitle_list_[static_cast<std::size_t>(subtitle_)];
+        if (track.forced)
+            subtitle_text_ = line == 0 ? kForcedLine : "";
+        else
+            subtitle_text_ = track.language == "eng" ? kEnglishLines[line] : kGermanLines[line];
     }
 
     // White bars with a black edge, as words, in a palette as a disc's subtitle has one.

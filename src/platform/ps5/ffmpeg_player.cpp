@@ -712,6 +712,7 @@ class Session
                             (AV_DISPOSITION_COMMENT | AV_DISPOSITION_VISUAL_IMPAIRED)) != 0;
             choice.best = static_cast<int>(i) == best_audio;
             choices.push_back(choice);
+            track.language = choice.language;
             const int channels = stream->codecpar->ch_layout.nb_channels;
             char label[96];
             std::snprintf(label, sizeof(label), "%s%s%s %s",
@@ -753,7 +754,7 @@ class Session
         return true;
     }
 
-    // The subtitle tracks this FFmpeg can decode, text or picture, but not a forced one.
+    // The subtitle tracks this FFmpeg can decode, text or picture.
     void find_subtitle_tracks()
     {
         if (video_stream_ >= 0)
@@ -769,11 +770,6 @@ class Session
             if (stream->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE ||
                 avcodec_find_decoder(stream->codecpar->codec_id) == nullptr)
                 continue;
-            if (av::forced_subtitle(stream))
-            {
-                ++forced;
-                continue;
-            }
             const AVDictionaryEntry *language =
                 av_dict_get(stream->metadata, "language", nullptr, 0);
             const AVDictionaryEntry *title = av_dict_get(stream->metadata, "title", nullptr, 0);
@@ -782,6 +778,8 @@ class Session
             const AVCodecDescriptor *codec = avcodec_descriptor_get(stream->codecpar->codec_id);
             media::SubtitleTrack track;
             track.language = media::canonical_language(language != nullptr ? language->value : "");
+            track.forced = av::forced_subtitle(stream);
+            forced += track.forced ? 1 : 0;
             track.hearing_impaired = (stream->disposition & AV_DISPOSITION_HEARING_IMPAIRED) != 0 ||
                                      said.hearing_impaired;
             track.picture = codec != nullptr && (codec->props & AV_CODEC_PROP_BITMAP_SUB) != 0;
@@ -789,8 +787,8 @@ class Session
             subtitle_stream_of_.push_back(stream);
             subtitle_tracks_.push_back(track);
         }
-        if (!subtitle_tracks_.empty() || forced > 0)
-            sys::log("[HUI] subtitles: %zu tracks in the file, %d forced left out",
+        if (!subtitle_tracks_.empty())
+            sys::log("[HUI] subtitles: %zu tracks in the file, %d of them forced",
                      subtitle_tracks_.size(), forced);
     }
 
@@ -2294,7 +2292,10 @@ class FfmpegPlayer final : public media::Player
             avcodec_free_context(&subtitle_context_);
             return false;
         }
-        sys::log("[HUI] subtitles: track %d, %s", subtitle_choice_, codec->name);
+        const auto chosen = static_cast<std::size_t>(subtitle_choice_);
+        const bool forced = chosen < subtitle_tracks_.size() && subtitle_tracks_[chosen].forced;
+        sys::log("[HUI] subtitles: track %d%s, %s", subtitle_choice_, forced ? " (forced)" : "",
+                 codec->name);
         return true;
     }
 

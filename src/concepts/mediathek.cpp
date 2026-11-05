@@ -1951,6 +1951,7 @@ class Mediathek final : public app::Concept
         subtitles_complete_ = false;
         subtitles_chosen_ = false;
         list_subtitles(playing_item_, {});
+        shown_subtitle_ = kNothingShown; // the last film's lines go even if none come now
         select_subtitle(-1);
         feedback.play(audio::Cue::launch);
         feedback.rumble(0.6f, 0.15f);
@@ -2105,12 +2106,13 @@ class Mediathek final : public app::Concept
             const int count = static_cast<int>(player.audio_tracks().size());
             const int next = (player.audio_track() + 1) % count;
             player.select_audio(next);
+            show_subtitles(); // forced lines follow the sound's language
             notify(feedback,
                    i18n::format(Text::audio_track,
                                 player.audio_tracks()[static_cast<std::size_t>(next)].label),
                    audio::Cue::toggle);
         }
-        if (input.is_pressed(Action::north) && !subtitle_entries_.empty())
+        if (input.is_pressed(Action::north) && !subtitle_order_.empty())
             cycle_subtitles(feedback);
         if (input.is_pressed(Action::menu))
         {
@@ -2154,7 +2156,22 @@ class Mediathek final : public app::Concept
         return Settings::language_code(context_.settings.subtitle_language);
     }
 
-    // A subtitle track Triangle can choose: a file beside the film or a track inside it.
+    // The language forced lines are shown in: Subtitle language, else that of the sound track
+    // playing; "" when neither is known.
+    std::string forced_language() const
+    {
+        std::string language = preferred_subtitle_language();
+        if (!language.empty() || svc_->player == nullptr)
+            return language;
+        const std::vector<media::Track> &tracks = svc_->player->audio_tracks();
+        const auto at = static_cast<std::size_t>(svc_->player->audio_track());
+        if (at < tracks.size() && tracks[at].language != "und")
+            language = tracks[at].language;
+        return language;
+    }
+
+    // A subtitle track of the film: a file beside it or a track inside it. Triangle chooses
+    // among the full ones; a forced one shows by itself (show_subtitles).
     struct SubtitleEntry
     {
         media::SubtitleChoice choice;
@@ -2177,6 +2194,7 @@ class Mediathek final : public app::Concept
             SubtitleEntry entry;
             entry.index = static_cast<int>(i);
             entry.choice.language = subtitle_language(m.subtitles[i]);
+            entry.choice.forced = m.subtitles[i].forced;
             subtitle_entries_.push_back(entry);
         }
         for (std::size_t i = 0; own && i < embedded.size(); ++i)
@@ -2185,6 +2203,7 @@ class Mediathek final : public app::Concept
             entry.index = static_cast<int>(i);
             entry.choice.language = embedded[i].language;
             entry.choice.embedded = true;
+            entry.choice.forced = embedded[i].forced;
             entry.hearing_impaired = embedded[i].hearing_impaired;
             subtitle_entries_.push_back(entry);
         }
@@ -2195,21 +2214,40 @@ class Mediathek final : public app::Concept
         subtitle_order_ = media::subtitle_order(choices, preferred_subtitle_language());
     }
 
-    // The player has opened the film and knows its own tracks. Force subtitles chooses now,
-    // unless the viewer has already pressed Triangle.
+    // The player has opened the film and knows its own tracks (and the sound's language). Force
+    // subtitles chooses now, unless the viewer has already pressed Triangle; otherwise a forced
+    // track inside the film may now be the one to show.
     void add_embedded_subtitles(media::Player &player)
     {
         subtitles_complete_ = true;
         list_subtitles(playing_item_, player.subtitle_tracks());
         if (!subtitles_chosen_ && context_.settings.force_subtitles && !subtitle_order_.empty())
             select_subtitle(subtitle_order_.front());
+        else
+            show_subtitles();
     }
 
-    // Shows subtitle_entries_[track], or none for -1. A file that cannot be read leaves the
-    // track chosen but empty, so the pad still steps past it.
+    // The viewer's choice: subtitle_entries_[track], or no full subtitles for -1.
     void select_subtitle(int track)
     {
         subtitle_track_ = track;
+        show_subtitles();
+    }
+
+    // Shows the chosen track or, with none chosen, the forced one in forced_language(): a
+    // full track has those lines too, so both would show them twice. A file that cannot be read
+    // leaves the track chosen but empty, so the pad still steps past it.
+    void show_subtitles()
+    {
+        std::vector<media::SubtitleChoice> choices;
+        choices.reserve(subtitle_entries_.size());
+        for (const SubtitleEntry &entry : subtitle_entries_)
+            choices.push_back(entry.choice);
+        const int track = subtitle_track_ >= 0 ? subtitle_track_
+                                               : media::forced_subtitle(choices, forced_language());
+        if (track == shown_subtitle_)
+            return; // already showing: choosing it again would drop what the player decoded
+        shown_subtitle_ = track;
         subtitles_ = media::Subtitles{};
         const bool valid = track >= 0 && static_cast<std::size_t>(track) < subtitle_entries_.size();
         const SubtitleEntry *entry =
@@ -3288,7 +3326,8 @@ class Mediathek final : public app::Concept
         if (context_.settings.subtitle_source != kSubtitlesEmbeddedOnly)
             for (const media::SubtitleFile &sub :
                  episode != nullptr ? episode->subtitles : m.subtitles)
-                media::add_language(&subtitle_languages, subtitle_language(sub));
+                if (!sub.forced) // as the file's own forced tracks are not listed
+                    media::add_language(&subtitle_languages, subtitle_language(sub));
         languages(media::language_names(subtitle_languages), kSecond, 1360.0f - kSecond,
                   own_subtitles && content == nullptr &&
                       lookup.state == media::InfoService::State::pending);
@@ -3866,9 +3905,11 @@ class Mediathek final : public app::Concept
     std::map<std::string, std::string> sniffed_subtitles_; // file -> language its text says, or ""
     std::vector<SubtitleEntry> subtitle_entries_; // the playing film's; see list_subtitles()
     int subtitle_track_ = -1;                     // index into subtitle_entries_, -1 = off
-    std::vector<int> subtitle_order_; // subtitle_entries_ in the order Triangle shows them
-    bool subtitles_complete_ = false; // the film's own tracks are in subtitle_entries_
-    bool subtitles_chosen_ = false;   // Triangle was pressed: Force subtitles stays out of it
+    static constexpr int kNothingShown = -2;
+    int shown_subtitle_ = kNothingShown; // subtitle_entries_ showing: the chosen or a forced one
+    std::vector<int> subtitle_order_;    // subtitle_entries_ in the order Triangle shows them
+    bool subtitles_complete_ = false;    // the film's own tracks are in subtitle_entries_
+    bool subtitles_chosen_ = false;      // Triangle was pressed: Force subtitles stays out of it
     float osd_ = 0.0f;
     tween::Spring osd_show_;
     float last_save_ = 0.0f;

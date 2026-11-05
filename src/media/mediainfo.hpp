@@ -46,6 +46,11 @@ std::string language_name(std::string_view canonical);
 // "2_English.srt" are German and English; "" when it says nothing.
 std::string language_from_filename(std::string_view file_name);
 
+// Whether a subtitle file's name marks it forced ("Film.de.forced.srt"): only the lines in
+// another language than the film's. The word counts among the last three after a name, so a
+// film called "Forced Entry" is not one.
+bool forced_from_filename(std::string_view file_name);
+
 // The language a subtitle file's text is in, guessed from the words it uses; "" when it has too
 // few lines or none of the languages the app knows by their common words stands out. For the
 // subtitle files whose name says nothing.
