@@ -13,10 +13,11 @@
   are drawn as `.srt` files are, picture tracks (PGS from Blu-rays, VobSub from DVDs, DVB) where
   the disc puts them, above the controls while those show. Triangle steps through the film's own
   tracks and the `.srt` files together, the preferred language first and in it the film's own
-  before the files and full tracks before forced ones; *Force subtitles* starts with the first
-  of them. The message says where each is from and what kind it is ("German · embedded",
+  before the files; a forced track inside the film (only signs and foreign lines, so mostly
+  empty) is left out. *Force subtitles* starts with the first of them. The message says where each is from and what kind it is ("German · embedded",
   "German · SRT", "English · SDH · embedded"). The details page lists the languages of both.
-  The file information each film keeps is read once more, for its subtitle tracks.
+  The file information each film keeps is read once more, for its subtitle tracks (once more
+  after 0.9.0 builds that listed forced ones).
 - New: *Subtitle source* under Settings > Playback: Automatic (both, the film's own first),
   Embedded only or SRT only. Triangle, *Force subtitles* and the details page follow it. The
   settings file gains one byte (format version 7); earlier files load as Automatic.

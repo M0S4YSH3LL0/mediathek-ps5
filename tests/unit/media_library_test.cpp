@@ -497,12 +497,11 @@ std::vector<SubtitleChoice> files(std::initializer_list<const char *> languages)
     return out;
 }
 
-SubtitleChoice track(const char *language, bool embedded, bool forced = false)
+SubtitleChoice track(const char *language, bool embedded)
 {
     SubtitleChoice choice;
     choice.language = language;
     choice.embedded = embedded;
-    choice.forced = forced;
     return choice;
 }
 
@@ -571,12 +570,4 @@ TEST(AudioTrack, AMainTrackComesBeforeACommentaryInTheSameLanguage)
     EXPECT_EQ(preferred_audio_track({sound("ger"), sound("ger", true)}, "ger"), 1);
     // Only a commentary in it: still that one.
     EXPECT_EQ(preferred_audio_track({sound("eng", true), sound("ger", false, true)}, "ger"), 1);
-}
-
-TEST(SubtitleOrder, AForcedTrackComesAfterTheFullOnesOfItsLanguage)
-{
-    // Forcing subtitles on means every line, not just the signs.
-    const std::vector<SubtitleChoice> tracks{track("ger", true, true), track("ger", false),
-                                             track("ger", true), track("eng", true)};
-    EXPECT_EQ(subtitle_order(tracks, "ger"), (std::vector<int>{2, 1, 0, 3}));
 }

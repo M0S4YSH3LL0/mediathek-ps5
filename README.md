@@ -107,7 +107,8 @@ Choose a folder to remove it. Cross on the "No media found" screen goes straight
   language comes from the name (`Film.de.srt`, `English.srt`) or else from the words
   inside. A film starts without subtitles unless *Force subtitles* is on; Triangle
   switches them on and steps through them all, the preferred language first, and in it
-  the film's own tracks before the files and full tracks before forced ones. Its message
+  the film's own tracks before the files. A forced track inside the film (only the signs and
+  the lines in another language, so mostly empty) is not offered. Its message
   says which: "German · embedded", "German · SRT", "English · SDH · embedded".
 - **Audio language:** if a file does not say, its name can: `Film (2011) German DL.mkv`
   is listed as German.

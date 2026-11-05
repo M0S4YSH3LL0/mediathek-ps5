@@ -753,7 +753,7 @@ class Session
         return true;
     }
 
-    // The subtitle tracks this FFmpeg can decode, text or picture.
+    // The subtitle tracks this FFmpeg can decode, text or picture, but not a forced one.
     void find_subtitle_tracks()
     {
         if (video_stream_ >= 0)
@@ -762,12 +762,18 @@ class Session
             coded_height_ = format_->streams[video_stream_]->codecpar->height;
         }
         subtitle_slot_.assign(format_->nb_streams, -1);
+        int forced = 0;
         for (unsigned i = 0; i < format_->nb_streams; ++i)
         {
             const AVStream *stream = format_->streams[i];
             if (stream->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE ||
                 avcodec_find_decoder(stream->codecpar->codec_id) == nullptr)
                 continue;
+            if (av::forced_subtitle(stream))
+            {
+                ++forced;
+                continue;
+            }
             const AVDictionaryEntry *language =
                 av_dict_get(stream->metadata, "language", nullptr, 0);
             const AVDictionaryEntry *title = av_dict_get(stream->metadata, "title", nullptr, 0);
@@ -776,7 +782,6 @@ class Session
             const AVCodecDescriptor *codec = avcodec_descriptor_get(stream->codecpar->codec_id);
             media::SubtitleTrack track;
             track.language = media::canonical_language(language != nullptr ? language->value : "");
-            track.forced = (stream->disposition & AV_DISPOSITION_FORCED) != 0 || said.forced;
             track.hearing_impaired = (stream->disposition & AV_DISPOSITION_HEARING_IMPAIRED) != 0 ||
                                      said.hearing_impaired;
             track.picture = codec != nullptr && (codec->props & AV_CODEC_PROP_BITMAP_SUB) != 0;
@@ -784,8 +789,9 @@ class Session
             subtitle_stream_of_.push_back(stream);
             subtitle_tracks_.push_back(track);
         }
-        if (!subtitle_tracks_.empty())
-            sys::log("[HUI] subtitles: %zu tracks in the file", subtitle_tracks_.size());
+        if (!subtitle_tracks_.empty() || forced > 0)
+            sys::log("[HUI] subtitles: %zu tracks in the file, %d forced left out",
+                     subtitle_tracks_.size(), forced);
     }
 
     // --------------------------------------------------------- demuxing

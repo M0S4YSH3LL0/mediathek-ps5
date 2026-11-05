@@ -233,7 +233,6 @@ HUI_TEXT(subtitles_off, "Subtitles off", "Untertitel aus")
 // Where a subtitle track is from and what kind it is, in "Subtitles: German · forced · embedded".
 HUI_TEXT(subtitles_embedded, "embedded", "eingebettet")
 HUI_TEXT(subtitles_srt, "SRT", "SRT")
-HUI_TEXT(subtitles_forced, "forced", "erzwungen")
 HUI_TEXT(subtitles_sdh, "SDH", "H\xC3\xB6rgesch\xC3\xA4" "digte")
 HUI_TEXT(unknown_movie, "Unknown movie", "Unbekannter Film")
 

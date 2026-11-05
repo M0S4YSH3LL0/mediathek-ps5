@@ -364,8 +364,9 @@ namespace
 
 // Version 2 offers only audio tracks the app can decode; a version 1 file may list more and
 // is read again. Version 3 adds the subtitle tracks inside the file, which version 2 did not
-// look at: its files are read again too.
-constexpr const char *kHeader = "mediainfo 3";
+// look at: its files are read again too. Version 4 leaves forced subtitle tracks out, as the
+// player does, so a language with only those is no longer listed.
+constexpr const char *kHeader = "mediainfo 4";
 
 // One value per line; a value never holds a line break.
 std::string one_line(std::string text)

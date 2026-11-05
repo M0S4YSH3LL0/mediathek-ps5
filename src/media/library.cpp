@@ -275,7 +275,7 @@ std::vector<int> subtitle_order(const std::vector<SubtitleChoice> &tracks,
     {
         const SubtitleChoice &track = tracks[static_cast<std::size_t>(index)];
         const bool wanted = !preferred.empty() && track.language == preferred;
-        return (wanted ? 0 : 4) + (track.forced ? 2 : 0) + (track.embedded ? 0 : 1);
+        return (wanted ? 0 : 2) + (track.embedded ? 0 : 1);
     };
     std::vector<int> order(tracks.size());
     for (std::size_t i = 0; i < order.size(); ++i)

@@ -1,8 +1,10 @@
-// Mediathek - Short names for FFmpeg's codecs and channel layouts, as the screens show them.
+// Mediathek - Short names for FFmpeg's codecs and channel layouts, and what a stream's flags say.
 // Copyright (C) 2026 BlackBearReloaded
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+
+#include "media/embedded_subtitles.hpp"
 
 #include <cctype>
 #include <string>
@@ -10,6 +12,8 @@
 extern "C"
 {
 #include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/dict.h>
 }
 
 namespace hui::ps5::av
@@ -59,6 +63,17 @@ inline const char *layout_name(int channels)
     default:
         return "";
     }
+}
+
+// A forced subtitle track holds only the lines in another language than the film's (a sign, a
+// scene abroad), so most of the film it shows nothing: the app offers none. Release groups say so
+// in the title more often than in the flag.
+inline bool forced_subtitle(const AVStream *stream)
+{
+    if ((stream->disposition & AV_DISPOSITION_FORCED) != 0)
+        return true;
+    const AVDictionaryEntry *title = av_dict_get(stream->metadata, "title", nullptr, 0);
+    return title != nullptr && media::subtitle_title_flags(title->value).forced;
 }
 
 } // namespace hui::ps5::av

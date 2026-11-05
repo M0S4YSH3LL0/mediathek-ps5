@@ -2185,7 +2185,6 @@ class Mediathek final : public app::Concept
             entry.index = static_cast<int>(i);
             entry.choice.language = embedded[i].language;
             entry.choice.embedded = true;
-            entry.choice.forced = embedded[i].forced;
             entry.hearing_impaired = embedded[i].hearing_impaired;
             subtitle_entries_.push_back(entry);
         }
@@ -2226,12 +2225,10 @@ class Mediathek final : public app::Concept
             subtitles_.parse(text);
     }
 
-    // "Deutsch · forced · embedded": the language, what kind of track, and where it is from.
+    // "Deutsch · SDH · embedded": the language, what kind of track, and where it is from.
     std::string subtitle_label(const SubtitleEntry &entry) const
     {
         std::string label = media::language_names({entry.choice.language}).front();
-        if (entry.choice.forced)
-            label += std::string(" \xC2\xB7 ") + tr(Text::subtitles_forced);
         if (entry.hearing_impaired)
             label += std::string(" \xC2\xB7 ") + tr(Text::subtitles_sdh);
         label += std::string(" \xC2\xB7 ") +

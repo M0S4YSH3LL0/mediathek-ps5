@@ -36,7 +36,6 @@ struct Track
 struct SubtitleTrack
 {
     std::string language = "und"; // canonical ISO 639-2 code
-    bool forced = false;          // only the lines not in the film's language: signs, a scene
     bool hearing_impaired = false;
     bool picture = false; // PGS, VobSub, DVB: drawn as a picture rather than as text
 };

@@ -137,13 +137,11 @@ struct SubtitleChoice
 {
     std::string language;  // canonical ISO 639-2 code, "und" when not known
     bool embedded = false; // a track of the film itself
-    bool forced = false;   // only the lines not in the film's language
 };
 
 // The order the subtitle tracks of a film are offered in (indices into `tracks`): those in
-// `preferred` (such as "ger") first; within that, a track with every line before a forced one,
-// and the film's own tracks before the .srt files beside it, which are more often a poor match
-// for its cut. Otherwise the order given.
+// `preferred` (such as "ger") first; within that, the film's own tracks before the .srt files
+// beside it, which are more often a poor match for its cut. Otherwise the order given.
 std::vector<int> subtitle_order(const std::vector<SubtitleChoice> &tracks,
                                 std::string_view preferred);
 

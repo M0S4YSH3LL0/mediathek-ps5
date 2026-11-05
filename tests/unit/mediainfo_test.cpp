@@ -267,11 +267,13 @@ TEST(MediaInfo, RefusesAHalfWrittenOrForeignCacheFile)
     EXPECT_FALSE(decode_info("hello\nend\n", &out));
     std::string text = encode_info(MediaInfo());
     EXPECT_FALSE(decode_info(text.substr(0, text.size() - 4), &out)); // no "end"
-    EXPECT_FALSE(decode_info("mediainfo 3\nnot a pair\nend\n", &out));
+    EXPECT_FALSE(decode_info("mediainfo 4\nnot a pair\nend\n", &out));
     // A file of version 1 may list audio tracks the app cannot play: read the file again.
     EXPECT_FALSE(decode_info("mediainfo 1\naudio=eng,ger\nend\n", &out));
     // Version 2 never looked at the subtitle tracks inside the file.
     EXPECT_FALSE(decode_info("mediainfo 2\naudio=eng,ger\nend\n", &out));
+    // Version 3 listed the languages of forced subtitle tracks, which the player leaves out.
+    EXPECT_FALSE(decode_info("mediainfo 3\naudio=eng,ger\nend\n", &out));
 }
 
 TEST(InfoService, ReadsAFileOnceAndKeepsTheAnswerOnDisk)
