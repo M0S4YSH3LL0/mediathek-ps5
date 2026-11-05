@@ -102,6 +102,13 @@ class Player
     virtual const std::vector<Track> &audio_tracks() const = 0;
     virtual int audio_track() const = 0;
     virtual void select_audio(int index) = 0;
+    // Whether a 5.1 or 7.1 track may play on as many channels (Settings *Audio output*);
+    // otherwise it is mixed down to stereo. Applies from the next film. A player that
+    // knows only stereo ignores it.
+    virtual void set_surround(bool allowed)
+    {
+        static_cast<void>(allowed);
+    }
 
     // The film's own subtitle tracks: empty until it is open (state() past opening).
     virtual const std::vector<SubtitleTrack> &subtitle_tracks() const = 0;

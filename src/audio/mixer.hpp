@@ -1,4 +1,4 @@
-// ps5-homebrew-ui - Real-time stereo mixer (48 kHz, S16 output).
+// ps5-homebrew-ui - Real-time mixer (48 kHz, S16 output, stereo and the console's 8 channels).
 // Copyright (C) 2026 BlackBearReloaded
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace hui::audio
 {
@@ -90,8 +91,14 @@ class Mixer
     bool set_stream_gain(std::size_t slot, float gain, float seconds);
 
     // ---- audio thread ----
-    // Renders frames of interleaved stereo S16 at kSampleRate.
-    void render(std::int16_t *out, int frames);
+    // Renders frames of interleaved stereo S16 at kSampleRate into `out`: sounds, music and the
+    // film. Given `surround` (frames of 8 channels in the console's order, audio/surround.hpp),
+    // a surround film goes there instead and `out` keeps the rest; without it a surround film
+    // is mixed down into `out`. The two are meant for two ports fed together, so that nothing
+    // ever moves from one port to the other while it plays.
+    void render(std::int16_t *out, int frames, std::int16_t *surround = nullptr);
+    // Whether the film's sound is surround: the output should open its 8-channel port.
+    bool wants_surround() const;
     int active_voices() const
     {
         return active_.load(std::memory_order_relaxed);
@@ -149,7 +156,7 @@ class Mixer
     };
 
     bool post(const Command &command);
-    void render_chunk(std::int16_t *out, int frames);
+    void render_chunk(std::int16_t *out, int frames, std::int16_t *surround);
     void apply(const Command &command);
     Voice &allocate_voice();
     static float tone_sample(Voice &voice);
@@ -169,7 +176,9 @@ class Mixer
     std::array<float, kStreams> stream_gain_{};
     std::array<float, kStreams> stream_target_{};
     std::array<float, kStreams> stream_step_{};
-    std::array<std::array<float, kMaxGrain * 2>, kStreams> stream_buffer_{};
+    // kMaxGrain frames of up to 8 samples per stream: on the heap, the mixer may live on a
+    // thread's stack.
+    std::vector<float> stream_buffer_;
     std::atomic<std::uint64_t> underruns_{0};
 };
 

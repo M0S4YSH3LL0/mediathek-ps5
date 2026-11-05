@@ -4,6 +4,8 @@
 
 #include "audio/mixer.hpp"
 
+#include "audio/surround.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -27,7 +29,7 @@ void pan_gains(float pan, float *left, float *right)
 
 } // namespace
 
-Mixer::Mixer()
+Mixer::Mixer() : stream_buffer_(kStreams * kMaxGrain * kSurroundChannels, 0.0f)
 {
     bus_gain_.fill(1.0f);
     bus_target_.fill(1.0f);
@@ -219,7 +221,13 @@ float Mixer::limit(float sample)
     return sample < 0.0f ? -shaped : shaped;
 }
 
-void Mixer::render(std::int16_t *out, int frames)
+bool Mixer::wants_surround() const
+{
+    const StreamRing *ring = streams_[kMovieStream];
+    return ring != nullptr && ring->channels() == kSurroundChannels && ring->surround();
+}
+
+void Mixer::render(std::int16_t *out, int frames, std::int16_t *surround)
 {
     // Drain commands posted since the last grain.
     std::size_t tail = tail_.load(std::memory_order_relaxed);
@@ -234,11 +242,13 @@ void Mixer::render(std::int16_t *out, int frames)
     // Long requests (host tests) are mixed in stream-buffer-sized chunks.
     while (frames > static_cast<int>(kMaxGrain))
     {
-        render_chunk(out, static_cast<int>(kMaxGrain));
+        render_chunk(out, static_cast<int>(kMaxGrain), surround);
         out += kMaxGrain * 2;
+        if (surround != nullptr)
+            surround += kMaxGrain * kSurroundChannels;
         frames -= static_cast<int>(kMaxGrain);
     }
-    render_chunk(out, frames);
+    render_chunk(out, frames, surround);
 
     int active = 0;
     for (const Voice &voice : voices_)
@@ -246,19 +256,20 @@ void Mixer::render(std::int16_t *out, int frames)
     active_.store(active, std::memory_order_relaxed);
 }
 
-void Mixer::render_chunk(std::int16_t *out, int frames)
+void Mixer::render_chunk(std::int16_t *out, int frames, std::int16_t *surround)
 {
-    // Pull this grain from each music stream; a short read plays silence.
+    // Pull this grain from each stream; a short read plays silence.
     for (std::size_t s = 0; s < kStreams; ++s)
     {
-        auto &buffer = stream_buffer_[s];
+        float *buffer = stream_buffer_.data() + s * kMaxGrain * kSurroundChannels;
+        const std::size_t width = streams_[s] != nullptr ? streams_[s]->channels() : 2;
         std::size_t got = 0;
         if (streams_[s] != nullptr)
-            got = streams_[s]->read(buffer.data(), static_cast<std::size_t>(frames));
+            got = streams_[s]->read(buffer, static_cast<std::size_t>(frames));
         if (got < static_cast<std::size_t>(frames))
         {
-            std::fill(buffer.begin() + static_cast<std::ptrdiff_t>(got * 2),
-                      buffer.begin() + frames * 2, 0.0f);
+            std::fill(buffer + got * width, buffer + static_cast<std::size_t>(frames) * width,
+                      0.0f);
             if (streams_[s] != nullptr && stream_gain_[s] > 0.0f)
                 underruns_.fetch_add(1, std::memory_order_relaxed);
         }
@@ -270,8 +281,8 @@ void Mixer::render_chunk(std::int16_t *out, int frames)
             bus_gain_[bus] += (bus_target_[bus] - bus_gain_[bus]) * kGainSmoothing;
         master_gain_ += (master_target_ - master_gain_) * kGainSmoothing;
 
-        float left = 0.0f;
-        float right = 0.0f;
+        float mix[2] = {};
+        float film[kSurroundChannels] = {}; // for the surround port
         for (Voice &voice : voices_)
         {
             if (!voice.active)
@@ -302,8 +313,8 @@ void Mixer::render_chunk(std::int16_t *out, int frames)
             }
             const float gain =
                 voice.params.gain * bus_gain_[static_cast<std::size_t>(voice.params.bus)];
-            left += l * gain * voice.left;
-            right += r * gain * voice.right;
+            mix[kFrontLeft] += l * gain * voice.left;
+            mix[kFrontRight] += r * gain * voice.right;
         }
         const float music = bus_gain_[static_cast<std::size_t>(Bus::music)];
         for (std::size_t s = 0; s < kStreams; ++s)
@@ -313,16 +324,41 @@ void Mixer::render_chunk(std::int16_t *out, int frames)
             if (gain != target)
                 gain = gain < target ? std::min(target, gain + stream_step_[s])
                                      : std::max(target, gain - stream_step_[s]);
-            if (gain <= 0.0f)
+            if (gain <= 0.0f || streams_[s] == nullptr)
                 continue;
-            const float bus = s == kMovieStream ? 1.0f : music;
-            left += stream_buffer_[s][static_cast<std::size_t>(frame) * 2] * gain * bus;
-            right += stream_buffer_[s][static_cast<std::size_t>(frame) * 2 + 1] * gain * bus;
+            const float level = gain * (s == kMovieStream ? 1.0f : music);
+            const std::size_t width = streams_[s]->channels();
+            const float *in = stream_buffer_.data() + s * kMaxGrain * kSurroundChannels +
+                              static_cast<std::size_t>(frame) * width;
+            if (width != kSurroundChannels)
+            {
+                mix[kFrontLeft] += in[0] * level;
+                mix[kFrontRight] += in[1] * level;
+            }
+            else if (surround != nullptr && streams_[s]->surround())
+            {
+                for (std::size_t c = 0; c < kSurroundChannels; ++c)
+                    film[c] += in[c] * level;
+            }
+            else
+            {
+                float l = 0.0f;
+                float r = 0.0f;
+                downmix_frame(in, &l, &r);
+                mix[kFrontLeft] += l * level;
+                mix[kFrontRight] += r * level;
+            }
         }
-        left = limit(left * master_gain_);
-        right = limit(right * master_gain_);
-        out[frame * 2] = static_cast<std::int16_t>(std::lrint(left * 32767.0f));
-        out[frame * 2 + 1] = static_cast<std::int16_t>(std::lrint(right * 32767.0f));
+        std::int16_t *to = out + static_cast<std::size_t>(frame) * 2;
+        for (std::size_t c = 0; c < 2; ++c)
+            to[c] = static_cast<std::int16_t>(std::lrint(limit(mix[c] * master_gain_) * 32767.0f));
+        if (surround != nullptr)
+        {
+            std::int16_t *at = surround + static_cast<std::size_t>(frame) * kSurroundChannels;
+            for (std::size_t c = 0; c < kSurroundChannels; ++c)
+                at[c] =
+                    static_cast<std::int16_t>(std::lrint(limit(film[c] * master_gain_) * 32767.0f));
+        }
     }
 }
 

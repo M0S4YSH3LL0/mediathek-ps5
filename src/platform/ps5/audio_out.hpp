@@ -15,7 +15,11 @@ namespace hui::ps5
 
 // Opens the main 48 kHz stereo port (ProsperoLight's parameters: system
 // user, 256-frame grains) and feeds it from the mixer on its own thread.
-// sceAudioOutOutput blocks for each grain, which paces the thread.
+// sceAudioOutOutput blocks for each grain, which paces the thread. A surround
+// film plays on a second main port with 8 channels, opened the first time one
+// plays (as VLC's PS5 port does; the system mixes it down when the TV or
+// headset has two) and fed from then on beside the stereo port, which keeps
+// the menu sounds and music.
 class AudioOut
 {
   public:
@@ -43,7 +47,11 @@ class AudioOut
     void run();
 
     audio::Mixer *mixer_ = nullptr;
+    void open_surround();
+
     int handle_ = -1;
+    int surround_handle_ = -1;
+    bool surround_tried_ = false;
     pthread_t thread_{};
     bool running_ = false;
     std::atomic<bool> stop_{false};

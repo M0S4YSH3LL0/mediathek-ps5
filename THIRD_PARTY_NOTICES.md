@@ -129,7 +129,8 @@ levels and pipeline depths tried, the restart after a stream error) and the HDR 
 mapping in `src/gfx/video_converter.cpp` follow the PS5 port of
 [VLC](https://github.com/ZiZc3/VLC) (GPL-2.0-or-later). So does HDR output: the scan-out format
 and how it is changed in place (`src/platform/ps5/video_out.cpp`), and how the interface is
-blended over a PQ picture (`src/gfx/hdr_composer.cpp`).
+blended over a PQ picture (`src/gfx/hdr_composer.cpp`), and the console's 8-channel sound port
+and its channel order (`src/platform/ps5/audio_out.cpp`, `src/audio/surround.cpp`).
 
 The app links PacBrew's static FFmpeg (`libavformat`, `libavcodec`,
 `libavutil`, `libswscale`, `libswresample`). That build was configured with

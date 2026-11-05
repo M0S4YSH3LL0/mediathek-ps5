@@ -215,7 +215,7 @@ when the list's focus moves (`build_settings_form`). Right or Cross enters the f
 returns, except that a choice row keeps left and right for itself. Switches change with Cross only.
 It edits the kit's `Settings`: *UI sounds* is `ui_volume` (0 off, else the default), *Debug
 info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` (on by default; keeps
-`hero_` open on every shelf, `animate()`; the settings file is format version 8, older ones still
+`hero_` open on every shelf, `animate()`; the settings file is format version 9, older ones still
 load with the defaults; *App language* is `ui_language`, *Wallpaper on the details page* is
 `details_wallpaper`, read by `draw_details_art`; *Shelves on Home* is `home_shelves`, read by
 `rebuild`: Continue Watching always, then all, own (Recently Added, collections, All Movies, All Series), genres
@@ -229,7 +229,7 @@ choice is made in `add_embedded_subtitles` when the player leaves `opening`, unl
 pressed before. *Subtitle source* is `subtitle_source` (0 automatic, 1 embedded only, 2 `.srt`
 only, `SubtitleSource`): `list_subtitles` leaves the other kind out, and the details page lists
 only the languages the player will offer. *HDR output* is `hdr_output` (0 automatic, 1 off;
-see "HDR output" below).
+see "HDR output" below), *Audio output* `audio_output` (0 automatic, 1 stereo; "Surround sound").
 A value is added within format version 5: an older build reading 3 clamps it to genres. The categories are Appearance, Playback, General, Library and About (`SettingsCategory`). A read-only *Version* row under About shows
 the version and `build_time()` (`core/build_info.cpp`, `__DATE__`/`__TIME__`; `tools/build.sh` touches the file so every build
 stamps it). A change sets `context_.settings_changed`;
@@ -316,6 +316,22 @@ takes the preview through the composer and turns the words back into SDR for the
 above 203 nits clip there; on a TV they do not). Evidence to ask for: `[HUI] video out handle`,
 `[HUI] video out range`, `[HUI] hdr output on|off: 0x... (waited N ms for a flip)`. The owner saw it
 look right on an HDR TV after 0.9.0; a blue or red cast would mean the channel order is swapped.
+
+**Surround sound.** A film's sound reaches the mixer through `movie_ring`, a `StreamRing` of 8
+channels in the console's order (L R C LFE Ls Rs Lb Rb, `audio/surround.hpp`; sceAudioOut format 2,
+as VLC's PS5 port found it). Unless *Audio output* is Stereo (`Player::set_surround`, from the next
+film), the player converts a track of more than two channels to 5.1 (FFmpeg moves rear surrounds to
+the sides) or 7.1, and `audio::place_channels` reorders it (FFmpeg's 7.1 has the backs before the
+sides); stereo tracks fill the first two. The ring's `surround()` flag makes `Mixer::wants_surround`
+true, and the audio thread (`AudioOut::run`) opens a second main port with format 2 (`[HUI] audio
+surround port=...`). From then on every grain goes to both ports: `Mixer::render` puts a surround film
+into the 8-channel grain and everything else (menu sounds, music, a stereo film) into the stereo one.
+Do not move the sound from one port to the other at play and pause: the first build did, and the
+owner heard a crackle at every play and resume (a port stopped in the middle of the confirm sound).
+The system mixes the 8-channel port down for a TV or headset with two channels, as VLC's port relies
+on. If the port cannot be opened, the mixer mixes the surround frames down itself (`downmix_frame`).
+The ring is 4 MiB (2.7 s in 8 channels). Evidence to ask for: `[HUI] audio: N channels, playing M`
+and the port line above.
 
 **Embedded subtitles.** The demux thread keeps the packets of every subtitle track FFmpeg can
 decode (`subtitle_queue_`, at most 6 MiB; the tracks not chosen lose their oldest first and
@@ -460,4 +476,5 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   on cards without a poster, the billboard's long titles, capital umlauts in captions, and the red
   light bar. Checked after 0.9.0: H.264 and HEVC of every size on the hardware decoder (1080p H.264
   and 10-bit HEVC, smaller films, interlaced recordings, seeking), embedded subtitles, the subtitle
-  source setting, and HDR output on an HDR TV.
+  source setting, and HDR output on an HDR TV. A 5.1 film plays on the 8-channel port without a crackle at play and resume.
+  7.1 is *not verified* yet.

@@ -47,6 +47,9 @@ struct Settings
     // Mediathek: 0 automatic (an HDR film goes to an HDR TV as HDR10), 1 off (always tone
     // mapped to SDR).
     int hdr_output = 0;
+    // Mediathek: 0 automatic (a 5.1 or 7.1 track plays on the console's 8-channel output,
+    // which the system mixes down for two speakers), 1 stereo (FFmpeg mixes it down).
+    int audio_output = 0;
     // Display resolution, an index into kResolutions; applies at the next start.
     int resolution = 2;
     // How large on-screen controller hints are: 0 small, 1 medium, 2 large.

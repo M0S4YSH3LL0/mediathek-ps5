@@ -7,6 +7,7 @@ src/app/shell.cpp
 src/app/tour.cpp
 src/audio/cues.cpp
 src/audio/mixer.cpp
+src/audio/surround.cpp
 src/audio/music.cpp
 src/audio/wav.cpp
 src/concepts/*.cpp

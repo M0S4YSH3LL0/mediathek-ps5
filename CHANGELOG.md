@@ -26,6 +26,11 @@
   switches back to SDR when the film stops. *HDR output* under Settings > Playback (Automatic,
   Off) turns it off. The settings file gains one byte (format version 8); earlier files load as
   Automatic.
+- New: 5.1 and 7.1 sound. A film's surround track now plays on the console's 8-channel output
+  instead of being mixed down to stereo, as VLC's PS5 port does it; the console mixes it down
+  itself for a TV or headset with two channels. Menu sounds play in front. *Audio output* under
+  Settings > Playback (Automatic, Stereo) keeps the app's own stereo mix, from the next film. The
+  settings file gains one byte (format version 9); earlier files load as Automatic.
 
 ## 0.9.0 (01.000.090)
 

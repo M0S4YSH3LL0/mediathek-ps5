@@ -11,6 +11,7 @@
 #include "audio/cues.hpp"
 #include "audio/mixer.hpp"
 #include "audio/music.hpp"
+#include "audio/surround.hpp"
 #include "core/frame_stats.hpp"
 #include "core/i18n.hpp"
 #include "core/input.hpp"
@@ -86,7 +87,7 @@ constexpr double kCoverApplySeconds = 1.5;
 // Saved at most this often while something changes; the player also marks its
 // position every few seconds, so a closed title loses a few seconds at most.
 constexpr double kProgressSaveSeconds = 3.0;
-// The mixer stream a movie's sound goes through: 2.7 s of 48 kHz stereo.
+// The mixer stream a movie's sound goes through: 2.7 s of 48 kHz in 8 channels (4 MiB).
 constexpr std::size_t kMovieRingFrames = 1u << 17;
 // Development output (the tour's pictures and report, the log). A title's
 // sandbox has no /data, so it lives in the title's own storage. While the
@@ -267,7 +268,9 @@ int main()
                                   static_cast<std::uint64_t>(sys::monotonic_us()));
     sys::log("[HUI] music songs=%d", tracks);
     // The movie's sound ring attaches before the audio thread starts, too.
-    audio::StreamRing movie_ring(kMovieRingFrames);
+    // A film's sound in the console's 8 channels (audio/surround.hpp), stereo ones in the
+    // first two: the output switches to its 8-channel port only for a surround track.
+    audio::StreamRing movie_ring(kMovieRingFrames, audio::kSurroundChannels);
     mixer.attach_stream(audio::Mixer::kMovieStream, &movie_ring);
     mixer.set_stream_gain(audio::Mixer::kMovieStream, 1.0f, 0.0f);
     ps5::AudioOut audio_out;
@@ -606,6 +609,7 @@ int main()
         {
             const Settings &settings = shell.settings();
             apply_ui_sounds(settings);
+            player->set_surround(settings.audio_output == 0);
             InputSettings input_settings = tracker.settings();
             input_settings.swap_confirm = settings.swap_confirm;
             tracker.set_settings(input_settings);

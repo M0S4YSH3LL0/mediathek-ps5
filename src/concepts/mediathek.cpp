@@ -86,6 +86,7 @@ enum SettingsRow : int
     kRowSubtitleLanguage,
     kRowSubtitleSource,
     kRowHdrOutput,
+    kRowAudioOutput,
     kRowReload,
     kRowDebug,
     kRowVersion,
@@ -1085,6 +1086,10 @@ class Mediathek final : public app::Concept
                 .add_choice(kRowHdrOutput, tr(Text::settings_hdr_output),
                             {tr(Text::settings_language_auto), tr(Text::settings_off)})
                 .description = tr(Text::settings_hdr_output_hint);
+            settings_form_
+                .add_choice(kRowAudioOutput, tr(Text::settings_audio_output),
+                            {tr(Text::settings_language_auto), tr(Text::settings_audio_stereo)})
+                .description = tr(Text::settings_audio_output_hint);
             break;
         case kCategoryGeneral:
             settings_form_.add_choice(kRowLanguage, tr(Text::settings_ui_language),
@@ -1156,6 +1161,7 @@ class Mediathek final : public app::Concept
         settings_form_.set_choice(kRowSubtitleLanguage, context_.settings.subtitle_language);
         settings_form_.set_choice(kRowSubtitleSource, context_.settings.subtitle_source);
         settings_form_.set_choice(kRowHdrOutput, context_.settings.hdr_output);
+        settings_form_.set_choice(kRowAudioOutput, context_.settings.audio_output);
     }
 
     void open_settings()
@@ -1400,6 +1406,10 @@ class Mediathek final : public app::Concept
         else if (row == kRowHdrOutput)
         {
             settings.hdr_output = settings_form_.choice_index(row);
+        }
+        else if (row == kRowAudioOutput)
+        {
+            settings.audio_output = settings_form_.choice_index(row);
         }
         else if (row == kRowDebug)
         {

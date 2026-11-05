@@ -5,6 +5,7 @@
 #include "platform/ps5/ffmpeg_player.hpp"
 
 #include "audio/mixer.hpp"
+#include "audio/surround.hpp"
 #include "core/i18n.hpp"
 #include "media/decode_budget.hpp"
 #include "media/decode_pace.hpp"
@@ -225,9 +226,9 @@ class Session
 {
   public:
     Session(std::string path, double start, audio::StreamRing *ring, bool hardware,
-            bool gpu_pictures)
-        : path_(std::move(path)), ring_(ring), hardware_(hardware), gpu_pictures_(gpu_pictures),
-          discard_before_(start)
+            bool gpu_pictures, bool surround)
+        : path_(std::move(path)), ring_(ring), hardware_(hardware), surround_(surround),
+          gpu_pictures_(gpu_pictures), discard_before_(start)
     {
         pthread_mutex_init(&mutex_, nullptr);
         pthread_cond_init(&wake_, nullptr);
@@ -1626,33 +1627,44 @@ class Session
         return nullptr;
     }
 
-    // Opens the decoder and the converter to stereo float at the mixer's rate.
-    bool open_audio(int stream_index, AVCodecContext **context, SwrContext **swr)
+    // Opens the decoder and the converter to float at the mixer's rate: stereo, or 5.1 or
+    // 7.1 for a track with more channels when surround is allowed. Returns the channels the
+    // converter makes, 0 when the track cannot be played.
+    int open_audio(int stream_index, AVCodecContext **context, SwrContext **swr)
     {
         avcodec_free_context(context);
         swr_free(swr);
         const AVCodecParameters *parameters = format_->streams[stream_index]->codecpar;
         const AVCodec *codec = avcodec_find_decoder(parameters->codec_id);
         if (codec == nullptr)
-            return false;
+            return 0;
         *context = avcodec_alloc_context3(codec);
         avcodec_parameters_to_context(*context, parameters);
         if (avcodec_open2(*context, codec, nullptr) < 0)
         {
             avcodec_free_context(context);
-            return false;
+            return 0;
         }
-        AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
-        if (swr_alloc_set_opts2(swr, &stereo, AV_SAMPLE_FMT_FLT, kOutputRate,
+        // 5.1 comes out with side surrounds (FFmpeg moves a 5.1 with rear ones there), 7.1
+        // with sides and backs: audio::place_channels puts either into the console's order.
+        const int from = (*context)->ch_layout.nb_channels;
+        AVChannelLayout layout = AV_CHANNEL_LAYOUT_STEREO;
+        const bool surround = surround_ && ring_->channels() == audio::kSurroundChannels;
+        if (surround && from > 6)
+            layout = AV_CHANNEL_LAYOUT_7POINT1;
+        else if (surround && from > 2)
+            layout = AV_CHANNEL_LAYOUT_5POINT1;
+        if (swr_alloc_set_opts2(swr, &layout, AV_SAMPLE_FMT_FLT, kOutputRate,
                                 &(*context)->ch_layout, (*context)->sample_fmt,
                                 (*context)->sample_rate, 0, nullptr) < 0 ||
             swr_init(*swr) < 0)
         {
             swr_free(swr);
             avcodec_free_context(context);
-            return false;
+            return 0;
         }
-        return true;
+        sys::log("[HUI] audio: %d channels, playing %d", from, layout.nb_channels);
+        return layout.nb_channels;
     }
 
     void audio()
@@ -1663,6 +1675,8 @@ class Session
         SwrContext *swr = nullptr;
         AVFrame *frame = av_frame_alloc();
         std::vector<float> converted;
+        std::vector<float> placed; // in the ring's channels and order
+        int channels = 2;
         int decoder_serial = -1;
         int open_stream = -1;
         double next_pts = 0.0;
@@ -1688,7 +1702,9 @@ class Session
             }
             if (item.packet != nullptr && item.stream != open_stream)
             {
-                open_stream = open_audio(item.stream, &context, &swr) ? item.stream : -1;
+                channels = open_audio(item.stream, &context, &swr);
+                open_stream = channels > 0 ? item.stream : -1;
+                ring_->set_surround(channels > 2);
                 decoder_serial = -1;
             }
             const bool ended = item.packet == nullptr; // av_packet_free clears the pointer
@@ -1726,7 +1742,8 @@ class Session
                     continue; // all of it is before the point the viewer asked for
                 }
                 const int capacity = swr_get_out_samples(swr, frame->nb_samples);
-                converted.resize(static_cast<std::size_t>(std::max(capacity, 1)) * 2);
+                converted.resize(static_cast<std::size_t>(std::max(capacity, 1)) *
+                                 static_cast<std::size_t>(channels));
                 float *out = converted.data();
                 const int samples = swr_convert(swr, reinterpret_cast<std::uint8_t **>(&out),
                                                 capacity, frame->extended_data, frame->nb_samples);
@@ -1735,7 +1752,15 @@ class Session
                     continue;
                 if (!wait_for_first_picture(decoder_serial))
                     break;
-                write_audio(converted.data(), static_cast<std::size_t>(samples), decoder_serial,
+                const float *ready = converted.data();
+                if (ring_->channels() == audio::kSurroundChannels)
+                {
+                    placed.resize(static_cast<std::size_t>(samples) * ring_->channels());
+                    audio::place_channels(converted.data(), channels, placed.data(),
+                                          static_cast<std::size_t>(samples));
+                    ready = placed.data();
+                }
+                write_audio(ready, static_cast<std::size_t>(samples), decoder_serial,
                             next_pts + static_cast<double>(samples) / kOutputRate);
                 next_pts += length;
             }
@@ -1780,7 +1805,7 @@ class Session
         std::size_t done = 0;
         while (done < frames)
         {
-            done += ring_->write(samples + done * 2, frames - done);
+            done += ring_->write(samples + done * ring_->channels(), frames - done);
             if (done >= frames)
                 break;
             usleep(4000); // the mixer takes 48000 frames a second; wait for room
@@ -1795,6 +1820,7 @@ class Session
     std::string path_;
     audio::StreamRing *ring_;
     const bool hardware_;
+    const bool surround_; // 5.1 and 7.1 tracks keep their channels
     // Pictures from the hardware decoder, and HDR pictures from FFmpeg, go to the
     // graphics chip as planes.
     std::atomic<bool> gpu_pictures_;
@@ -1942,8 +1968,9 @@ class FfmpegPlayer final : public media::Player
         scrub_ = false;
         subtitle_choice_ = -1;
         subtitle_tracks_.clear();
-        session_ = std::make_unique<Session>(path, clock_, ring_, hardware_,
-                                             static_cast<bool>(surface_.update_yuv) && gpu_ok_);
+        session_ =
+            std::make_unique<Session>(path, clock_, ring_, hardware_,
+                                      static_cast<bool>(surface_.update_yuv) && gpu_ok_, surround_);
         state_ = PlayerState::opening;
     }
 
@@ -1952,7 +1979,10 @@ class FfmpegPlayer final : public media::Player
         restart_subtitles(); // before the session: the decoder reads the session's streams
         session_.reset();    // stops and joins the threads
         if (ring_ != nullptr)
+        {
             ring_->drain();
+            ring_->set_surround(false); // the sound goes back to the stereo port
+        }
         release_texture();
         if (subtitle_texture_ != 0 && surface_.release)
             surface_.release(subtitle_texture_);
@@ -2158,6 +2188,10 @@ class FfmpegPlayer final : public media::Player
     int audio_track() const override
     {
         return session_ ? session_->audio_choice() : 0;
+    }
+    void set_surround(bool allowed) override
+    {
+        surround_ = allowed;
     }
     void select_audio(int index) override
     {
@@ -2449,6 +2483,7 @@ class FfmpegPlayer final : public media::Player
     audio::StreamRing *ring_;
     std::function<void(bool)> sound_;
     bool hardware_;
+    bool surround_ = true;
     std::unique_ptr<Session> session_;
     PlayerState state_ = PlayerState::idle;
     double clock_ = 0.0;

@@ -100,6 +100,11 @@ HUI_TEXT(settings_subtitle_source_srt, "SRT only", "Nur SRT")
 HUI_TEXT(settings_hdr_output, "HDR output", "HDR-Ausgabe")
 HUI_TEXT(settings_hdr_output_hint, "HDR films reach an HDR TV as HDR. Off: always converted to SDR",
          "HDR-Filme gehen als HDR an einen HDR-Fernseher. Aus: immer in SDR")
+HUI_TEXT(settings_audio_output, "Audio output", "Tonausgabe")
+HUI_TEXT(settings_audio_stereo, "Stereo", "Stereo")
+HUI_TEXT(settings_audio_output_hint,
+         "5.1 and 7.1 films play on every channel. Stereo: mixed down for TV speakers and headphones",
+         "5.1- und 7.1-Filme auf allen Kan\xC3\xA4len. Stereo: heruntergemischt f\xC3\xBCr TV und Kopfh\xC3\xB6rer")
 HUI_TEXT(settings_about, "About", "\xC3\x9C" "ber")
 HUI_TEXT(settings_debug, "Debug info", "Debug-Infos")
 HUI_TEXT(settings_debug_hint, "Frame rate and drawing statistics in the corner of the screen",

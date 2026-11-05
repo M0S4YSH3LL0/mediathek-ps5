@@ -14,9 +14,10 @@ namespace hui
 namespace
 {
 // Version 2 appends pin_billboard, version 3 ui_language, version 4 details_wallpaper, version
-// 5 home_shelves, version 6 force_subtitles and subtitle_language, version 7 subtitle_source and
-// version 8 hdr_output; older files are still read (the settings they lack keep their defaults).
-constexpr std::uint8_t kVersion = 8;
+// 5 home_shelves, version 6 force_subtitles and subtitle_language, version 7 subtitle_source,
+// version 8 hdr_output and version 9 audio_output; older files are still read (the settings
+// they lack keep their defaults).
+constexpr std::uint8_t kVersion = 9;
 constexpr std::uint8_t kVersionWithoutPin = 1;
 constexpr std::uint8_t kVersionWithoutLanguage = 2;
 constexpr std::uint8_t kVersionWithoutWallpaper = 3;
@@ -24,6 +25,7 @@ constexpr std::uint8_t kVersionWithoutHomeShelves = 4;
 constexpr std::uint8_t kVersionWithoutSubtitles = 5;
 constexpr std::uint8_t kVersionWithoutSubtitleSource = 6;
 constexpr std::uint8_t kVersionWithoutHdrOutput = 7;
+constexpr std::uint8_t kVersionWithoutAudioOutput = 8;
 } // namespace
 
 std::string encode_settings(const Settings &settings)
@@ -49,6 +51,7 @@ std::string encode_settings(const Settings &settings)
     w.put(static_cast<std::uint8_t>(settings.subtitle_language));
     w.put(static_cast<std::uint8_t>(settings.subtitle_source));
     w.put(static_cast<std::uint8_t>(settings.hdr_output));
+    w.put(static_cast<std::uint8_t>(settings.audio_output));
     return w.data();
 }
 
@@ -87,6 +90,8 @@ bool decode_settings(std::string_view data, Settings *settings)
         s.subtitle_source = std::clamp<int>(r.get<std::uint8_t>(), 0, 2);
     if (version > kVersionWithoutHdrOutput)
         s.hdr_output = std::clamp<int>(r.get<std::uint8_t>(), 0, 1);
+    if (version > kVersionWithoutAudioOutput)
+        s.audio_output = std::clamp<int>(r.get<std::uint8_t>(), 0, 1);
     if (!r.finished())
         return false;
     *settings = s;
