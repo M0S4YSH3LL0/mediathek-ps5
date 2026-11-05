@@ -7,7 +7,7 @@
 **A Netflix-style library for your movies and series on PS5.**<br>
 Put your films in a `movies` folder and your series in `tvshows`. Mediathek finds them, fetches their posters and plays them.
 
-[![Version 0.9.0](https://img.shields.io/badge/version-0.9.0-blue)](CHANGELOG.md)
+[![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-blue)](CHANGELOG.md)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
 [![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Languages: English, German](https://img.shields.io/badge/languages-EN%20%7C%20DE-green)](#settings-and-language)
@@ -322,7 +322,7 @@ rules for changes. A release tag is the exact `contentVersion` of `sce_sys/param
 
 ## Status
 
-Version 0.9.0 (`contentVersion` 01.000.090).
+Version 1.0.0 (`contentVersion` 01.000.100).
 
 **Checked on the author's console, firmware 12.70:** the scan, covers and descriptions,
 the details page, a large 1080p H.264 MKV with sound, seeking, audio and subtitle
@@ -334,11 +334,14 @@ Home and details page; and (0.9.0) series (the scan of the series folders, TMDB'
 season and episode descriptions, choosing season and episode, the next episode in the
 player), *Recently Added* going by the day a film was found, the media folders with
 their choice of Automatic, Movies or Series, films shown with their title from TMDB, and the
-red light bar. The loader
+red light bar; and (1.0.0) H.264 and HEVC of every size on the hardware decoder, the subtitles
+inside a film and switching them mid-film and after a seek, the subtitle source, HDR output on
+an HDR TV, 5.1 sound on the 8-channel output, the audio language and the Stereo output. The loader
 version was not recorded. Reports from other firmware are welcome.
 
-**Not checked on a console:** 4K H.264, HLG and Dolby Vision films, and the fallback to the
-CPU when the graphics chip cannot convert a picture.
+**Not checked on a console:** 4K H.264, HLG and Dolby Vision films, 7.1 sound, forced
+subtitles shown by themselves, and the fallback to the CPU when the graphics chip cannot
+convert a picture.
 
 **Checked on a PC:** the unit tests, the preview pictures, the scan helper against a
 folder of sample files, a clean build and lint.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 (01.000.100)
 
 - H.264 and HEVC films of every size now play on the console's hardware decoder, as in VLC's
   PS5 port, not only those beyond 1080p: it leaves the CPU and the app's memory free, and plays

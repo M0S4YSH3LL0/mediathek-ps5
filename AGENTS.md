@@ -161,7 +161,7 @@ folder's git repository and takes more than two minutes; use a long timeout.
   commit, the tag, the push and the GitHub release (zip and `.sha256` from `dist/release`).
   When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
-  (`01.000.090` is the app's 0.9.0); the app shows the short form (`kAppVersion` in
+  (`01.000.100` is the app's 1.0.0); the app shows the short form (`kAppVersion` in
   `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
@@ -489,9 +489,8 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   folders' content choice (Automatic, Movies, Series) with series folders inside an extra folder,
   the empty pages ("No media found", per tab), TMDB's titles (`<id>.title`), the three-line titles
   on cards without a poster, the billboard's long titles, capital umlauts in captions, and the red
-  light bar. Checked after 0.9.0: H.264 and HEVC of every size on the hardware decoder (1080p H.264
+  light bar. Checked in 1.0.0: H.264 and HEVC of every size on the hardware decoder (1080p H.264
   and 10-bit HEVC, smaller films, interlaced recordings, seeking), embedded subtitles (switching tracks mid-film and after a
   seek), the subtitle source setting, and HDR output on an HDR TV. A 5.1 film plays on the 8-channel port without a crackle at play and resume.
-  Checked after the audio language change: the *Audio language* track choice and *Audio output*
-  Stereo. Forced subtitles
-  shown by themselves and 7.1 are *not verified* yet.
+  The *Audio language* track choice and *Audio output*
+  Stereo. Forced subtitles shown by themselves and 7.1 are *not verified* yet.
