@@ -20,6 +20,12 @@
 - New: *Subtitle source* under Settings > Playback: Automatic (both, the film's own first),
   Embedded only or SRT only. Triangle, *Force subtitles* and the details page follow it. The
   settings file gains one byte (format version 7); earlier files load as Automatic.
+- New: HDR output. On a TV the console already sends HDR to, an HDR film (HDR10 or HLG) is
+  sent as HDR10 while it plays, as VLC's PS5 port does it, instead of being tone-mapped to SDR;
+  the controls, subtitles and messages are drawn over it at their usual brightness. The screen
+  switches back to SDR when the film stops. *HDR output* under Settings > Playback (Automatic,
+  Off) turns it off. The settings file gains one byte (format version 8); earlier files load as
+  Automatic.
 
 ## 0.9.0 (01.000.090)
 

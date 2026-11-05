@@ -94,6 +94,12 @@ class Shell
     {
         return transition_.running;
     }
+    // The film's picture the current design drew last (compose or rehearse); none while
+    // designs are switched.
+    Frame::Video video() const
+    {
+        return transition_.running ? Frame::Video{} : frames_[0].video;
+    }
 
   private:
     void record(Frame &frame, const Concept &design, float opacity, float dx, float scale);

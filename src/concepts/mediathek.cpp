@@ -85,6 +85,7 @@ enum SettingsRow : int
     kRowForceSubtitles,
     kRowSubtitleLanguage,
     kRowSubtitleSource,
+    kRowHdrOutput,
     kRowReload,
     kRowDebug,
     kRowVersion,
@@ -501,6 +502,14 @@ class Mediathek final : public app::Concept
         {
             frame.backdrop.mode = gfx::BackdropMode::none;
             draw_player(frame.scene);
+            const media::Player *player = svc_->player;
+            if (player != nullptr && playing_ >= 0 && player->texture() != 0 &&
+                player->video_width() > 0)
+            {
+                frame.video.texture = player->texture();
+                frame.video.rect = on_screen(static_cast<float>(player->video_width()) /
+                                             static_cast<float>(player->video_height()));
+            }
             return;
         }
         draw_page(frame);
@@ -1072,6 +1081,10 @@ class Mediathek final : public app::Concept
                              tr(Text::settings_subtitle_source_embedded),
                              tr(Text::settings_subtitle_source_srt)})
                 .description = tr(Text::settings_subtitle_source_hint);
+            settings_form_
+                .add_choice(kRowHdrOutput, tr(Text::settings_hdr_output),
+                            {tr(Text::settings_language_auto), tr(Text::settings_off)})
+                .description = tr(Text::settings_hdr_output_hint);
             break;
         case kCategoryGeneral:
             settings_form_.add_choice(kRowLanguage, tr(Text::settings_ui_language),
@@ -1142,6 +1155,7 @@ class Mediathek final : public app::Concept
         settings_form_.set_toggle(kRowForceSubtitles, context_.settings.force_subtitles);
         settings_form_.set_choice(kRowSubtitleLanguage, context_.settings.subtitle_language);
         settings_form_.set_choice(kRowSubtitleSource, context_.settings.subtitle_source);
+        settings_form_.set_choice(kRowHdrOutput, context_.settings.hdr_output);
     }
 
     void open_settings()
@@ -1382,6 +1396,10 @@ class Mediathek final : public app::Concept
         else if (row == kRowSubtitleSource)
         {
             settings.subtitle_source = settings_form_.choice_index(row);
+        }
+        else if (row == kRowHdrOutput)
+        {
+            settings.hdr_output = settings_form_.choice_index(row);
         }
         else if (row == kRowDebug)
         {
@@ -3523,13 +3541,18 @@ class Mediathek final : public app::Concept
     {
         const ui::Fonts &fonts = context_.fonts;
         const media::Player *player = svc_->player;
-        list.rounded_rect({0, 0, gfx::kVirtualWidth, gfx::kVirtualHeight}, 0, Color::rgb(0x000000));
+        // On an HDR10 screen the film is drawn under this layer by the platform (draw()
+        // hands it over in Frame::video), and black there would cover it.
+        const bool hdr = svc_->hdr_output;
+        if (!hdr)
+            list.rounded_rect({0, 0, gfx::kVirtualWidth, gfx::kVirtualHeight}, 0,
+                              Color::rgb(0x000000));
         if (player == nullptr || playing_ < 0)
             return;
         const media::Movie &m = playing_item_;
         const media::PlayerState state = player->state();
 
-        if (player->texture() != 0 && player->video_width() > 0)
+        if (!hdr && player->texture() != 0 && player->video_width() > 0)
             list.image(player->texture(),
                        on_screen(static_cast<float>(player->video_width()) /
                                  static_cast<float>(player->video_height())),

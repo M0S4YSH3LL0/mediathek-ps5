@@ -44,6 +44,9 @@ struct Settings
     // Mediathek: which subtitles a film offers. 0 automatic (the film's own tracks and the .srt
     // files beside it, the film's own first), 1 the film's own only, 2 the .srt files only.
     int subtitle_source = 0;
+    // Mediathek: 0 automatic (an HDR film goes to an HDR TV as HDR10), 1 off (always tone
+    // mapped to SDR).
+    int hdr_output = 0;
     // Display resolution, an index into kResolutions; applies at the next start.
     int resolution = 2;
     // How large on-screen controller hints are: 0 small, 1 medium, 2 large.

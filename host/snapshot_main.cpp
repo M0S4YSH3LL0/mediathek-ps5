@@ -21,10 +21,12 @@
 #include "core/save_file.hpp"
 #include "demo/catalog.hpp"
 #include "gfx/gl_program.hpp"
+#include "gfx/hdr_composer.hpp"
 #include "gfx/renderer.hpp"
 #include "gfx/video_converter.hpp"
 #include "manifest.hpp"
 #include "core/i18n.hpp"
+#include "media/hdr_output.hpp"
 #include "media/info_service.hpp"
 #include "media/library.hpp"
 #include "media/mediainfo.hpp"
@@ -42,6 +44,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unistd.h>
 #include <utility>
@@ -752,8 +755,14 @@ int main(int argc, char **argv)
     { renderer.batch().update_texture(t, w, h, rgba); };
     surface.release = [&](std::uint32_t t) { renderer.batch().delete_texture(t); };
     hui::gfx::VideoConverter video_converter;
+    // HUI_HDR_OUT=1: the screen is taken for an HDR TV, so an HDR film is sent as HDR10; each
+    // picture's 10-bit words are turned back into SDR for the PNG (media::hdr10_to_viewable).
+    const char *hdr_out = std::getenv("HUI_HDR_OUT");
+    const bool hdr_tv = hdr_out != nullptr && std::string(hdr_out) == "1";
+    hui::media::HdrSwitch hdr_switch;
+    hui::gfx::HdrComposer hdr_composer;
     surface.update_yuv = [&](std::uint32_t t, int w, int h, const hui::media::YuvFrame &frame)
-    { return video_converter.convert(frame, t, w, h); };
+    { return video_converter.convert(frame, t, w, h, hdr_switch.on()); };
     // HUI_SIM_HDR=1: the player screen shows an HDR test card through the GPU converter.
     const char *sim_hdr = std::getenv("HUI_SIM_HDR");
     SamplePlayer player(surface, sim_hdr != nullptr && std::string(sim_hdr) == "1");
@@ -779,13 +788,34 @@ int main(int argc, char **argv)
             posters.poll();
             usleep(5000);
         }
+        const bool hdr_frame = hdr_switch.on() && hdr_composer.begin(width, height);
+        services.hdr_output = hdr_frame;
         shell.compose(renderer);
-        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        glClearColor(0, 0, 0, 1);
-        glClear(GL_COLOR_BUFFER_BIT);
-        renderer.present(framebuffer, width, height);
+        if (hdr_frame)
+        {
+            renderer.present(hdr_composer.layer(), width, height);
+            const hui::app::Frame::Video video = shell.video();
+            hui::gfx::HdrPicture picture;
+            picture.texture = video.texture;
+            picture.x = video.rect.x;
+            picture.y = video.rect.y;
+            picture.w = video.rect.w;
+            picture.h = video.rect.h;
+            picture.opacity = video.opacity;
+            picture.pq = video_converter.holds_pq(video.texture);
+            hdr_composer.finish(framebuffer, picture);
+        }
+        else
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+            glClearColor(0, 0, 0, 1);
+            glClear(GL_COLOR_BUFFER_BIT);
+            renderer.present(framebuffer, width, height);
+        }
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        if (hdr_frame)
+            hui::media::hdr10_to_viewable(pixels.data(), pixels.size() / 4);
         // The PNG is opaque whatever the blending left in the alpha channel.
         for (std::size_t i = 3; i < pixels.size(); i += 4)
             pixels[i] = 255;
@@ -916,6 +946,16 @@ int main(int argc, char **argv)
             shell.rehearse(); // as on the console, every frame is drawn
             if (posters.pending() > 0)
                 usleep(1500);
+        }
+        if (hdr_tv)
+        {
+            const hui::app::Frame::Video video = shell.video();
+            const bool want =
+                shell.settings().hdr_output == 0 && video_converter.shows_hdr(video.texture);
+            const double seconds = static_cast<double>(frames) * kDt;
+            if (const std::optional<bool> change = hdr_switch.update(want, seconds))
+                hdr_switch.done(*change, true, seconds);
+            services.hdr_output = hdr_switch.on();
         }
     }
     std::fprintf(stderr, "tour: %ld frames simulated\n", frames);

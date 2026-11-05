@@ -238,6 +238,11 @@ wrap_options=()
 if grep -qs '__wrap_sceSystemServiceHideSplashScreen' "$root/src/runtime/runtime_shims.c"; then
     wrap_options+=("--wrap=sceSystemServiceHideSplashScreen")
 fi
+# ps5-opengl keeps the video output's handle to itself; HDR10 output needs it
+# (src/platform/ps5/video_out.cpp).
+if grep -qs '__wrap_sceVideoOutOpen' "$root/src/platform/ps5/video_out.cpp"; then
+    wrap_options+=("--wrap=sceVideoOutOpen")
+fi
 if [[ -f $root/src/runtime/app_heap.c ]]; then
     for symbol in malloc calloc realloc free posix_memalign malloc_usable_size; do
         wrap_options+=("--wrap=$symbol")

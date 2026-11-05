@@ -17,7 +17,8 @@ namespace hui::gfx
 // texture the screens already show, so a picture still reaches the screen the one way
 // everything does. The shader also does what the CPU has no time for at 4K: HDR's
 // light, PQ or HLG, brought down to an ordinary screen's range (tone mapping) and
-// BT.2020's colours into BT.709's.
+// BT.2020's colours into BT.709's. While the screen is HDR10 an HDR picture is left as it
+// is instead (HLG turned into PQ), in a 10-bit texture, for gfx::HdrComposer.
 class VideoConverter
 {
   public:
@@ -26,11 +27,24 @@ class VideoConverter
     VideoConverter(const VideoConverter &) = delete;
     VideoConverter &operator=(const VideoConverter &) = delete;
 
-    // Draws `frame` into `target`, an RGBA8 texture of width x height. Leaves the GL
-    // state as it found it. False when the shader or the target cannot be made: the
-    // caller converts on the CPU from then on.
-    bool convert(const media::YuvFrame &frame, std::uint32_t target, int width, int height);
+    // Draws `frame` into `target`, an RGBA8 texture of width x height. With `pq_output` an
+    // HDR picture goes in as PQ codes with BT.2020 primaries, and the texture becomes
+    // RGB10_A2 for it (RGBA8 again for the next SDR one). Leaves the GL state as it found
+    // it. False when the shader or the target cannot be made: the caller converts on the
+    // CPU from then on.
+    bool convert(const media::YuvFrame &frame, std::uint32_t target, int width, int height,
+                 bool pq_output = false);
     void release();
+
+    // What the last picture drawn into `texture` was: HDR (PQ or HLG), and left as PQ codes.
+    bool shows_hdr(std::uint32_t texture) const
+    {
+        return texture != 0 && texture == last_target_ && last_hdr_;
+    }
+    bool holds_pq(std::uint32_t texture) const
+    {
+        return texture != 0 && texture == last_target_ && last_pq_;
+    }
 
   private:
     bool init();
@@ -43,6 +57,9 @@ class VideoConverter
     GLuint chroma_ = 0;
     media::YuvLayout layout_;
     bool failed_ = false;
+    std::uint32_t last_target_ = 0;
+    bool last_hdr_ = false;
+    bool last_pq_ = false;
 };
 
 } // namespace hui::gfx

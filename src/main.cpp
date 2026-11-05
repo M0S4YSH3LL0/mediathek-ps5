@@ -19,10 +19,12 @@
 #include "core/version.hpp"
 #include "demo/catalog.hpp"
 #include "gfx/canvas.hpp"
+#include "gfx/hdr_composer.hpp"
 #include "gfx/renderer.hpp"
 #include "gfx/video_converter.hpp"
 #include "media/added.hpp"
 #include "media/cover_service.hpp"
+#include "media/hdr_output.hpp"
 #include "media/library.hpp"
 #include "media/poster_cache.hpp"
 #include "media/progress.hpp"
@@ -30,6 +32,7 @@
 #include "media/services.hpp"
 #include "media/tmdb.hpp"
 #include "platform/ps5/audio_out.hpp"
+#include "platform/ps5/video_out.hpp"
 #include "platform/ps5/dns.h"
 #include "platform/ps5/display_egl.hpp"
 #include "platform/ps5/ffmpeg_player.hpp"
@@ -50,6 +53,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -302,9 +306,14 @@ int main()
     surface.release = [&renderer](std::uint32_t texture)
     { renderer.batch().delete_texture(texture); };
     gfx::VideoConverter video_converter;
-    surface.update_yuv =
-        [&video_converter](std::uint32_t texture, int w, int h, const media::YuvFrame &frame)
-    { return video_converter.convert(frame, texture, w, h); };
+    // HDR10 output: when the screen goes HDR and back, and the pass that writes its frames.
+    media::HdrSwitch hdr_switch;
+    gfx::HdrComposer hdr_composer;
+    bool hdr_unavailable = false; // the composer could not be made: tone-map, as before
+    int tv_range = -1;            // what the output carries, video_out::dynamic_range()
+    surface.update_yuv = [&video_converter, &hdr_switch](std::uint32_t texture, int w, int h,
+                                                         const media::YuvFrame &frame)
+    { return video_converter.convert(frame, texture, w, h, hdr_switch.on()); };
     const bool hardware_decoding = env.get("HW_DECODE") != "0";
     if (hardware_decoding)
     {
@@ -621,11 +630,35 @@ int main()
         }
         music.pump(dt);
 
+        // An HDR10 frame: everything but the film into a layer of its own, then the film and
+        // the layer into the screen as 10-bit words (gfx::HdrComposer).
+        const bool hdr_frame =
+            hdr_switch.on() && hdr_composer.begin(display.width(), display.height());
+        if (hdr_switch.on() && !hdr_frame)
+            hdr_unavailable = true;
+        services.hdr_output = hdr_frame;
         shell.compose(renderer);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-        renderer.present(0, display.width(), display.height());
+        if (hdr_frame)
+        {
+            renderer.present(hdr_composer.layer(), display.width(), display.height());
+            const app::Frame::Video video = shell.video();
+            gfx::HdrPicture picture;
+            picture.texture = video.texture;
+            picture.x = video.rect.x;
+            picture.y = video.rect.y;
+            picture.w = video.rect.w;
+            picture.h = video.rect.h;
+            picture.opacity = video.opacity;
+            picture.pq = video_converter.holds_pq(video.texture);
+            hdr_composer.finish(0, picture);
+        }
+        else
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+            renderer.present(0, display.width(), display.height());
+        }
         if (tour && !tour->capture().empty())
         {
             // The picture is the same frame drawn once more into a small
@@ -654,6 +687,27 @@ int main()
         }
         ++frames;
         const std::int64_t presented = sys::monotonic_us();
+        // HDR10 while an HDR film shows on a TV the console already sends HDR to (its HDR
+        // setting "On When Supported" or "Always On"), as VLC's PS5 port does it.
+        if (frames % 60 == 0)
+        {
+            const int range = ps5::video_out::dynamic_range();
+            if (range != tv_range)
+                sys::log("[HUI] video out range=%d (1 SDR, 2 HDR)", range);
+            tv_range = range;
+        }
+        {
+            const app::Frame::Video video = shell.video();
+            const bool want_hdr = shell.settings().hdr_output == 0 && !hdr_unavailable &&
+                                  tv_range == 2 && video_converter.shows_hdr(video.texture);
+            const double seconds = static_cast<double>(presented) / 1e6;
+            if (const std::optional<bool> change = hdr_switch.update(want_hdr, seconds))
+            {
+                glFinish(); // the frame on its way is shown in the format it was drawn for
+                const bool ok = ps5::video_out::set_hdr(*change, display.width(), display.height());
+                hdr_switch.done(*change, ok, seconds);
+            }
+        }
         const float frame_ms = static_cast<float>(presented - previous) / 1000.0f;
         app::Telemetry &telemetry = shell.telemetry();
         if (frames == 1)
@@ -713,6 +767,11 @@ int main()
                 save_progress();
             player->close();
             pad.close();
+            if (hdr_switch.on())
+            {
+                glFinish();
+                ps5::video_out::set_hdr(false, display.width(), display.height());
+            }
             sys::quit();
         }
         if (stats.count() == 600)

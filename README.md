@@ -144,9 +144,11 @@ Put series in a `tvshows` or `series` folder (also `TV Shows`, `mediathek/tvshow
 
 H.264 (up to High) and HEVC (Main and Main10) films of any size up to 3840 x 2176 go to
 the console's hardware decoder; FFmpeg decodes everything else on the CPU, and takes over
-a film the hardware refuses or gives up on. HDR films (HDR10 and HLG) are tone-mapped for an ordinary
-screen on both, as long as the software-decoded ones are 8- or 10-bit 4:2:0, which is
-what HDR films are.
+a film the hardware refuses or gives up on. HDR films (HDR10 and HLG) reach a TV the console
+already sends HDR to as HDR10 (PQ, BT.2020), the menus and controls drawn over them at their usual
+brightness; on an ordinary screen, or with *HDR output* off, they are tone-mapped to SDR. Both work
+on either decoder, as long as the software-decoded films are 8- or 10-bit 4:2:0, which is what HDR
+films are. The console's own HDR setting decides whether the TV gets HDR at all.
 
 - **Plays smoothly on the hardware decoder:** H.264 and HEVC at every size: 4K HEVC, HDR
   included, and 1080p H.264 and 10-bit HEVC, smaller films and interlaced recordings.
@@ -226,6 +228,7 @@ Circle to go back. Changes apply at once and save themselves.
 | Appearance | Wallpaper on the details page | Shows the film's wallpaper behind its details. |
 | Playback | Force subtitles | A film with subtitles starts with them on. Off by default. |
 | Playback | Subtitle language | None, German or English: the subtitles chosen first, when forced on or switched on with Triangle. |
+| Playback | HDR output | Automatic: an HDR film goes to an HDR TV as HDR10 while it plays. Off: always tone-mapped to SDR. |
 | Playback | Subtitle source | Automatic (the film's own tracks and the `.srt` files beside it, the film's own first), Embedded only or SRT only. |
 | General | App language | Automatic, English or Deutsch. |
 | General | UI sounds | Menu sounds on or off. |

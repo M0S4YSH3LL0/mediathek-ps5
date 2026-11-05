@@ -97,6 +97,9 @@ HUI_TEXT(settings_subtitle_source_hint, "Tracks inside the film, .srt files besi
          "Spuren im Film, .srt-Dateien daneben oder beides")
 HUI_TEXT(settings_subtitle_source_embedded, "Embedded only", "Nur eingebettete")
 HUI_TEXT(settings_subtitle_source_srt, "SRT only", "Nur SRT")
+HUI_TEXT(settings_hdr_output, "HDR output", "HDR-Ausgabe")
+HUI_TEXT(settings_hdr_output_hint, "HDR films reach an HDR TV as HDR. Off: always converted to SDR",
+         "HDR-Filme gehen als HDR an einen HDR-Fernseher. Aus: immer in SDR")
 HUI_TEXT(settings_about, "About", "\xC3\x9C" "ber")
 HUI_TEXT(settings_debug, "Debug info", "Debug-Infos")
 HUI_TEXT(settings_debug_hint, "Frame rate and drawing statistics in the corner of the screen",

@@ -81,6 +81,15 @@ struct Frame
     // paints frosted panels.
     bool glass = false;
     std::uint32_t glass_texture = 0;
+    // A film's picture on screen, where it is on the canvas. While the screen is HDR10
+    // (media::Services::hdr_output) the platform draws it under everything itself and the
+    // design leaves its place clear; otherwise the design draws it as an image as well.
+    struct Video
+    {
+        std::uint32_t texture = 0;
+        gfx::Rect rect;
+        float opacity = 1.0f;
+    } video;
 
     void reset()
     {
@@ -89,6 +98,7 @@ struct Frame
         scene.clear();
         overlay.clear();
         glass = false;
+        video = {};
     }
 };
 

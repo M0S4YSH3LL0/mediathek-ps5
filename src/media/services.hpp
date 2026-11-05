@@ -28,6 +28,9 @@ struct Services
     ProgressStore progress;
     PosterCache *posters = nullptr;
     Player *player = nullptr;
+    // The screen goes out as HDR10 now: the platform draws the playing film's picture itself
+    // (app::Frame::video) and the screen leaves its place clear. Set by the platform.
+    bool hdr_output = false;
     // Reads what a file contains (codecs, length, languages) for the details page.
     // Null where nothing can read a file; the page then shows what the names say.
     InfoService *info = nullptr;

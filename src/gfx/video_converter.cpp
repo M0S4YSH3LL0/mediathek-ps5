@@ -38,6 +38,7 @@ layout(location = 3) uniform mat3 u_matrix; // Y'CbCr to R'G'B'
 layout(location = 6) uniform int u_transfer; // 0 SDR, 1 PQ, 2 HLG
 layout(location = 7) uniform float u_peak;   // nits
 layout(location = 8) uniform int u_wide_gamut;
+layout(location = 9) uniform int u_pq_output; // the screen is HDR10: keep the light
 
 // BT.2408's reference white: what HDR calls paper white becomes the screen's white.
 const float kWhite = 203.0;
@@ -48,6 +49,8 @@ const float kC2 = 18.8515625;
 const float kC3 = 18.6875;
 const mat3 kBt2020ToBt709 = mat3(1.6605, -0.1246, -0.0182, -0.5876, 1.1329, -0.1006,
                                  -0.0728, -0.0083, 1.1187);
+const mat3 kBt709ToBt2020 = mat3(0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.0880,
+                                 0.0433, 0.0114, 0.8956);
 
 vec3 pq_to_nits(vec3 e)
 {
@@ -65,6 +68,12 @@ float nits_to_pq(float nits)
 {
     float y = pow(max(nits, 0.0) / 10000.0, kM1);
     return pow((kC1 + kC2 * y) / (1.0 + kC3 * y), kM2);
+}
+
+vec3 nits_to_pq(vec3 nits)
+{
+    vec3 y = pow(clamp(nits / 10000.0, 0.0, 1.0), vec3(kM1));
+    return pow((kC1 + kC2 * y) / (1.0 + kC3 * y), vec3(kM2));
 }
 
 // HLG is scene light; a 1000-nit screen shows it through a system gamma of 1.2.
@@ -107,6 +116,20 @@ void main()
     if (u_transfer == 0 && u_wide_gamut == 0)
     {
         frag_color = vec4(rgb, 1.0);
+        return;
+    }
+    if (u_pq_output != 0 && u_transfer != 0)
+    {
+        // The TV maps the film's light to what it can show; a PQ film in BT.2020 goes as it is.
+        if (u_transfer == 1 && u_wide_gamut != 0)
+        {
+            frag_color = vec4(rgb, 1.0);
+            return;
+        }
+        vec3 nits = u_transfer == 1 ? pq_to_nits(rgb) : hlg_to_nits(rgb);
+        if (u_wide_gamut == 0)
+            nits = max(kBt709ToBt2020 * nits, vec3(0.0));
+        frag_color = vec4(nits_to_pq(nits), 1.0);
         return;
     }
     vec3 light;
@@ -293,7 +316,7 @@ void VideoConverter::upload(const media::YuvFrame &frame)
 }
 
 bool VideoConverter::convert(const media::YuvFrame &frame, std::uint32_t target, int width,
-                             int height)
+                             int height, bool pq_output)
 {
     if (failed_ || frame.planes == nullptr || target == 0 || width <= 0 || height <= 0 ||
         frame.layout.luma_width <= 0)
@@ -301,6 +324,20 @@ bool VideoConverter::convert(const media::YuvFrame &frame, std::uint32_t target,
     const SavedState saved;
     if (program_ == 0 && !init())
         return false;
+    int transfer = 0;
+    if (frame.colour.transfer == media::Transfer::pq)
+        transfer = 1;
+    else if (frame.colour.transfer == media::Transfer::hlg)
+        transfer = 2;
+    // PQ codes need ten bits a channel: in eight, a dark scene bands.
+    const bool pq = pq_output && transfer != 0;
+    GLint storage = 0;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, target);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &storage);
+    if (pq != (storage == GL_RGB10_A2))
+        glTexImage2D(GL_TEXTURE_2D, 0, pq ? GL_RGB10_A2 : GL_RGBA8, width, height, 0, GL_RGBA,
+                     pq ? GL_UNSIGNED_INT_2_10_10_10_REV : GL_UNSIGNED_BYTE, nullptr);
     // Attached for this picture only. A texture deleted while an unbound framebuffer holds
     // it lives on there, and the next film's texture can get its freed name: a framebuffer
     // that kept its attachment drew every later film into a texture nobody showed (black,
@@ -327,11 +364,6 @@ bool VideoConverter::convert(const media::YuvFrame &frame, std::uint32_t target,
     const float chroma_offset = -128.0f / (full ? 255.0f : 224.0f);
     float matrix[9];
     colour_matrix(frame.colour.matrix, matrix);
-    int transfer = 0;
-    if (frame.colour.transfer == media::Transfer::pq)
-        transfer = 1;
-    else if (frame.colour.transfer == media::Transfer::hlg)
-        transfer = 2;
 
     glViewport(0, 0, width, height);
     glDisable(GL_BLEND);
@@ -344,6 +376,7 @@ bool VideoConverter::convert(const media::YuvFrame &frame, std::uint32_t target,
     glUniform1i(6, transfer);
     glUniform1f(7, frame.colour.peak_nits);
     glUniform1i(8, frame.colour.wide_gamut ? 1 : 0);
+    glUniform1i(9, pq ? 1 : 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, luma_);
     glActiveTexture(GL_TEXTURE1);
@@ -351,6 +384,9 @@ bool VideoConverter::convert(const media::YuvFrame &frame, std::uint32_t target,
     glBindVertexArray(vao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+    last_target_ = target;
+    last_hdr_ = transfer != 0;
+    last_pq_ = pq;
     return true;
 }
 

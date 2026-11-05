@@ -666,6 +666,33 @@ TEST_F(MediathekTest, CrossPausesAndSeekingMovesThePosition)
     expect_drawable(*design);
 }
 
+// On an HDR10 screen the film is put under the interface by a pass of its own (main.cpp,
+// gfx::HdrComposer): the player screen names its picture and leaves it, and the black behind
+// it, out of the draw list, so the interface layer stays clear where the film shows.
+TEST_F(MediathekTest, ThePlayerNamesItsPictureAndLeavesItToTheHdrPass)
+{
+    fill_library();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    const auto picture_runs = [this]
+    {
+        int runs = 0;
+        for (const hui::gfx::Run &run : frame_.scene.runs())
+            runs += run.texture == player_->texture() ? 1 : 0;
+        return runs;
+    };
+    expect_drawable(*design);
+    EXPECT_EQ(frame_.video.texture, player_->texture());
+    EXPECT_GT(frame_.video.rect.w, 0.0f);
+    EXPECT_GT(picture_runs(), 0);
+
+    services_.hdr_output = true;
+    expect_drawable(*design);
+    EXPECT_EQ(frame_.video.texture, player_->texture());
+    EXPECT_EQ(picture_runs(), 0);
+}
+
 TEST_F(MediathekTest, HoldingASeekDirectionGrowsTheStepToFiveMinutes)
 {
     fill_library();

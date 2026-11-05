@@ -41,7 +41,7 @@ src/media/                   the movie side, no platform code (mediainfo: langua
                                player.hpp (the interface), simulated_player (PC preview)
 src/core/i18n*               texts: i18n_texts.inc is THE table (English, German)
 src/platform/ps5/            ffmpeg_player, hw_decoder (the console's picture decoder), media_probe (stream list of a file, no
-                             decoding), scanner (talks to the helper), display,
+                             decoding), scanner (talks to the helper), display, video_out (HDR10 output),
                              pad, audio_out, http + dns (own TLS client), system
 src/runtime/app_heap.c       the app's own heap (see "Memory" below)
 helper/mt-scan.c             the scan helper payload, built into assets/helper/mt-scan.elf
@@ -215,7 +215,7 @@ when the list's focus moves (`build_settings_form`). Right or Cross enters the f
 returns, except that a choice row keeps left and right for itself. Switches change with Cross only.
 It edits the kit's `Settings`: *UI sounds* is `ui_volume` (0 off, else the default), *Debug
 info* is `show_fps` (the shell's overlay), *Fixed billboard* is `pin_billboard` (on by default; keeps
-`hero_` open on every shelf, `animate()`; the settings file is format version 7, older ones still
+`hero_` open on every shelf, `animate()`; the settings file is format version 8, older ones still
 load with the defaults; *App language* is `ui_language`, *Wallpaper on the details page* is
 `details_wallpaper`, read by `draw_details_art`; *Shelves on Home* is `home_shelves`, read by
 `rebuild`: Continue Watching always, then all, own (Recently Added, collections, All Movies, All Series), genres
@@ -228,7 +228,8 @@ player's tracks (`Player::subtitle_tracks`, known only once the film is open), s
 choice is made in `add_embedded_subtitles` when the player leaves `opening`, unless Triangle was
 pressed before. *Subtitle source* is `subtitle_source` (0 automatic, 1 embedded only, 2 `.srt`
 only, `SubtitleSource`): `list_subtitles` leaves the other kind out, and the details page lists
-only the languages the player will offer.
+only the languages the player will offer. *HDR output* is `hdr_output` (0 automatic, 1 off;
+see "HDR output" below).
 A value is added within format version 5: an older build reading 3 clamps it to genres. The categories are Appearance, Playback, General, Library and About (`SettingsCategory`). A read-only *Version* row under About shows
 the version and `build_time()` (`core/build_info.cpp`, `__DATE__`/`__TIME__`; `tools/build.sh` touches the file so every build
 stamps it). A change sets `context_.settings_changed`;
@@ -274,7 +275,7 @@ as white, BT.2020 into BT.709. The kit's renderer then shows that texture as eve
 path); the converter puts back the GL state it changes. The hook is `VideoSurface::update_yuv`; if it fails
 once, the player goes back to `media::yuv_to_rgba` on the CPU (no tone mapping) for the app's life.
 `HUI_SIM_HDR=1 tools/host-snapshots.sh ...` makes the preview's simulated player send a 10-bit PQ test
-card through the same converter. The peak comes from the stream's content light level, else its mastering
+card through the same converter (add `HUI_HDR_OUT=1` for HDR output). The peak comes from the stream's content light level, else its mastering
 display, else 1000 nits (`media::hdr_peak_nits`); `[HUI] hdr ...` logs it. Its working memory is
 flexible memory (`kernel.flexibleMemorySize`, which is why the heap leaves room), its pictures direct
 memory, so it does not touch the heap. The klog names each step *before* it enters the system's code
@@ -289,6 +290,32 @@ expected to be smooth. HDR (PQ, HLG) leaves swscale out: `show_planes` copies FF
 (`yuv420p`, `yuv420p10le`) into the hardware decoder's layout (`media::copy_planes` interleaves U and
 V) and the same `gfx::VideoConverter` tone-maps it; SDR stays on swscale to RGBA, and so does HDR in
 any other layout (logged once as `[HUI] hdr picture in ...`).
+
+**HDR output.** On a TV the console already sends HDR to, an HDR film is shown as HDR10, as VLC's
+PS5 port does it (`patches/mesa/0001-videoout-hdr10.patch` there). ps5-opengl owns the scan-out and
+keeps its handle private, but it calls `sceVideoOutOpen` directly, so `tools/build.sh` links with
+`--wrap=sceVideoOutOpen` and `src/platform/ps5/video_out.cpp` keeps the handle (`[HUI] video out
+handle=N`). `video_out::set_hdr` changes the format of ps5-opengl's two buffers in place
+(`sceVideoOutSetBufferAttribute2` with pixel format `0x8100070400000000`, A2R10G10B10 with blue in
+the low bits, then `sceVideoOutSubmitChangeBufferAttribute2`; `0x8000000000000000` is the 8-bit
+format back), after `glFinish` and the pending flip; it applies from the next flip. GL still draws
+into an 8-bit BGRA surface, so while HDR is on, `gfx::HdrComposer` makes the frame: the kit's
+renderer draws everything but the film into a layer of its own (no second rendering path), and one
+pass puts the film under it in PQ and writes each pixel's 10-bit word into the 8-bit channels (GL
+red = bits 16-23 of the word, `media::hdr10_word`). The interface's white is 203 nits, BT.709 into
+BT.2020, and its coverage is corrected so a shade darkens the film as on an SDR screen (VLC's
+`ui_pq.frag`). The design names the film's picture in `Frame::video` and leaves it, and the black
+behind it, out of its draw list when `Services::hdr_output` says the frame is HDR. While HDR is on,
+`gfx::VideoConverter` writes PQ (BT.2020) into an `RGB10_A2` texture instead of tone-mapping; PQ
+passes through, HLG is turned into PQ. The output goes HDR only when the setting allows it, the
+console reports HDR (`sceVideoOutGetOutputStatus`, its second word: 1 SDR, 2 HDR; logged as
+`[HUI] video out range=N`), the player shows a picture and it is HDR; `media::HdrSwitch` waits for
+the wish to hold 0.4 s (on) or 1 s (off), and does not ask again after a refusal until the wish
+changes. The app switches back before it quits. `HUI_SIM_HDR=1 HUI_HDR_OUT=1 tools/host-snapshots.sh`
+takes the preview through the composer and turns the words back into SDR for the PNG (highlights
+above 203 nits clip there; on a TV they do not). Evidence to ask for: `[HUI] video out handle`,
+`[HUI] video out range`, `[HUI] hdr output on|off: 0x... (waited N ms for a flip)`. The owner saw it
+look right on an HDR TV after 0.9.0; a blue or red cast would mean the channel order is swapped.
 
 **Embedded subtitles.** The demux thread keeps the packets of every subtitle track FFmpeg can
 decode (`subtitle_queue_`, at most 6 MiB; the tracks not chosen lose their oldest first and
@@ -432,5 +459,5 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   the empty pages ("No media found", per tab), TMDB's titles (`<id>.title`), the three-line titles
   on cards without a poster, the billboard's long titles, capital umlauts in captions, and the red
   light bar. Checked after 0.9.0: H.264 and HEVC of every size on the hardware decoder (1080p H.264
-  and 10-bit HEVC, smaller films, interlaced recordings, seeking). Embedded subtitles are *not
-  verified* on the console yet.
+  and 10-bit HEVC, smaller films, interlaced recordings, seeking), embedded subtitles, the subtitle
+  source setting, and HDR output on an HDR TV.
