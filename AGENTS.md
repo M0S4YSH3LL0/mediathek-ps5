@@ -490,6 +490,8 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   the empty pages ("No media found", per tab), TMDB's titles (`<id>.title`), the three-line titles
   on cards without a poster, the billboard's long titles, capital umlauts in captions, and the red
   light bar. Checked after 0.9.0: H.264 and HEVC of every size on the hardware decoder (1080p H.264
-  and 10-bit HEVC, smaller films, interlaced recordings, seeking), embedded subtitles, the subtitle
-  source setting, and HDR output on an HDR TV. A 5.1 film plays on the 8-channel port without a crackle at play and resume.
-  7.1 and the *Audio language* track choice are *not verified* yet.
+  and 10-bit HEVC, smaller films, interlaced recordings, seeking), embedded subtitles (switching tracks mid-film and after a
+  seek), the subtitle source setting, and HDR output on an HDR TV. A 5.1 film plays on the 8-channel port without a crackle at play and resume.
+  Checked after the audio language change: the *Audio language* track choice and *Audio output*
+  Stereo. Forced subtitles
+  shown by themselves and 7.1 are *not verified* yet.
