@@ -132,10 +132,19 @@ bool matches_search(const Movie &movie, std::string_view query);
 // film is not put on every one of them.)
 std::vector<int> main_genres(const Movie &movie);
 
-// The order the subtitle tracks of a film are offered in: those in `preferred` (an ISO 639-2 code
-// such as "ger") first, then the rest, each part in the order given. Indices into `languages`,
-// one per track; with no preferred language that is simply 0, 1, 2 ...
-std::vector<int> subtitle_order(const std::vector<std::string> &languages,
+// A subtitle track as the order below sees it: from inside the film or from a file beside it.
+struct SubtitleChoice
+{
+    std::string language;  // canonical ISO 639-2 code, "und" when not known
+    bool embedded = false; // a track of the film itself
+    bool forced = false;   // only the lines not in the film's language
+};
+
+// The order the subtitle tracks of a film are offered in (indices into `tracks`): those in
+// `preferred` (such as "ger") first; within that, a track with every line before a forced one,
+// and the film's own tracks before the .srt files beside it, which are more often a poor match
+// for its cut. Otherwise the order given.
+std::vector<int> subtitle_order(const std::vector<SubtitleChoice> &tracks,
                                 std::string_view preferred);
 
 // The films of one genre shelf (indices into the movie list).

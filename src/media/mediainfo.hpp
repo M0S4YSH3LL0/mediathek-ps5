@@ -24,6 +24,8 @@ struct MediaInfo
     // Canonical codes ("eng"), "und" when untagged, of the audio tracks the app can decode:
     // a track it cannot play is not offered.
     std::vector<std::string> audio_languages;
+    // The same for the subtitle tracks inside the file that the app can show.
+    std::vector<std::string> subtitle_languages;
 };
 
 // A line-based text for the cache file; decode_info() is its inverse and false

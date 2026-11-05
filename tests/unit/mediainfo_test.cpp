@@ -243,6 +243,7 @@ TEST(MediaInfo, ComesBackFromItsCacheText)
     info.container = "MKV";
     info.audio_format = "E-AC3 5.1";
     info.audio_languages = {"eng", "ger"};
+    info.subtitle_languages = {"ger", "eng", "fre"};
     MediaInfo back;
     ASSERT_TRUE(decode_info(encode_info(info), &back));
     EXPECT_DOUBLE_EQ(back.duration, 8040.5);
@@ -252,6 +253,7 @@ TEST(MediaInfo, ComesBackFromItsCacheText)
     EXPECT_EQ(back.container, "MKV");
     EXPECT_EQ(back.audio_format, "E-AC3 5.1");
     EXPECT_EQ(back.audio_languages, info.audio_languages);
+    EXPECT_EQ(back.subtitle_languages, info.subtitle_languages);
 
     MediaInfo empty_back;
     ASSERT_TRUE(decode_info(encode_info(MediaInfo()), &empty_back));
@@ -265,9 +267,11 @@ TEST(MediaInfo, RefusesAHalfWrittenOrForeignCacheFile)
     EXPECT_FALSE(decode_info("hello\nend\n", &out));
     std::string text = encode_info(MediaInfo());
     EXPECT_FALSE(decode_info(text.substr(0, text.size() - 4), &out)); // no "end"
-    EXPECT_FALSE(decode_info("mediainfo 2\nnot a pair\nend\n", &out));
+    EXPECT_FALSE(decode_info("mediainfo 3\nnot a pair\nend\n", &out));
     // A file of version 1 may list audio tracks the app cannot play: read the file again.
     EXPECT_FALSE(decode_info("mediainfo 1\naudio=eng,ger\nend\n", &out));
+    // Version 2 never looked at the subtitle tracks inside the file.
+    EXPECT_FALSE(decode_info("mediainfo 2\naudio=eng,ger\nend\n", &out));
 }
 
 TEST(InfoService, ReadsAFileOnceAndKeepsTheAnswerOnDisk)

@@ -34,7 +34,8 @@ src/media/                   the movie side, no platform code (mediainfo: langua
                                matching), title (file name -> title, year, quality; an
                                episode's SxxEyy mark; search_fold), progress (resume
                                points, watched), show_progress (a series' episode up next),
-                               subtitles (.srt), tmdb + cover_service
+                               subtitles (.srt), embedded_subtitles (a film's own tracks: ASS
+                               text, palette pictures, their timing), tmdb + cover_service
                                (poster, wallpaper, description), poster_cache,
                                hw_stream, yuv_picture (feeding the hardware decoder, its pictures to RGBA),
                                player.hpp (the interface), simulated_player (PC preview)
@@ -220,8 +221,12 @@ load with the defaults; *App language* is `ui_language`, *Wallpaper on the detai
 `rebuild`: Continue Watching always, then all, own (Recently Added, collections, All Movies, All Series), genres
 or decades, with the All Movies and Series shelves as the fallback when the choice has no shelf of its own);
 *Force subtitles* is `force_subtitles` and *Subtitle language* `subtitle_language` (0 none,
-1 German, 2 English), both read by `start_playback`: a film starts with no subtitles unless forced,
-and Triangle steps through `media::subtitle_order`, the preferred language first.
+1 German, 2 English): a film starts with no subtitles unless forced, and Triangle steps through
+`media::subtitle_order`, the preferred language first, in it the film's own tracks before the
+`.srt` files and full tracks before forced ones. `subtitle_entries_` holds the files, then the
+player's tracks (`Player::subtitle_tracks`, known only once the film is open), so the forced
+choice is made in `add_embedded_subtitles` when the player leaves `opening`, unless Triangle was
+pressed before.
 A value is added within format version 5: an older build reading 3 clamps it to genres. The categories are Appearance, Playback, General, Library and About (`SettingsCategory`). A read-only *Version* row under About shows
 the version and `build_time()` (`core/build_info.cpp`, `__DATE__`/`__TIME__`; `tools/build.sh` touches the file so every build
 stamps it). A change sets `context_.settings_changed`;
@@ -281,8 +286,22 @@ the default one. Evidence to ask for: `[HUI] heap` (`of=` shows whether the bigg
 expected to be smooth. HDR (PQ, HLG) leaves swscale out: `show_planes` copies FFmpeg's three planes
 (`yuv420p`, `yuv420p10le`) into the hardware decoder's layout (`media::copy_planes` interleaves U and
 V) and the same `gfx::VideoConverter` tone-maps it; SDR stays on swscale to RGBA, and so does HDR in
-any other layout (logged once as `[HUI] hdr picture in ...`). Embedded subtitle tracks are not
-shown; `.srt` files are.
+any other layout (logged once as `[HUI] hdr picture in ...`).
+
+**Embedded subtitles.** The demux thread keeps the packets of every subtitle track FFmpeg can
+decode (`subtitle_queue_`, at most 6 MiB; the tracks not chosen lose their oldest first and
+anything 10 s behind the film), so a track chosen mid-film shows at once. The frame thread
+decodes only the chosen one, as its packets come due (`FfmpegPlayer::update_subtitles`), into a
+`media::SubtitleTimeline`: text through `media::ass_text` (every FFmpeg text decoder gives ASS
+events; styling is dropped, libass is not in PacBrew), pictures through `media::compose_subtitle`
+into one RGBA texture. PGS gives no end time; the next display set ends a picture. A picture
+is placed on the canvas it was made for (`SubtitlePicture::aspect`): the film's frame when the
+canvas has the film's size (DVD), else a frame of the canvas's shape fitted to the screen, since a
+Blu-ray's 1920 x 1080 subtitles belong where they are even when the film is cropped to 1920 x 800.
+While the controls show, a picture moves up above them as text does. A seek, an audio change or a
+new track clears what was decoded. The log says `[HUI] subtitles: N tracks in the file` and
+`[HUI] subtitles: track N, <decoder>`. The info cache (`info/<id>.info`, header `mediainfo 3`) lists the
+tracks' languages for the details page; version 2 files are read again.
 
 **AV1 does not play, at any size.** FFmpeg's `av1` decoder is only a front for hardware decoding,
 PacBrew's FFmpeg has no `libdav1d` or `libaom`, and no AV1 codec of `libSceVideodec2` is known (VLC's
@@ -411,4 +430,5 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   the empty pages ("No media found", per tab), TMDB's titles (`<id>.title`), the three-line titles
   on cards without a poster, the billboard's long titles, capital umlauts in captions, and the red
   light bar. Checked after 0.9.0: H.264 and HEVC of every size on the hardware decoder (1080p H.264
-  and 10-bit HEVC, smaller films, interlaced recordings, seeking).
+  and 10-bit HEVC, smaller films, interlaced recordings, seeking). Embedded subtitles are *not
+  verified* on the console yet.

@@ -154,7 +154,7 @@ constexpr const char *kTechniques[] = {
     "Posters decode on a worker thread and fade in; missing art gets a generated cover",
     "Shelves for continue watching, new, collections, decades; a sortable grid",
     "Full-screen details page; resume points saved while a movie plays",
-    "Player stage with scrubber, audio tracks and SubRip subtitles",
+    "Player stage with scrubber, audio tracks and subtitles",
 };
 
 // A picture shows the state before its own step's input acts, so each named
@@ -194,6 +194,12 @@ constexpr app::TourStep kTour[] = {
     {0.2f, action_bit(Action::back)},
     {0.2f, action_bit(Action::west)},
     {1.6f, 0, Direction::none, "playing"},
+    {0.2f, action_bit(Action::north)}, // the film's own English text track
+    {0.9f, 0, Direction::none, "subtitles"},
+    {0.2f, action_bit(Action::north)},
+    {0.2f, action_bit(Action::north)}, // its German picture track
+    {0.9f, 0, Direction::none, "subtitles-picture"},
+    {0.2f, action_bit(Action::north)}, // off again, for the pictures that follow
     {0.2f, 0, Direction::right},
     {0.9f, 0, Direction::none, "seek"},
     {0.2f, action_bit(Action::confirm)},
@@ -1875,12 +1881,13 @@ class Mediathek final : public app::Concept
         paused_ = false;
         last_save_ = 0.0f;
         seek_flash_ = 0.0f;
-        subtitle_track_ = -1;
+        // The files beside it now; the film's own tracks, and with them the choice Force
+        // subtitles makes, once the player has opened it (update_player).
         sniff_subtitle_languages(playing_item_.subtitles);
-        order_subtitles(playing_item_);
-        select_subtitle(playing_item_, context_.settings.force_subtitles && !subtitle_order_.empty()
-                                           ? subtitle_order_.front()
-                                           : -1);
+        subtitles_complete_ = false;
+        subtitles_chosen_ = false;
+        list_subtitles(playing_item_, {});
+        select_subtitle(-1);
         feedback.play(audio::Cue::launch);
         feedback.rumble(0.6f, 0.15f);
     }
@@ -1953,6 +1960,9 @@ class Mediathek final : public app::Concept
             seek_hold_ += dt;
         last_save_ += dt;
         const media::PlayerState state = player.state();
+        if (!subtitles_complete_ && state != media::PlayerState::opening &&
+            state != media::PlayerState::idle)
+            add_embedded_subtitles(player);
 
         if (state == media::PlayerState::playing && last_save_ >= kSaveEvery)
         {
@@ -2036,7 +2046,7 @@ class Mediathek final : public app::Concept
                                 player.audio_tracks()[static_cast<std::size_t>(next)].label),
                    audio::Cue::toggle);
         }
-        if (input.is_pressed(Action::north) && !playing_item_.subtitles.empty())
+        if (input.is_pressed(Action::north) && !subtitle_entries_.empty())
             cycle_subtitles(feedback);
         if (input.is_pressed(Action::menu))
         {
@@ -2088,48 +2098,106 @@ class Mediathek final : public app::Concept
         }
     }
 
-    // The order Triangle steps through the playing film's subtitles in: the preferred language
-    // first, so that switching them on finds it too, not only forcing them on.
-    void order_subtitles(const media::Movie &m)
+    // A subtitle track Triangle can choose: a file beside the film or a track inside it.
+    struct SubtitleEntry
     {
-        std::vector<std::string> languages;
-        languages.reserve(m.subtitles.size());
-        for (const media::SubtitleFile &sub : m.subtitles)
-            languages.push_back(subtitle_language(sub));
-        subtitle_order_ = media::subtitle_order(languages, preferred_subtitle_language());
+        media::SubtitleChoice choice;
+        int index = 0; // into the film's subtitle files, or the player's own tracks
+        bool hearing_impaired = false;
+    };
+
+    // Every subtitle track of the playing film: the files beside it first, so that their
+    // numbers stay when the film's own are added behind them, and Triangle's order on top
+    // (media::subtitle_order): the preferred language first, so that switching them on finds
+    // it too, not only forcing them on, and in it the film's own tracks before the files.
+    void list_subtitles(const media::Movie &m, const std::vector<media::SubtitleTrack> &embedded)
+    {
+        subtitle_entries_.clear();
+        for (std::size_t i = 0; i < m.subtitles.size(); ++i)
+        {
+            SubtitleEntry entry;
+            entry.index = static_cast<int>(i);
+            entry.choice.language = subtitle_language(m.subtitles[i]);
+            subtitle_entries_.push_back(entry);
+        }
+        for (std::size_t i = 0; i < embedded.size(); ++i)
+        {
+            SubtitleEntry entry;
+            entry.index = static_cast<int>(i);
+            entry.choice.language = embedded[i].language;
+            entry.choice.embedded = true;
+            entry.choice.forced = embedded[i].forced;
+            entry.hearing_impaired = embedded[i].hearing_impaired;
+            subtitle_entries_.push_back(entry);
+        }
+        std::vector<media::SubtitleChoice> choices;
+        choices.reserve(subtitle_entries_.size());
+        for (const SubtitleEntry &entry : subtitle_entries_)
+            choices.push_back(entry.choice);
+        subtitle_order_ = media::subtitle_order(choices, preferred_subtitle_language());
     }
 
-    void select_subtitle(const media::Movie &m, int track)
+    // The player has opened the film and knows its own tracks. Force subtitles chooses now,
+    // unless the viewer has already pressed Triangle.
+    void add_embedded_subtitles(media::Player &player)
+    {
+        subtitles_complete_ = true;
+        list_subtitles(playing_item_, player.subtitle_tracks());
+        if (!subtitles_chosen_ && context_.settings.force_subtitles && !subtitle_order_.empty())
+            select_subtitle(subtitle_order_.front());
+    }
+
+    // Shows subtitle_entries_[track], or none for -1. A file that cannot be read leaves the
+    // track chosen but empty, so the pad still steps past it.
+    void select_subtitle(int track)
     {
         subtitle_track_ = track;
         subtitles_ = media::Subtitles{};
-        if (track < 0 || static_cast<std::size_t>(track) >= m.subtitles.size())
+        const bool valid = track >= 0 && static_cast<std::size_t>(track) < subtitle_entries_.size();
+        const SubtitleEntry *entry =
+            valid ? &subtitle_entries_[static_cast<std::size_t>(track)] : nullptr;
+        if (svc_->player != nullptr)
+            svc_->player->select_subtitle(entry != nullptr && entry->choice.embedded ? entry->index
+                                                                                     : -1);
+        if (entry == nullptr || entry->choice.embedded)
             return;
         std::string text;
-        if (save::read_file(m.subtitles[static_cast<std::size_t>(track)].file, &text, 4u << 20))
+        if (save::read_file(playing_item_.subtitles[static_cast<std::size_t>(entry->index)].file,
+                            &text, 4u << 20))
             subtitles_.parse(text);
     }
 
-    // Triangle steps through the subtitle files and then off: with one file that is a plain
-    // on/off switch.
+    // "Deutsch · forced · embedded": the language, what kind of track, and where it is from.
+    std::string subtitle_label(const SubtitleEntry &entry) const
+    {
+        std::string label = media::language_names({entry.choice.language}).front();
+        if (entry.choice.forced)
+            label += std::string(" \xC2\xB7 ") + tr(Text::subtitles_forced);
+        if (entry.hearing_impaired)
+            label += std::string(" \xC2\xB7 ") + tr(Text::subtitles_sdh);
+        label += std::string(" \xC2\xB7 ") +
+                 tr(entry.choice.embedded ? Text::subtitles_embedded : Text::subtitles_srt);
+        return label;
+    }
+
+    // Triangle steps through the subtitle tracks and then off: with one that is a plain on/off
+    // switch.
     void cycle_subtitles(app::Feedback &feedback)
     {
-        const media::Movie &m = playing_item_;
+        subtitles_chosen_ = true;
         const int count = static_cast<int>(subtitle_order_.size());
         // Where the current track is in the order; -1 (off) is before the first.
         const auto at = std::find(subtitle_order_.begin(), subtitle_order_.end(), subtitle_track_);
         const int step =
             at == subtitle_order_.end() ? 0 : static_cast<int>(at - subtitle_order_.begin()) + 1;
         const int next = step < count ? subtitle_order_[static_cast<std::size_t>(step)] : -1;
-        select_subtitle(m, next);
+        select_subtitle(next);
         if (next < 0)
         {
             notify(feedback, tr(Text::subtitles_off), audio::Cue::toggle);
             return;
         }
-        std::string label =
-            media::language_names({subtitle_language(m.subtitles[static_cast<std::size_t>(next)])})
-                .front();
+        std::string label = subtitle_label(subtitle_entries_[static_cast<std::size_t>(next)]);
         if (count > 1)
             label += " (" + std::to_string(step + 1) + "/" + std::to_string(count) + ")";
         notify(feedback, i18n::format(Text::subtitles_track, label), audio::Cue::toggle);
@@ -3154,10 +3222,16 @@ class Mediathek final : public app::Concept
         languages(media::language_names(media::audio_languages_to_show(content, probed, file)),
                   kColumn, 400.0f, true);
         caption(tr(Text::label_subtitles), kSecond, facts_y - 100);
+        // The file's own tracks (read from it, so they may still be on their way), then the
+        // .srt files beside it.
         std::vector<std::string> subtitle_languages;
+        if (content != nullptr)
+            for (const std::string &language : content->subtitle_languages)
+                media::add_language(&subtitle_languages, language);
         for (const media::SubtitleFile &sub : episode != nullptr ? episode->subtitles : m.subtitles)
             media::add_language(&subtitle_languages, subtitle_language(sub));
-        languages(media::language_names(subtitle_languages), kSecond, 1360.0f - kSecond, false);
+        languages(media::language_names(subtitle_languages), kSecond, 1360.0f - kSecond,
+                  content == nullptr && lookup.state == media::InfoService::State::pending);
         // FILE, the drive it is on and its size.
         std::string file_caption = tr(Text::label_file);
         const std::string &drive = episode != nullptr ? episode->drive : m.drive;
@@ -3428,20 +3502,10 @@ class Mediathek final : public app::Concept
         const media::PlayerState state = player->state();
 
         if (player->texture() != 0 && player->video_width() > 0)
-        {
-            const float aspect = static_cast<float>(player->video_width()) /
-                                 static_cast<float>(player->video_height());
-            float w = gfx::kVirtualWidth;
-            float h = w / aspect;
-            if (h > gfx::kVirtualHeight)
-            {
-                h = gfx::kVirtualHeight;
-                w = h * aspect;
-            }
             list.image(player->texture(),
-                       {(gfx::kVirtualWidth - w) * 0.5f, (gfx::kVirtualHeight - h) * 0.5f, w, h},
+                       on_screen(static_cast<float>(player->video_width()) /
+                                 static_cast<float>(player->video_height())),
                        gfx::kFullUv, Color{1, 1, 1, 1});
-        }
 
         if (state == media::PlayerState::failed)
         {
@@ -3480,6 +3544,7 @@ class Mediathek final : public app::Concept
         if (!subtitles_.empty())
             if (const media::Cue *cue = subtitles_.at(player->position()))
                 draw_subtitle(list, *cue);
+        draw_embedded_subtitle(list, *player);
 
         const float show = osd_show_.value;
         if (show > 0.01f && state != media::PlayerState::opening)
@@ -3602,6 +3667,48 @@ class Mediathek final : public app::Concept
         list.pop_opacity();
     }
 
+    // A frame of this width / height, as large as the screen takes, in its middle: where a film
+    // of that shape is shown.
+    static Rect on_screen(float aspect)
+    {
+        float w = gfx::kVirtualWidth;
+        float h = w / aspect;
+        if (h > gfx::kVirtualHeight)
+        {
+            h = gfx::kVirtualHeight;
+            w = h * aspect;
+        }
+        return {(gfx::kVirtualWidth - w) * 0.5f, (gfx::kVirtualHeight - h) * 0.5f, w, h};
+    }
+
+    // The film's own subtitle: text as a file's is drawn, a picture where its frame puts it.
+    void draw_embedded_subtitle(gfx::DrawList &list, const media::Player &player) const
+    {
+        const media::SubtitlePicture picture = player.subtitle_picture();
+        if (picture.texture != 0)
+        {
+            const float aspect = picture.aspect > 0.0f ? picture.aspect
+                                 : player.video_height() > 0
+                                     ? static_cast<float>(player.video_width()) /
+                                           static_cast<float>(player.video_height())
+                                     : 16.0f / 9.0f;
+            const Rect frame = on_screen(aspect);
+            Rect place{frame.x + picture.x * frame.w, frame.y + picture.y * frame.h,
+                       picture.w * frame.w, picture.h * frame.h};
+            // A disc puts its subtitles near the bottom, where the scrubber and the messages
+            // are: while the controls show, it moves up above them, as text does.
+            constexpr float kAboveControls = 860.0f;
+            place.y -= std::max(0.0f, place.y + place.h - kAboveControls) * osd_show_.value;
+            list.image(picture.texture, place, gfx::kFullUv, Color{1, 1, 1, 1});
+        }
+        if (!player.subtitle_text().empty())
+        {
+            media::Cue cue;
+            cue.text = player.subtitle_text();
+            draw_subtitle(list, cue);
+        }
+    }
+
     void draw_subtitle(gfx::DrawList &list, const media::Cue &cue) const
     {
         const ui::Fonts &fonts = context_.fonts;
@@ -3692,9 +3799,11 @@ class Mediathek final : public app::Concept
     bool paused_ = false;
     bool info_ = false;
     std::map<std::string, std::string> sniffed_subtitles_; // file -> language its text says, or ""
-    int subtitle_track_ = -1; // index into the playing film's subtitles, -1 = off
-    std::vector<int>
-        subtitle_order_; // the playing film's subtitles in the order Triangle shows them
+    std::vector<SubtitleEntry> subtitle_entries_; // the playing film's; see list_subtitles()
+    int subtitle_track_ = -1;                     // index into subtitle_entries_, -1 = off
+    std::vector<int> subtitle_order_; // subtitle_entries_ in the order Triangle shows them
+    bool subtitles_complete_ = false; // the film's own tracks are in subtitle_entries_
+    bool subtitles_chosen_ = false;   // Triangle was pressed: Force subtitles stays out of it
     float osd_ = 0.0f;
     tween::Spring osd_show_;
     float last_save_ = 0.0f;

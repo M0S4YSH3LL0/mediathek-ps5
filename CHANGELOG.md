@@ -9,6 +9,14 @@
   still keeps everything on FFmpeg.
 - When the graphics chip cannot convert the hardware's pictures and the CPU does it instead, a
   film shown at its own size is no longer softened by half a pixel.
+- New: subtitles inside the film. Text tracks (SubRip, ASS/SSA as plain text, mov_text, WebVTT)
+  are drawn as `.srt` files are, picture tracks (PGS from Blu-rays, VobSub from DVDs, DVB) where
+  the disc puts them, above the controls while those show. Triangle steps through the film's own
+  tracks and the `.srt` files together, the preferred language first and in it the film's own
+  before the files and full tracks before forced ones; *Force subtitles* starts with the first
+  of them. The message says where each is from and what kind it is ("German · embedded",
+  "German · SRT", "English · SDH · embedded"). The details page lists the languages of both.
+  The file information each film keeps is read once more, for its subtitle tracks.
 
 ## 0.9.0 (01.000.090)
 

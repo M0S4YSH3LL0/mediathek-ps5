@@ -8,7 +8,9 @@
 #include "core/i18n.hpp"
 #include "media/decode_budget.hpp"
 #include "media/decode_pace.hpp"
+#include "media/embedded_subtitles.hpp"
 #include "media/hw_stream.hpp"
+#include "media/mediainfo.hpp"
 #include "media/yuv_picture.hpp"
 #include "platform/ps5/av_names.hpp"
 #include "platform/ps5/hw_decoder.hpp"
@@ -104,6 +106,17 @@ constexpr int kFirstPictureWaitMs = 15000;
 constexpr int kFirstPicturePollMs = 5;
 constexpr std::int64_t kSlowStepUs = 200000; // a step this long is worth a line in the log
 constexpr int kOutputRate = audio::kSampleRate;
+// Subtitle packets of every track are kept, so that one chosen mid-film shows at once: they are
+// small (text a few bytes, a PGS picture some kilobytes), but a disc can have thirty tracks.
+// Beyond these limits the oldest of the tracks not chosen go first.
+constexpr std::size_t kMaxSubtitleBytes = 6 * kMiB;
+constexpr std::size_t kMaxSubtitlePackets = 4000;
+// How far behind the film a track not chosen keeps its packets: a subtitle that began
+// this long ago is still found when the track is chosen.
+constexpr double kSubtitleKeep = 10.0;
+// How far ahead of the film the chosen track is decoded: a picture is ready when it is due,
+// and a subtitle that says to show a moment after its packet's time is found in time.
+constexpr double kSubtitleLead = 0.5;
 
 std::size_t max_video_bytes()
 {
@@ -287,6 +300,26 @@ class Session
     {
         return audio_choice_.load();
     }
+    const std::vector<media::SubtitleTrack> &subtitle_tracks() const
+    {
+        return subtitle_tracks_;
+    }
+    // Kept since open: the demux thread may grow format_->streams (MPEG-TS adds streams as
+    // it meets them), which moves the array but never a stream.
+    const AVStream *subtitle_stream(int track) const
+    {
+        return subtitle_stream_of_[static_cast<std::size_t>(track)];
+    }
+    double start_time() const
+    {
+        return start_time_;
+    }
+    // The film's picture as coded; 0 x 0 for a file with none.
+    void video_size(int *width, int *height) const
+    {
+        *width = coded_width_;
+        *height = coded_height_;
+    }
 
     // ---- frame thread calls ----
     void seek(double seconds)
@@ -320,6 +353,41 @@ class Session
     void set_clock(double seconds)
     {
         clock_.store(seconds, std::memory_order_relaxed);
+    }
+    // The track whose packets are kept longest when there are too many; -1 for none.
+    void set_subtitle_choice(int track)
+    {
+        subtitle_choice_.store(track, std::memory_order_relaxed);
+    }
+    // Moves the packets of subtitle track `track` that are due by `until` (film seconds) to
+    // `out`, in file order, and drops those of the other tracks older than `keep_from`.
+    void take_subtitles(int track, double until, double keep_from, std::vector<AVPacket *> *out)
+    {
+        Lock lock(mutex_);
+        for (auto it = subtitle_queue_.begin(); it != subtitle_queue_.end();)
+        {
+            const double at = packet_seconds(it->packet, subtitle_stream(it->stream));
+            const bool mine = it->stream == track;
+            if ((mine && at <= until) || (!mine && at < keep_from))
+            {
+                subtitle_bytes_ -= static_cast<std::size_t>(it->packet->size);
+                if (mine)
+                    out->push_back(it->packet);
+                else
+                    av_packet_free(&it->packet);
+                it = subtitle_queue_.erase(it);
+                continue;
+            }
+            ++it;
+        }
+    }
+    // Film seconds of a packet; minus infinity for one with no time, which is due at once.
+    double packet_seconds(const AVPacket *packet, const AVStream *stream) const
+    {
+        const std::int64_t stamp = packet->pts != AV_NOPTS_VALUE ? packet->pts : packet->dts;
+        if (stamp == AV_NOPTS_VALUE)
+            return -HUGE_VAL;
+        return static_cast<double>(stamp) * av_q2d(stream->time_base) - start_time_;
     }
 
     struct Status
@@ -645,6 +713,7 @@ class Session
             tracks_.push_back(track);
         }
         audio_choice_.store(first);
+        find_subtitle_tracks();
         if (video_stream_ < 0 && audio_streams_.empty())
             return fail(i18n::tr(i18n::Text::err_nothing_to_play), AVERROR_STREAM_NOT_FOUND);
 
@@ -671,6 +740,41 @@ class Session
         return true;
     }
 
+    // The subtitle tracks this FFmpeg can decode, text or picture.
+    void find_subtitle_tracks()
+    {
+        if (video_stream_ >= 0)
+        {
+            coded_width_ = format_->streams[video_stream_]->codecpar->width;
+            coded_height_ = format_->streams[video_stream_]->codecpar->height;
+        }
+        subtitle_slot_.assign(format_->nb_streams, -1);
+        for (unsigned i = 0; i < format_->nb_streams; ++i)
+        {
+            const AVStream *stream = format_->streams[i];
+            if (stream->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE ||
+                avcodec_find_decoder(stream->codecpar->codec_id) == nullptr)
+                continue;
+            const AVDictionaryEntry *language =
+                av_dict_get(stream->metadata, "language", nullptr, 0);
+            const AVDictionaryEntry *title = av_dict_get(stream->metadata, "title", nullptr, 0);
+            const media::TitleFlags said =
+                media::subtitle_title_flags(title != nullptr ? title->value : "");
+            const AVCodecDescriptor *codec = avcodec_descriptor_get(stream->codecpar->codec_id);
+            media::SubtitleTrack track;
+            track.language = media::canonical_language(language != nullptr ? language->value : "");
+            track.forced = (stream->disposition & AV_DISPOSITION_FORCED) != 0 || said.forced;
+            track.hearing_impaired = (stream->disposition & AV_DISPOSITION_HEARING_IMPAIRED) != 0 ||
+                                     said.hearing_impaired;
+            track.picture = codec != nullptr && (codec->props & AV_CODEC_PROP_BITMAP_SUB) != 0;
+            subtitle_slot_[i] = static_cast<int>(subtitle_stream_of_.size());
+            subtitle_stream_of_.push_back(stream);
+            subtitle_tracks_.push_back(track);
+        }
+        if (!subtitle_tracks_.empty())
+            sys::log("[HUI] subtitles: %zu tracks in the file", subtitle_tracks_.size());
+    }
+
     // --------------------------------------------------------- demuxing
 
     bool queues_full_locked() const
@@ -681,7 +785,7 @@ class Session
 
     void clear_queues_locked()
     {
-        for (std::deque<Item> *queue : {&video_queue_, &audio_queue_})
+        for (std::deque<Item> *queue : {&video_queue_, &audio_queue_, &subtitle_queue_})
         {
             for (Item &item : *queue)
                 av_packet_free(&item.packet);
@@ -689,6 +793,7 @@ class Session
         }
         video_bytes_ = 0;
         audio_bytes_ = 0;
+        subtitle_bytes_ = 0;
         for (Picture &picture : pictures_)
             recycle_locked(std::move(picture));
         pictures_.clear();
@@ -702,6 +807,24 @@ class Session
     {
         Lock lock(mutex_);
         clear_queues_locked();
+    }
+
+    // Keeps the subtitle packets within their limits: the oldest of a track not chosen goes,
+    // and only when there is none of those the oldest of the chosen one.
+    void trim_subtitles_locked()
+    {
+        const int chosen = subtitle_choice_.load(std::memory_order_relaxed);
+        while (!subtitle_queue_.empty() && (subtitle_bytes_ > kMaxSubtitleBytes ||
+                                            subtitle_queue_.size() > kMaxSubtitlePackets))
+        {
+            auto victim = std::find_if(subtitle_queue_.begin(), subtitle_queue_.end(),
+                                       [&](const Item &item) { return item.stream != chosen; });
+            if (victim == subtitle_queue_.end())
+                victim = subtitle_queue_.begin();
+            subtitle_bytes_ -= static_cast<std::size_t>(victim->packet->size);
+            av_packet_free(&victim->packet);
+            subtitle_queue_.erase(victim);
+        }
     }
 
     void recycle_locked(Picture &&picture)
@@ -807,6 +930,18 @@ class Session
             {
                 audio_queue_.push_back({packet, serial, packet->stream_index});
                 audio_bytes_ += static_cast<std::size_t>(size);
+            }
+            else if (packet->stream_index >= 0 &&
+                     static_cast<std::size_t>(packet->stream_index) < subtitle_slot_.size() &&
+                     subtitle_slot_[static_cast<std::size_t>(packet->stream_index)] >= 0)
+            {
+                // Nobody waits for these: the frame thread takes them when they are due.
+                subtitle_queue_.push_back(
+                    {packet, serial,
+                     subtitle_slot_[static_cast<std::size_t>(packet->stream_index)]});
+                subtitle_bytes_ += static_cast<std::size_t>(size);
+                trim_subtitles_locked();
+                continue;
             }
             else
             {
@@ -1680,6 +1815,11 @@ class Session
     AVCodecContext *video_context_ = nullptr;
     std::vector<int> audio_streams_;
     std::vector<media::Track> tracks_;
+    std::vector<const AVStream *> subtitle_stream_of_; // of each subtitle track
+    std::vector<int> subtitle_slot_;                   // subtitle track of each stream, -1 for none
+    int coded_width_ = 0;                              // the film's picture as coded
+    int coded_height_ = 0;
+    std::vector<media::SubtitleTrack> subtitle_tracks_;
     int video_stream_ = -1;
     double start_time_ = 0.0;
     double duration_ = 0.0;
@@ -1703,6 +1843,8 @@ class Session
     std::deque<Item> audio_queue_;
     std::size_t video_bytes_ = 0;
     std::size_t audio_bytes_ = 0;
+    std::deque<Item> subtitle_queue_; // Item::stream is the subtitle track
+    std::size_t subtitle_bytes_ = 0;
     std::size_t video_limit_ = max_video_bytes(); // lowered at open for big pictures
     std::size_t audio_limit_ = max_audio_bytes();
     std::size_t picture_limit_ = kMaxPictures;
@@ -1720,6 +1862,7 @@ class Session
     std::atomic<bool> video_ready_{false};
     std::atomic<int> serial_{0};
     std::atomic<int> audio_choice_{0};
+    std::atomic<int> subtitle_choice_{-1};
     std::atomic<double> discard_before_;
     std::atomic<double> clock_{0.0};
     std::atomic<double> audio_end_{0.0};
@@ -1797,6 +1940,8 @@ class FfmpegPlayer final : public media::Player
         shown_ = 0;
         skipped_ = 0;
         scrub_ = false;
+        subtitle_choice_ = -1;
+        subtitle_tracks_.clear();
         session_ = std::make_unique<Session>(path, clock_, ring_, hardware_,
                                              static_cast<bool>(surface_.update_yuv) && gpu_ok_);
         state_ = PlayerState::opening;
@@ -1804,16 +1949,29 @@ class FfmpegPlayer final : public media::Player
 
     void close() override
     {
-        session_.reset(); // stops and joins the threads
+        restart_subtitles(); // before the session: the decoder reads the session's streams
+        session_.reset();    // stops and joins the threads
         if (ring_ != nullptr)
             ring_->drain();
         release_texture();
+        if (subtitle_texture_ != 0 && surface_.release)
+            surface_.release(subtitle_texture_);
+        subtitle_texture_ = 0;
+        subtitle_shown_ = 0;
+        subtitle_text_.clear();
+        subtitle_picture_ = media::SubtitlePicture{};
         state_ = PlayerState::idle;
         width_ = 0;
         height_ = 0;
     }
 
     void update(float dt) override
+    {
+        step(dt);
+        update_subtitles();
+    }
+
+    void step(float dt)
     {
         if (!session_)
             return;
@@ -1830,6 +1988,8 @@ class FfmpegPlayer final : public media::Player
                 duration_ = session_->duration();
                 summary_ = session_->summary();
                 tracks_ = session_->tracks();
+                subtitle_tracks_ = session_->subtitle_tracks();
+                select_subtitle(subtitle_choice_); // one chosen while the file opened
                 state_ = PlayerState::buffering;
             }
             return;
@@ -1952,6 +2112,7 @@ class FfmpegPlayer final : public media::Player
         {
             clock_ = target;
             session_->seek(target);
+            restart_subtitles();
             scrub_ = true;
             return;
         }
@@ -2003,16 +2164,220 @@ class FfmpegPlayer final : public media::Player
         if (session_ && session_->opened() == 1)
         {
             session_->choose_audio(index, clock_);
+            restart_subtitles(); // it starts reading the file again from here
             if (state_ == PlayerState::playing)
                 state_ = PlayerState::buffering;
         }
     }
 
+    const std::vector<media::SubtitleTrack> &subtitle_tracks() const override
+    {
+        return subtitle_tracks_;
+    }
+    int subtitle_track() const override
+    {
+        return subtitle_choice_;
+    }
+    void select_subtitle(int index) override
+    {
+        // Before the file is open nothing is known about its tracks: the choice waits.
+        const bool known = session_ && session_->opened() == 1;
+        subtitle_choice_ =
+            index < 0 || (known && index >= static_cast<int>(subtitle_tracks_.size())) ? -1 : index;
+        if (known)
+            session_->set_subtitle_choice(subtitle_choice_);
+        restart_subtitles();
+    }
+    const std::string &subtitle_text() const override
+    {
+        return subtitle_text_;
+    }
+    media::SubtitlePicture subtitle_picture() const override
+    {
+        return subtitle_picture_;
+    }
+
   private:
+    // ------------------------------------------------------------- subtitles
+    //
+    // Decoded here on the frame thread, as their time comes: a text event is a few bytes and a
+    // picture a few kilobytes of run lengths, and a picture has to become a texture here anyway.
+
+    // What was decoded belongs to the old place in the film, or to the old track.
+    void restart_subtitles()
+    {
+        close_subtitle_decoder();
+        subtitle_timeline_.clear();
+    }
+
+    void close_subtitle_decoder()
+    {
+        if (subtitle_context_ != nullptr)
+            avcodec_free_context(&subtitle_context_);
+        subtitle_open_ = -1;
+    }
+
+    bool open_subtitle_decoder()
+    {
+        const AVStream *stream = session_->subtitle_stream(subtitle_choice_);
+        const AVCodec *codec = avcodec_find_decoder(stream->codecpar->codec_id);
+        subtitle_open_ = subtitle_choice_; // tried once per choice, whatever comes of it
+        if (codec == nullptr)
+            return false;
+        subtitle_context_ = avcodec_alloc_context3(codec);
+        if (subtitle_context_ == nullptr)
+            return false;
+        avcodec_parameters_to_context(subtitle_context_, stream->codecpar);
+        // The decoder puts each subtitle's time in AV_TIME_BASE only when it knows the packets'.
+        subtitle_context_->pkt_timebase = stream->time_base;
+        if (avcodec_open2(subtitle_context_, codec, nullptr) < 0)
+        {
+            sys::log("[HUI] subtitles: no decoder for track %d (%s)", subtitle_choice_,
+                     codec->name);
+            avcodec_free_context(&subtitle_context_);
+            return false;
+        }
+        sys::log("[HUI] subtitles: track %d, %s", subtitle_choice_, codec->name);
+        return true;
+    }
+
+    void update_subtitles()
+    {
+        subtitle_text_.clear();
+        subtitle_picture_ = media::SubtitlePicture{};
+        if (!session_ || session_->opened() != 1 || subtitle_choice_ < 0 ||
+            (state_ != PlayerState::playing && state_ != PlayerState::buffering &&
+             state_ != PlayerState::paused))
+            return;
+        if (subtitle_open_ != subtitle_choice_)
+            open_subtitle_decoder();
+        if (subtitle_context_ == nullptr)
+            return;
+        std::vector<AVPacket *> packets;
+        session_->take_subtitles(subtitle_choice_, clock_ + kSubtitleLead, clock_ - kSubtitleKeep,
+                                 &packets);
+        for (AVPacket *packet : packets)
+        {
+            decode_subtitle(packet);
+            av_packet_free(&packet);
+        }
+        subtitle_timeline_.forget_before(clock_);
+        subtitle_text_ = subtitle_timeline_.text_at(clock_);
+        if (const media::TimedSubtitle *picture = subtitle_timeline_.picture_at(clock_))
+            show_subtitle_picture(*picture);
+    }
+
+    void decode_subtitle(const AVPacket *packet)
+    {
+        AVSubtitle subtitle{};
+        int got = 0;
+        if (avcodec_decode_subtitle2(subtitle_context_, &subtitle, &got,
+                                     const_cast<AVPacket *>(packet)) < 0 ||
+            got == 0)
+            return;
+        const AVStream *stream = session_->subtitle_stream(subtitle_choice_);
+        const double packet_at = session_->packet_seconds(packet, stream);
+        const double at =
+            subtitle.pts != AV_NOPTS_VALUE
+                ? static_cast<double>(subtitle.pts) / AV_TIME_BASE - session_->start_time()
+            : std::isfinite(packet_at) ? packet_at
+                                       : clock_;
+        media::TimedSubtitle timed;
+        timed.start = at + subtitle.start_display_time / 1000.0;
+        // PGS says nothing of the end (UINT32_MAX): the next display set ends it.
+        if (subtitle.end_display_time > subtitle.start_display_time &&
+            subtitle.end_display_time != UINT32_MAX)
+            timed.end = at + subtitle.end_display_time / 1000.0;
+        else if (packet->duration > 0 && std::isfinite(packet_at))
+            timed.end =
+                packet_at + static_cast<double>(packet->duration) * av_q2d(stream->time_base);
+        std::vector<media::PaletteRect> rects;
+        for (unsigned i = 0; i < subtitle.num_rects; ++i)
+        {
+            const AVSubtitleRect *rect = subtitle.rects[i];
+            if (rect->type == SUBTITLE_BITMAP)
+            {
+                media::PaletteRect area;
+                area.x = rect->x;
+                area.y = rect->y;
+                area.width = rect->w;
+                area.height = rect->h;
+                area.indices = rect->data[0];
+                area.stride = rect->linesize[0];
+                area.palette = reinterpret_cast<const std::uint32_t *>(rect->data[1]);
+                area.colours = rect->nb_colors;
+                rects.push_back(area);
+                continue;
+            }
+            const std::string line = rect->type == SUBTITLE_ASS && rect->ass != nullptr
+                                         ? media::ass_text(rect->ass)
+                                     : rect->text != nullptr ? std::string(rect->text)
+                                                             : std::string();
+            if (line.empty())
+                continue;
+            if (!timed.text.empty())
+                timed.text += '\n';
+            timed.text += line;
+        }
+        if (!rects.empty())
+        {
+            // The canvas the decoder was told of (PGS, VobSub), else the film's own picture.
+            int width = subtitle_context_->width;
+            int height = subtitle_context_->height;
+            int video_width = 0;
+            int video_height = 0;
+            session_->video_size(&video_width, &video_height);
+            if (width <= 0 || height <= 0)
+            {
+                width = video_width;
+                height = video_height;
+            }
+            if (media::compose_subtitle(rects.data(), rects.size(), width, height, &timed.bitmap))
+                subtitle_canvas_aspect_ =
+                    width == video_width && height == video_height
+                        ? 0.0f
+                        : static_cast<float>(width) / static_cast<float>(height);
+        }
+        avsubtitle_free(&subtitle);
+        // One that shows nothing is kept too: it is what ends a picture before it.
+        subtitle_timeline_.add(std::move(timed));
+    }
+
+    void show_subtitle_picture(const media::TimedSubtitle &picture)
+    {
+        const media::SubtitleBitmap &bitmap = picture.bitmap;
+        if (picture.id != subtitle_shown_)
+        {
+            if (subtitle_texture_ == 0 || bitmap.width != subtitle_width_ ||
+                bitmap.height != subtitle_height_)
+            {
+                if (subtitle_texture_ != 0 && surface_.release)
+                    surface_.release(subtitle_texture_);
+                subtitle_texture_ = surface_.create ? surface_.create(bitmap.width, bitmap.height,
+                                                                      bitmap.rgba.data())
+                                                    : 0;
+                subtitle_width_ = bitmap.width;
+                subtitle_height_ = bitmap.height;
+            }
+            else if (surface_.update)
+            {
+                surface_.update(subtitle_texture_, bitmap.width, bitmap.height, bitmap.rgba.data());
+            }
+            subtitle_shown_ = picture.id;
+        }
+        subtitle_picture_.texture = subtitle_texture_;
+        subtitle_picture_.aspect = subtitle_canvas_aspect_;
+        subtitle_picture_.x = bitmap.x;
+        subtitle_picture_.y = bitmap.y;
+        subtitle_picture_.w = bitmap.w;
+        subtitle_picture_.h = bitmap.h;
+    }
+
     void restart_at(double seconds, PlayerState next)
     {
         clock_ = seconds;
         session_->seek(seconds);
+        restart_subtitles();
         ring_->drain();
         state_ = next;
         starved_ = 0.0f;
@@ -2101,6 +2466,19 @@ class FfmpegPlayer final : public media::Player
     std::string error_;
     std::string summary_;
     std::vector<media::Track> tracks_;
+    // Subtitles inside the film; all of it frame thread.
+    std::vector<media::SubtitleTrack> subtitle_tracks_;
+    int subtitle_choice_ = -1;
+    int subtitle_open_ = -1; // the track subtitle_context_ was opened for
+    AVCodecContext *subtitle_context_ = nullptr;
+    media::SubtitleTimeline subtitle_timeline_;
+    std::string subtitle_text_;
+    media::SubtitlePicture subtitle_picture_;
+    float subtitle_canvas_aspect_ = 0.0f;
+    std::uint32_t subtitle_texture_ = 0;
+    int subtitle_width_ = 0;
+    int subtitle_height_ = 0;
+    std::uint64_t subtitle_shown_ = 0; // the id of the picture on the texture
 };
 
 } // namespace

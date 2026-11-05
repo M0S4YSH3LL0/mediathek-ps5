@@ -268,20 +268,19 @@ std::string drive_label(std::string_view path)
     return i18n::tr(i18n::Text::drive_library);
 }
 
-std::vector<int> subtitle_order(const std::vector<std::string> &languages,
+std::vector<int> subtitle_order(const std::vector<SubtitleChoice> &tracks,
                                 std::string_view preferred)
 {
-    std::vector<int> order;
-    order.reserve(languages.size());
-    const int count = static_cast<int>(languages.size());
-    for (int pass = 0; pass < 2; ++pass)
-        for (int i = 0; i < count; ++i)
-        {
-            const bool wanted =
-                !preferred.empty() && languages[static_cast<std::size_t>(i)] == preferred;
-            if (wanted == (pass == 0))
-                order.push_back(i);
-        }
+    const auto rank = [&](int index)
+    {
+        const SubtitleChoice &track = tracks[static_cast<std::size_t>(index)];
+        const bool wanted = !preferred.empty() && track.language == preferred;
+        return (wanted ? 0 : 4) + (track.forced ? 2 : 0) + (track.embedded ? 0 : 1);
+    };
+    std::vector<int> order(tracks.size());
+    for (std::size_t i = 0; i < order.size(); ++i)
+        order[i] = static_cast<int>(i);
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return rank(a) < rank(b); });
     return order;
 }
 

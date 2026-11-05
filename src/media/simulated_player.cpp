@@ -2,12 +2,14 @@
 // Copyright (C) 2026 BlackBearReloaded
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "media/embedded_subtitles.hpp"
 #include "media/player.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace hui::media
@@ -22,6 +24,16 @@ constexpr int kHeight = 90;
 constexpr int kCardWidth = 640;
 constexpr int kCardHeight = 360;
 constexpr float kPaperWhite = 203.0f;
+// Embedded subtitles: one every few seconds, in English and German words, and a picture
+// track standing in for PGS (bars where a disc's subtitle would have its letters).
+constexpr double kCueEvery = 5.0;
+constexpr double kCueShows = 4.0;
+constexpr int kCanvasWidth = 1920;
+constexpr int kCanvasHeight = 1080;
+constexpr const char *kEnglishLines[] = {"The tide is late tonight.",
+                                         "Then we wait for it.\nWe always have."};
+constexpr const char *kGermanLines[] = {"Die Flut kommt heute sp\xC3\xA4t.",
+                                        "Dann warten wir.\nDas tun wir immer."};
 
 // One colour in nits, BT.709 primaries, as 10-bit limited-range BT.2020 Y'CbCr with PQ:
 // what an HDR10 film holds.
@@ -57,12 +69,23 @@ std::array<float, 3> bar(int index, float nits)
 class SimulatedPlayer final : public Player
 {
   public:
-    SimulatedPlayer(const VideoSurface &surface, double duration, bool hdr)
+    SimulatedPlayer(const VideoSurface &surface, double duration, bool hdr, bool subtitles)
         : surface_(surface), duration_(duration), hdr_(hdr && surface.update_yuv)
     {
         tracks_ = {{0, "English · AC3 5.1"}, {1, "Deutsch · AAC 2.0"}};
+        SubtitleTrack english;
+        english.language = "eng";
+        SubtitleTrack german;
+        german.language = "ger";
+        SubtitleTrack picture;
+        picture.language = "ger";
+        picture.picture = true;
+        picture.hearing_impaired = true;
+        if (subtitles)
+            subtitle_list_ = {english, german, picture};
         if (hdr_)
             make_card();
+        make_subtitle_picture();
     }
     ~SimulatedPlayer() override
     {
@@ -75,6 +98,7 @@ class SimulatedPlayer final : public Player
         position_ = std::clamp(start_seconds, 0.0, duration_);
         state_ = PlayerState::opening;
         opening_ = 0.4f;
+        subtitle_ = -1;
         summary_ = hdr_ ? "HEVC 4K HDR10 · AC3 5.1" : "H.264 1080p · AC3 5.1";
     }
     void close() override
@@ -82,6 +106,10 @@ class SimulatedPlayer final : public Player
         if (texture_ != 0 && surface_.release)
             surface_.release(texture_);
         texture_ = 0;
+        if (subtitle_texture_ != 0 && surface_.release)
+            surface_.release(subtitle_texture_);
+        subtitle_texture_ = 0;
+        subtitle_text_.clear();
         state_ = PlayerState::idle;
     }
     void update(float dt) override
@@ -105,6 +133,7 @@ class SimulatedPlayer final : public Player
         if ((state_ == PlayerState::playing || state_ == PlayerState::paused) &&
             !(hdr_ && draw_card()))
             draw_frame();
+        update_subtitles();
     }
     void pause(bool paused) override
     {
@@ -170,7 +199,87 @@ class SimulatedPlayer final : public Player
             track_ = index;
     }
 
+    const std::vector<SubtitleTrack> &subtitle_tracks() const override
+    {
+        return state_ == PlayerState::idle || state_ == PlayerState::opening ? no_subtitles_
+                                                                             : subtitle_list_;
+    }
+    int subtitle_track() const override
+    {
+        return subtitle_;
+    }
+    void select_subtitle(int index) override
+    {
+        subtitle_ = index >= 0 && index < static_cast<int>(subtitle_list_.size()) ? index : -1;
+    }
+    const std::string &subtitle_text() const override
+    {
+        return subtitle_text_;
+    }
+    SubtitlePicture subtitle_picture() const override
+    {
+        return subtitle_picture_;
+    }
+
   private:
+    void update_subtitles()
+    {
+        subtitle_text_.clear();
+        subtitle_picture_ = SubtitlePicture{};
+        if (subtitle_ < 0 || (state_ != PlayerState::playing && state_ != PlayerState::paused))
+            return;
+        const double cycle = std::fmod(position_, kCueEvery);
+        if (cycle >= kCueShows)
+            return;
+        const auto line = static_cast<std::size_t>(position_ / kCueEvery) % 2;
+        if (subtitle_list_[static_cast<std::size_t>(subtitle_)].picture)
+        {
+            if (subtitle_texture_ == 0 && surface_.create && !subtitle_bitmap_.rgba.empty())
+                subtitle_texture_ = surface_.create(subtitle_bitmap_.width, subtitle_bitmap_.height,
+                                                    subtitle_bitmap_.rgba.data());
+            subtitle_picture_.texture = subtitle_texture_;
+            subtitle_picture_.x = subtitle_bitmap_.x;
+            subtitle_picture_.y = subtitle_bitmap_.y;
+            subtitle_picture_.w = subtitle_bitmap_.w;
+            subtitle_picture_.h = subtitle_bitmap_.h;
+            return;
+        }
+        subtitle_text_ = subtitle_ == 0 ? kEnglishLines[line] : kGermanLines[line];
+    }
+
+    // White bars with a black edge, as words, in a palette as a disc's subtitle has one.
+    void make_subtitle_picture()
+    {
+        constexpr int kW = 760;
+        constexpr int kH = 56;
+        constexpr int kEdge = 4;
+        std::vector<std::uint8_t> indices(static_cast<std::size_t>(kW * kH), 0);
+        static constexpr int kWords[] = {120, 70, 160, 90, 140};
+        int x = 0;
+        for (const int word : kWords)
+        {
+            for (int y = 0; y < kH; ++y)
+                for (int i = 0; i < word && x + i < kW; ++i)
+                {
+                    const bool edge =
+                        y < kEdge || y >= kH - kEdge || i < kEdge || i >= word - kEdge;
+                    indices[static_cast<std::size_t>(y * kW + x + i)] = edge ? 1 : 2;
+                }
+            x += word + 36;
+        }
+        static constexpr std::uint32_t kPalette[] = {0x00000000u, 0xff101010u, 0xffeeeeeeu};
+        PaletteRect rect;
+        rect.x = (kCanvasWidth - kW) / 2;
+        rect.y = 930;
+        rect.width = kW;
+        rect.height = kH;
+        rect.indices = indices.data();
+        rect.stride = kW;
+        rect.palette = kPalette;
+        rect.colours = 3;
+        compose_subtitle(&rect, 1, kCanvasWidth, kCanvasHeight, &subtitle_bitmap_);
+    }
+
     // A slow colour field with a moving bar, so a recording of the preview
     // shows that frames arrive and the scrubber agrees with them.
     void draw_frame()
@@ -287,15 +396,22 @@ class SimulatedPlayer final : public Player
     std::string summary_;
     std::vector<Track> tracks_;
     int track_ = 0;
+    std::vector<SubtitleTrack> subtitle_list_;
+    std::vector<SubtitleTrack> no_subtitles_;
+    int subtitle_ = -1;
+    std::string subtitle_text_;
+    SubtitleBitmap subtitle_bitmap_;
+    SubtitlePicture subtitle_picture_;
+    std::uint32_t subtitle_texture_ = 0;
     std::uint8_t pixels_[kWidth * kHeight * 4] = {};
 };
 
 } // namespace
 
 std::unique_ptr<Player> make_simulated_player(const VideoSurface &surface, double duration,
-                                              bool hdr)
+                                              bool hdr, bool embedded_subtitles)
 {
-    return std::make_unique<SimulatedPlayer>(surface, duration, hdr);
+    return std::make_unique<SimulatedPlayer>(surface, duration, hdr, embedded_subtitles);
 }
 
 } // namespace hui::media

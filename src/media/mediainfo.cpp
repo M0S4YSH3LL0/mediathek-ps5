@@ -363,8 +363,9 @@ namespace
 {
 
 // Version 2 offers only audio tracks the app can decode; a version 1 file may list more and
-// is read again.
-constexpr const char *kHeader = "mediainfo 2";
+// is read again. Version 3 adds the subtitle tracks inside the file, which version 2 did not
+// look at: its files are read again too.
+constexpr const char *kHeader = "mediainfo 3";
 
 // One value per line; a value never holds a line break.
 std::string one_line(std::string text)
@@ -417,6 +418,7 @@ std::string encode_info(const MediaInfo &info)
     out += "container=" + one_line(info.container) + "\n";
     out += "audio_format=" + one_line(info.audio_format) + "\n";
     out += "audio=" + join(info.audio_languages) + "\n";
+    out += "subtitles=" + join(info.subtitle_languages) + "\n";
     out += "end\n";
     return out;
 }
@@ -471,6 +473,8 @@ bool decode_info(std::string_view text, MediaInfo *out)
             info.audio_format = value;
         else if (key == "audio")
             info.audio_languages = split(value);
+        else if (key == "subtitles")
+            info.subtitle_languages = split(value);
     }
     if (!header || !ended)
         return false; // half written

@@ -163,8 +163,8 @@ class SamplePlayer final : public hui::media::Player
 {
   public:
     SamplePlayer(const hui::media::VideoSurface &surface, bool hdr)
-        : film_(hui::media::make_simulated_player(surface, kFilmSeconds, hdr)),
-          episode_(hui::media::make_simulated_player(surface, kEpisodeSeconds, hdr))
+        : film_(hui::media::make_simulated_player(surface, kFilmSeconds, hdr, true)),
+          episode_(hui::media::make_simulated_player(surface, kEpisodeSeconds, hdr, true))
     {
     }
     void open(const std::string &path, double start_seconds) override
@@ -236,6 +236,26 @@ class SamplePlayer final : public hui::media::Player
     void select_audio(int index) override
     {
         now().select_audio(index);
+    }
+    const std::vector<hui::media::SubtitleTrack> &subtitle_tracks() const override
+    {
+        return now().subtitle_tracks();
+    }
+    int subtitle_track() const override
+    {
+        return now().subtitle_track();
+    }
+    void select_subtitle(int index) override
+    {
+        now().select_subtitle(index);
+    }
+    const std::string &subtitle_text() const override
+    {
+        return now().subtitle_text();
+    }
+    hui::media::SubtitlePicture subtitle_picture() const override
+    {
+        return now().subtitle_picture();
     }
 
   private:
@@ -680,6 +700,8 @@ int main(int argc, char **argv)
             sample.container = "MKV";
             sample.audio_format = "E-AC3 5.1";
             sample.audio_languages = {"eng", "ger"};
+            // As the simulated player's own tracks: English and German.
+            sample.subtitle_languages = {"eng", "ger"};
             if (path.find("Blue Harbor") != std::string::npos)
             {
                 sample.duration = 6300.0;

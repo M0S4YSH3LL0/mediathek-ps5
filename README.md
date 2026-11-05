@@ -38,7 +38,7 @@ Put your films in a `movies` folder and your series in `tvshows`. Mediathek find
   Play, Resume or Start over.
 - **Covers:** posters, wallpapers, descriptions, scores and genres from TMDB with a
   free key, generated covers without one. Your own pictures always win.
-- **Player:** seeking that speeds up while you hold, audio and `.srt` switching, a
+- **Player:** seeking that speeds up while you hold, audio and subtitle switching, a
   stream info panel. It remembers where you stopped; 92% counts as watched.
 
 ## What you need
@@ -101,11 +101,14 @@ Choose a folder to remove it. Cross on the "No media found" screen goes straight
 - **Pictures:** `<film>-poster.jpg` and `<film>-fanart.jpg` beside the film. A film
   alone in its folder can also use `poster.jpg`, `folder.jpg` or `cover.jpg`, and
   `fanart.jpg` or `backdrop.jpg`.
-- **Subtitles:** `.srt` files named after the film, beside it or in a `subs` folder (a
-  film alone in its folder owns all of `subs`). Up to eight, English first. The
+- **Subtitles:** the tracks inside the film (text: SubRip, ASS, mov_text, WebVTT;
+  pictures: PGS, VobSub, DVB), and `.srt` files named after the film, beside it or in a
+  `subs` folder (a film alone in its folder owns all of `subs`; up to eight). A file's
   language comes from the name (`Film.de.srt`, `English.srt`) or else from the words
   inside. A film starts without subtitles unless *Force subtitles* is on; Triangle
-  switches them on, the preferred language first.
+  switches them on and steps through them all, the preferred language first, and in it
+  the film's own tracks before the files and full tracks before forced ones. Its message
+  says which: "German · embedded", "German · SRT", "English · SDH · embedded".
 - **Audio language:** if a file does not say, its name can: `Film (2011) German DL.mkv`
   is listed as German.
 
@@ -136,7 +139,7 @@ Put series in a `tvshows` or `series` folder (also `TV Shows`, `mediathek/tvshow
 | **Files** | `.mkv` `.mp4` `.m4v` `.mov` `.avi` `.wmv` `.ts` `.m2ts` `.mpg` `.mpeg` `.webm` `.flv` `.vob` `.ogv` |
 | **Video** | H.264, HEVC, VP9, VP8, MPEG-4 (Xvid, DivX), MPEG-2, MPEG-1, VC-1, WMV |
 | **Audio** | AAC, AC-3, E-AC-3, TrueHD, DTS, MP2, MP3, Opus, Vorbis, FLAC, ALAC, WMA, PCM |
-| **Subtitles** | `.srt` files only. Tracks inside the film are not shown. |
+| **Subtitles** | Inside the film: SubRip, ASS/SSA (as plain text), mov_text, WebVTT, PGS, VobSub, DVB. Beside it: `.srt`. |
 | **Pictures** | `.jpg` `.jpeg` `.png` |
 
 H.264 (up to High) and HEVC (Main and Main10) films of any size up to 3840 x 2176 go to

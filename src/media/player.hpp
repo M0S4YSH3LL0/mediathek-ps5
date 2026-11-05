@@ -32,6 +32,30 @@ struct Track
     std::string label; // "English · AC3 5.1"
 };
 
+// A subtitle track inside the film.
+struct SubtitleTrack
+{
+    std::string language = "und"; // canonical ISO 639-2 code
+    bool forced = false;          // only the lines not in the film's language: signs, a scene
+    bool hearing_impaired = false;
+    bool picture = false; // PGS, VobSub, DVB: drawn as a picture rather than as text
+};
+
+// A picture subtitle on screen: its texture, and where it goes as fractions of the frame it was
+// made for (x, y from its top left corner). That frame is the film's picture when `aspect` is 0
+// (a DVD's subtitles, made at the film's size); otherwise it is a frame of that width / height,
+// fitted to the screen as a film would be: a Blu-ray's are made on 1920 x 1080 whether or not
+// the film was cropped to 1920 x 800, and belong where they are on the full screen.
+struct SubtitlePicture
+{
+    std::uint32_t texture = 0; // 0: none showing
+    float aspect = 0.0f;
+    float x = 0.0f;
+    float y = 0.0f;
+    float w = 0.0f;
+    float h = 0.0f;
+};
+
 // How a player puts pictures on screen: it owns one texture and rewrites it
 // as frames arrive. The app wires these to the GL batch.
 struct VideoSurface
@@ -78,13 +102,25 @@ class Player
     virtual const std::vector<Track> &audio_tracks() const = 0;
     virtual int audio_track() const = 0;
     virtual void select_audio(int index) = 0;
+
+    // The film's own subtitle tracks: empty until it is open (state() past opening).
+    virtual const std::vector<SubtitleTrack> &subtitle_tracks() const = 0;
+    virtual int subtitle_track() const = 0; // -1: none
+    // -1 for none. May be called while the film opens; it applies once it is open.
+    virtual void select_subtitle(int index) = 0;
+    // What the chosen track shows now, kept up by update(): a text track's lines joined
+    // with '\n' ("" for none), and a picture track's picture.
+    virtual const std::string &subtitle_text() const = 0;
+    virtual SubtitlePicture subtitle_picture() const = 0;
 };
 
 // A player that plays nothing: it counts time forward and shows a moving
 // test picture. It drives the screens on a PC and in the tests.
 // `hdr`: the picture is a 10-bit PQ test card sent as YUV planes through update_yuv,
 // which shows the GPU's conversion and tone mapping in the PC preview.
+// `embedded_subtitles`: the film has subtitle tracks of its own, an English and a German text
+// track and a German picture track for the hard of hearing, each showing a line now and then.
 std::unique_ptr<Player> make_simulated_player(const VideoSurface &surface, double duration,
-                                              bool hdr = false);
+                                              bool hdr = false, bool embedded_subtitles = false);
 
 } // namespace hui::media

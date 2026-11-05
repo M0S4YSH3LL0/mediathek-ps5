@@ -148,6 +148,9 @@ bool probe(const std::string &path, media::MediaInfo *out)
             if (static_cast<int>(i) == best_audio)
                 info.audio_format = audio_format_of(stream->codecpar);
         }
+        else if (stream->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE &&
+                 avcodec_find_decoder(stream->codecpar->codec_id) != nullptr)
+            media::add_language(&info.subtitle_languages, code);
     }
     release();
     *out = std::move(info);

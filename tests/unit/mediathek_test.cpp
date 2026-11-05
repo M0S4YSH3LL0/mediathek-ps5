@@ -8,6 +8,7 @@
 #include "media/services.hpp"
 
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <string>
 
@@ -31,14 +32,21 @@ class MediathekTest : public hui::testing::ConceptFixture
   protected:
     MediathekTest()
     {
-        media::VideoSurface surface;
-        surface.create = [](int, int, const std::uint8_t *) { return std::uint32_t{7}; };
-        surface.update = [](std::uint32_t, int, int, const std::uint8_t *) {};
-        surface.release = [](std::uint32_t) {};
-        player_ = media::make_simulated_player(surface, 7200.0);
+        surface_.create = [](int, int, const std::uint8_t *) { return std::uint32_t{7}; };
+        surface_.update = [](std::uint32_t, int, int, const std::uint8_t *) {};
+        surface_.release = [](std::uint32_t) {};
+        player_ = media::make_simulated_player(surface_, 7200.0);
         services_.player = player_.get();
         services_.clock = [this] { return clock_seconds_; };
         context_.media = &services_;
+    }
+
+    // A player whose films have subtitle tracks of their own (see make_simulated_player):
+    // English and German text, then German pictures for the hard of hearing.
+    void use_embedded_subtitles()
+    {
+        player_ = media::make_simulated_player(surface_, 7200.0, false, true);
+        services_.player = player_.get();
     }
 
     void fill_library()
@@ -171,7 +179,15 @@ class MediathekTest : public hui::testing::ConceptFixture
     // What Triangle's message says for subtitle file `language`, number `step` of two.
     float subtitle_toast(Text language, int step)
     {
-        const std::string label = std::string(tr(language)) + " (" + std::to_string(step) + "/2)";
+        return subtitle_toast({language, Text::subtitles_srt}, step, 2);
+    }
+    // ... and for any track: "Deutsch · SDH · embedded (2/5)".
+    float subtitle_toast(std::initializer_list<Text> parts, int step, int count)
+    {
+        std::string label;
+        for (const Text part : parts)
+            label += (label.empty() ? "" : " \xC2\xB7 ") + std::string(tr(part));
+        label += " (" + std::to_string(step) + "/" + std::to_string(count) + ")";
         return toast_width_of(hui::i18n::format(Text::subtitles_track, label));
     }
 
@@ -270,6 +286,7 @@ class MediathekTest : public hui::testing::ConceptFixture
     }
 
     media::Services services_;
+    media::VideoSurface surface_;
     std::unique_ptr<media::Player> player_;
     std::int64_t clock_seconds_ = 1700001000;
 };
@@ -391,6 +408,53 @@ TEST_F(MediathekTest, ForcedSubtitlesWithoutAPreferenceStartOnTheFirstFile)
     ASSERT_EQ(player_->state(), media::PlayerState::playing);
     send(*design, press(Action::north), 0.5f); // English (the library's first) was on
     EXPECT_EQ(toast_width(*design), subtitle_toast(Text::lang_ger, 2));
+}
+
+// The film's own tracks come before the files in each language, and Force subtitles waits for
+// the player to know them. Entries: en.srt, de.srt, then English, German, German SDH pictures.
+TEST_F(MediathekTest, ForcedSubtitlesPreferTheFilmsOwnTrackToAFile)
+{
+    settings_.force_subtitles = true;
+    settings_.subtitle_language = 1; // German
+    use_embedded_subtitles();
+    fill_library_with_subtitles();
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    EXPECT_EQ(player_->subtitle_track(), 1) << "the German text track inside the film";
+    EXPECT_FALSE(player_->subtitle_text().empty());
+    expect_drawable(*design);
+
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(
+        toast_width(*design),
+        subtitle_toast({Text::lang_ger, Text::subtitles_sdh, Text::subtitles_embedded}, 2, 5));
+    EXPECT_EQ(player_->subtitle_track(), 2);
+    EXPECT_NE(player_->subtitle_picture().texture, 0u) << "a picture track draws a picture";
+    EXPECT_TRUE(player_->subtitle_text().empty());
+    expect_drawable(*design);
+
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(toast_width(*design), subtitle_toast({Text::lang_ger, Text::subtitles_srt}, 3, 5));
+    EXPECT_EQ(player_->subtitle_track(), -1) << "a file is the app's to show, not the player's";
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(toast_width(*design),
+              subtitle_toast({Text::lang_eng, Text::subtitles_embedded}, 4, 5));
+    EXPECT_EQ(player_->subtitle_track(), 0);
+}
+
+TEST_F(MediathekTest, AFilmWithOnlyItsOwnSubtitlesStillSwitchesThemOn)
+{
+    use_embedded_subtitles();
+    fill_library(); // no files beside the films
+    auto design = make();
+    send(*design, press(Action::west), 2.0f);
+    ASSERT_EQ(player_->state(), media::PlayerState::playing);
+    EXPECT_EQ(player_->subtitle_track(), -1) << "off unless forced";
+    send(*design, press(Action::north), 0.5f);
+    EXPECT_EQ(toast_width(*design),
+              subtitle_toast({Text::lang_eng, Text::subtitles_embedded}, 1, 3));
+    EXPECT_EQ(player_->subtitle_track(), 0);
 }
 
 TEST_F(MediathekTest, TheSubtitleSettingsAreAFormOfTheirOwn)

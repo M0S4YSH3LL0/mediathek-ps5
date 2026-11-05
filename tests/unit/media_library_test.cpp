@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -484,12 +485,50 @@ TEST(MediaGenreShelves, AFilmIsOnTheShelvesOfItsFirstTwoGenresAndNoOther)
     EXPECT_TRUE(genre_shelves({}).empty());
 }
 
+std::vector<SubtitleChoice> files(std::initializer_list<const char *> languages)
+{
+    std::vector<SubtitleChoice> out;
+    for (const char *language : languages)
+    {
+        SubtitleChoice choice;
+        choice.language = language;
+        out.push_back(choice);
+    }
+    return out;
+}
+
+SubtitleChoice track(const char *language, bool embedded, bool forced = false)
+{
+    SubtitleChoice choice;
+    choice.language = language;
+    choice.embedded = embedded;
+    choice.forced = forced;
+    return choice;
+}
+
 TEST(SubtitleOrder, ThePreferredLanguageComesFirstAndTheRestKeepTheirOrder)
 {
-    const std::vector<std::string> languages{"eng", "ger", "fre", "ger"};
+    const std::vector<SubtitleChoice> languages = files({"eng", "ger", "fre", "ger"});
     EXPECT_EQ(subtitle_order(languages, "ger"), (std::vector<int>{1, 3, 0, 2}));
     EXPECT_EQ(subtitle_order(languages, "eng"), (std::vector<int>{0, 1, 2, 3}));
     EXPECT_EQ(subtitle_order(languages, ""), (std::vector<int>{0, 1, 2, 3}));
     EXPECT_EQ(subtitle_order(languages, "spa"), (std::vector<int>{0, 1, 2, 3})) << "none in it";
     EXPECT_TRUE(subtitle_order({}, "ger").empty());
+}
+
+TEST(SubtitleOrder, TheFilmsOwnTracksComeBeforeTheFilesBesideIt)
+{
+    // Two .srt files, then what the film holds.
+    const std::vector<SubtitleChoice> tracks{track("ger", false), track("eng", false),
+                                             track("eng", true), track("ger", true)};
+    EXPECT_EQ(subtitle_order(tracks, "ger"), (std::vector<int>{3, 0, 2, 1}));
+    EXPECT_EQ(subtitle_order(tracks, ""), (std::vector<int>{2, 3, 0, 1}));
+}
+
+TEST(SubtitleOrder, AForcedTrackComesAfterTheFullOnesOfItsLanguage)
+{
+    // Forcing subtitles on means every line, not just the signs.
+    const std::vector<SubtitleChoice> tracks{track("ger", true, true), track("ger", false),
+                                             track("ger", true), track("eng", true)};
+    EXPECT_EQ(subtitle_order(tracks, "ger"), (std::vector<int>{2, 1, 0, 3}));
 }
