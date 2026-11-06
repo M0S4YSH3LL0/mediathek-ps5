@@ -14,7 +14,8 @@ Put your films in a `movies` folder and your series in `tvshows`. Mediathek find
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/M0S4YSH3LL0/mediathek-ps5/total?style=flat&color=8ea2ff&label=downloads)](https://github.com/M0S4YSH3LL0/mediathek-ps5/releases)
 
-**[Get it on ProsperoStore](https://prosperostore.net/app/PPSA66120/)**
+[<img src="https://prosperostore.net/press/badge-dark.png" alt="Get it on ProsperoStore" height="56">](https://prosperostore.net/app/PPSA66120/)
+[![Get it on RecompStore](https://recompstore.com/assets/press/badge-dark.svg)](https://recompstore.com/game/PPSA66120)
 
 [Install](#install) · [Your files](#your-files) · [Formats](#formats) · [Covers](#covers-and-descriptions) · [Controls](#controls) · [Screenshots](#screenshots) · [FAQ](#faq) · [Build](#build-from-source)
 
@@ -53,9 +54,12 @@ Setting up the console is not covered here. Your loader's documentation does tha
 
 ## Install
 
-**With [ProsperoStore](https://prosperostore.net/app/PPSA66120/) (recommended).**
-Install and update from the [client](https://github.com/darkxex/ProsperoStore/releases)
-on your console. It downloads the same files as this repository's releases.
+**From a store (recommended).** Mediathek is listed on two homebrew stores; install and
+update it from either one's client on your console.
+
+- [ProsperoStore](https://prosperostore.net/app/PPSA66120/), with its
+  [client](https://github.com/darkxex/ProsperoStore/releases).
+- [RecompStore](https://recompstore.com/game/PPSA66120).
 
 **By hand.**
 
