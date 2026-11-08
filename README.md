@@ -340,11 +340,12 @@ player), *Recently Added* going by the day a film was found, the media folders w
 their choice of Automatic, Movies or Series, films shown with their title from TMDB, and the
 red light bar; and (1.0.0) H.264 and HEVC of every size on the hardware decoder, the subtitles
 inside a film and switching them mid-film and after a seek, the subtitle source, HDR output on
-an HDR TV, 5.1 sound on the 8-channel output, the audio language and the Stereo output. The loader
+an HDR TV, 5.1 sound on the 8-channel output, the audio language and the Stereo output, and
+a film's own forced subtitles shown by themselves, following the sound switched with Square. The loader
 version was not recorded. Reports from other firmware are welcome.
 
-**Not checked on a console:** 4K H.264, HLG and Dolby Vision films, 7.1 sound, forced
-subtitles shown by themselves, and the fallback to the CPU when the graphics chip cannot
+**Not checked on a console:** 4K H.264, HLG and Dolby Vision films, 7.1 sound, a forced
+subtitle file (`Film.de.forced.srt`), and the fallback to the CPU when the graphics chip cannot
 convert a picture.
 
 **Checked on a PC:** the unit tests, the preview pictures, the scan helper against a
