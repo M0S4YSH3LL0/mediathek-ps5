@@ -66,6 +66,12 @@ const Color kAccent = Color::rgb(0xff4d5e);
 const Color kLightBar = Color::rgb(0xff0000);
 
 constexpr float kMargin = 96.0f;
+// The details page: a cover of 460 x 690 at the safe area's edge, centred on the page, and the
+// column of text beside it, which ends 80 px before the column of actions (x 1440).
+constexpr float kDetailsArtWidth = 460.0f;
+constexpr float kDetailsArtHeight = 690.0f;
+constexpr float kDetailsColumn = kMargin + kDetailsArtWidth + 56.0f;
+constexpr float kDetailsColumnWidth = 1360.0f - kDetailsColumn;
 constexpr float kGearRadius = 17.0f;
 constexpr int kTabCount = 4; // Tab::home .. Tab::settings
 constexpr float kExitConfirmSeconds = 2.5f;
@@ -3120,12 +3126,13 @@ class Mediathek final : public app::Concept
         list.push_opacity(swap);
 
         constexpr float kCenter = gfx::kVirtualHeight * 0.5f;
-        constexpr float kColumn = 600.0f;
-        constexpr float kColumnWidth = 760.0f;
+        constexpr float kColumn = kDetailsColumn;
+        constexpr float kColumnWidth = kDetailsColumnWidth;
 
         // The cover, vertically centred, sliding in from the left.
         const float arrive = tween::stagger(t, 0, 0.12f, 0.6f);
-        const Rect art{120.0f - 40.0f * (1.0f - arrive), kCenter - 300.0f, 400, 600};
+        const Rect art{kMargin - 40.0f * (1.0f - arrive), kCenter - kDetailsArtHeight * 0.5f,
+                       kDetailsArtWidth, kDetailsArtHeight};
         list.push_opacity(arrive);
         list.glow(art.inset(40), 40, 100, tone.with_alpha(0.3f));
         list.shadow({art.x, art.y + 30, art.w, art.h}, 28, 50, Color::rgb(0x000000, 0.6f));
@@ -3225,7 +3232,7 @@ class Mediathek final : public app::Concept
             {
                 const float width =
                     fonts.semibold.measure(chip.text, 22) + 36.0f + (chip.star ? 26.0f : 0.0f);
-                if (chip_x + width > kColumn + kColumnWidth + 60.0f)
+                if (chip_x + width > kColumn + kColumnWidth + 40.0f)
                     break;
                 list.bordered_rect({chip_x, chip_y, width, 40.0f}, 20, kInk.with_alpha(0.08f), 1.5f,
                                    kInk.with_alpha(0.22f));
@@ -3274,7 +3281,7 @@ class Mediathek final : public app::Concept
             draw_episode_text(list, m, episode, text_y, last_line, episode_fade);
         else if (!m.overview.empty())
             ui::paragraph(list, fonts.regular, m.overview, kColumn, text_y, 24, kColumnWidth, kLine,
-                          kInk.with_alpha(0.86f), std::clamp(fits, 1, 9));
+                          kInk.with_alpha(0.86f), std::clamp(fits, 1, 12));
         else
             ui::paragraph(list, fonts.regular,
                           tr(svc_->refetch_cover ? Text::no_description_try : Text::no_description),
@@ -3289,7 +3296,7 @@ class Mediathek final : public app::Concept
                                    : resume > 0.0
                                        ? i18n::format(Text::status_at, format_time(resume))
                                        : tr(Text::status_not_started);
-        constexpr float kSecond = kColumn + 440.0f; // the second column of the foot rows
+        constexpr float kSecond = kColumn + 420.0f; // the second column of the foot rows
         const auto caption = [&](const std::string &text, float x, float y)
         {
             ui::text(list, fonts.semibold, text, x, y, 15, kInk.with_alpha(0.5f), gfx::Align::left,
@@ -3328,7 +3335,8 @@ class Mediathek final : public app::Concept
                  episode != nullptr ? episode->subtitles : m.subtitles)
                 if (!sub.forced) // as the file's own forced tracks are not listed
                     media::add_language(&subtitle_languages, subtitle_language(sub));
-        languages(media::language_names(subtitle_languages), kSecond, 1360.0f - kSecond,
+        languages(media::language_names(subtitle_languages), kSecond,
+                  kColumn + kColumnWidth - kSecond,
                   own_subtitles && content == nullptr &&
                       lookup.state == media::InfoService::State::pending);
         // FILE, the drive it is on and its size.
@@ -3446,8 +3454,8 @@ class Mediathek final : public app::Concept
                            const media::Episode *episode, float y, float last_line,
                            float fade) const
     {
-        constexpr float kColumn = 600.0f;
-        constexpr float kColumnWidth = 760.0f;
+        constexpr float kColumn = kDetailsColumn;
+        constexpr float kColumnWidth = kDetailsColumnWidth;
         constexpr float kLine = 36.0f;
         const ui::Fonts &fonts = context_.fonts;
         if (episode == nullptr || !details_ref_.valid())
@@ -3458,11 +3466,20 @@ class Mediathek final : public app::Concept
         ui::text(list, fonts.semibold, ui::upper(season_name(season)), kColumn, y - 4.0f, 16,
                  kAccent, gfx::Align::left, 3.0f);
         y += 30.0f;
-        // Three lines at most, and at least two left for the episode below.
-        const int room = static_cast<int>((last_line - y) / 32.0f) + 1 - 4;
+        // The episode is what Play plays: its text keeps the lines it needs, up to four, and the
+        // season takes what is left above it, four lines at most. A short episode text leaves
+        // the season more. 62 px are the gap and the episode's heading.
+        const int episode_needs =
+            episode->overview.empty()
+                ? 1
+                : static_cast<int>(
+                      ui::paragraph_lines(fonts.regular, episode->overview, 24, kColumnWidth, 4)
+                          .lines.size());
+        const int room = static_cast<int>(
+            (last_line - y - 62.0f - static_cast<float>(episode_needs - 1) * kLine) / 32.0f);
         if (!about.empty() && room > 0)
             y = ui::paragraph(list, fonts.regular, about, kColumn, y, 22, kColumnWidth, 32.0f,
-                              kInk.with_alpha(0.62f), std::min(room, 3)) +
+                              kInk.with_alpha(0.62f), std::min(room, 4)) +
                 12.0f;
 
         list.push_opacity(fade);
@@ -3472,7 +3489,7 @@ class Mediathek final : public app::Concept
         ui::text(list, fonts.semibold, fit(fonts.semibold, heading, 27, kColumnWidth), kColumn,
                  y + 8.0f, 27, kInk);
         y += 50.0f;
-        const int lines = std::clamp(static_cast<int>((last_line - y) / kLine) + 1, 1, 9);
+        const int lines = std::clamp(static_cast<int>((last_line - y) / kLine) + 1, 1, 12);
         if (!episode->overview.empty())
             ui::paragraph(list, fonts.regular, episode->overview, kColumn, y, 24, kColumnWidth,
                           kLine, kInk.with_alpha(0.86f), lines);

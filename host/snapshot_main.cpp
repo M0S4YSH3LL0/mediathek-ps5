@@ -547,9 +547,19 @@ int main(int argc, char **argv)
         } season_texts[] = {
             {"Tidewater County", 1,
              "Constable Ines Marrow arrives on the last ferry of the year and inherits a case "
-             "nobody wants reopened.",
+             "nobody wants reopened. The harbour keeps its secrets well: the lighthouse keeper "
+             "vanished eleven winters ago, the logbook of that night is missing, and everyone she "
+             "asks remembers the storm differently. As the island closes in for the season, Ines "
+             "learns that the people who look after her stand to lose the most if the truth "
+             "comes out.",
              "Polizistin Ines Marrow kommt mit der letzten F\xC3\xA4hre des Jahres und erbt "
-             "einen Fall, den niemand wieder aufrollen will."},
+             "einen Fall, den niemand wieder aufrollen will. Der Hafen h\xC3\xBC"
+             "tet seine Geheimnisse gut: Der Leuchtturmw\xC3\xA4rter verschwand vor elf "
+             "Wintern, das Logbuch jener Nacht fehlt, und jeder, den sie fragt, erinnert sich "
+             "anders an den Sturm. Als sich die Insel f\xC3\xBC"
+             "r den Winter schlie\xC3\x9Ft, merkt Ines, dass gerade die Menschen, die sich um "
+             "sie k\xC3\xBC"
+             "mmern, am meisten zu verlieren haben."},
             {"Tidewater County", 2,
              "Spring brings the visitors back, and with them a stranger who knows too much about "
              "the old lighthouse.",
@@ -581,9 +591,14 @@ int main(int argc, char **argv)
              "herausgerissen."},
             {"Tidewater County", 1, 4, "",
              "Ines climbs the lighthouse at low tide and finds that the lamp was switched off "
-             "by hand.",
+             "by hand. The keeper's chair is still turned to the window, a cold cup beside it, "
+             "and the last entry in the weather book is written in someone else's hand. Back in "
+             "the village, the harbour master asks her to leave it alone, for the island's sake.",
              "Bei Ebbe steigt Ines auf den Leuchtturm und findet heraus, dass die Lampe von Hand "
-             "ausgeschaltet wurde."},
+             "ausgeschaltet wurde. Der Stuhl des W\xC3\xA4rters steht noch zum Fenster gedreht, "
+             "daneben eine kalte Tasse, und der letzte Eintrag im Wetterbuch stammt von fremder "
+             "Hand. Im Dorf bittet der Hafenmeister sie, die Sache ruhen zu lassen, der Insel "
+             "zuliebe."},
             {"Tidewater County", 2, 1, "",
              "The ferry timetable changes, and so does the harbour master's story.",
              "Der F\xC3\xA4hrplan \xC3\xA4ndert sich, und mit ihm die Geschichte des "

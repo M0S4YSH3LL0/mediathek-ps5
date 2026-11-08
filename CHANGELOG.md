@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- The details page uses more of the screen: a larger cover and a taller column of text, so a
+  film's description has room for about nine lines instead of five. On a series' page the
+  episode's description keeps the lines it needs (up to four) and the season's takes what is
+  left, up to four lines, instead of one line and two.
+
 ## 1.0.0 (01.000.100)
 
 - H.264 and HEVC films of every size now play on the console's hardware decoder, as in VLC's
