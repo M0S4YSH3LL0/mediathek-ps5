@@ -152,8 +152,10 @@ TEST(Tmdb, PicksTheFilmOfTheRightYear)
     ASSERT_TRUE(pick_match(kAnswer, 2024, &match));
     EXPECT_EQ(match.title, "Dune: Part Two");
     EXPECT_EQ(match.backdrop_path, "/two_bd.jpg");
+    EXPECT_EQ(match.year, 2024);
     ASSERT_TRUE(pick_match(kAnswer, 0, &match));
     EXPECT_EQ(match.poster_path, "/old.jpg"); // no year: the first with a picture
+    EXPECT_EQ(match.year, 1984);              // TMDB's, for a file name that has none
     ASSERT_TRUE(pick_match(kAnswer, 1999, &match));
     EXPECT_EQ(match.poster_path, "/old.jpg");
     EXPECT_FALSE(pick_match(R"({"results":[]})", 0, &match));

@@ -107,6 +107,24 @@ float parse_rating(const std::string &text)
     return static_cast<float>(std::min(value, 10.0));
 }
 
+// The year of a TMDB date ("2015-03-01"), or of a year file ("2015", "0" for none). Anything
+// that is no plausible year of a film is none, so a damaged file shows nothing.
+int parse_year(std::string_view text)
+{
+    if (text.size() < 4)
+        return 0;
+    int year = 0;
+    for (std::size_t i = 0; i < 4; ++i)
+    {
+        if (text[i] < '0' || text[i] > '9')
+            return 0;
+        year = year * 10 + (text[i] - '0');
+    }
+    if (text.size() > 4 && text[4] >= '0' && text[4] <= '9')
+        return 0;
+    return year >= 1870 && year <= 2200 ? year : 0;
+}
+
 // The genres file: numbers separated by commas, "-" for none.
 std::vector<int> parse_genres(const std::string &text)
 {
@@ -314,6 +332,7 @@ bool parse_season(std::string_view answer, SeasonAnswer *out)
         return false;
     *out = SeasonAnswer();
     out->overview = root.text("overview");
+    out->year = parse_year(root.text("air_date"));
     for (const json::Value &episode : episodes->items)
     {
         const json::Value *number = episode.get("episode_number");
@@ -378,6 +397,7 @@ bool pick_match(std::string_view answer, int year, Match *out, bool show)
                                                  id->number > 0.0 && id->number < 1e9)
         out->id = static_cast<int>(id->number);
     out->title = best->text(title_key);
+    out->year = parse_year(best->text(date_key));
     out->poster_path = best->text("poster_path");
     out->backdrop_path = best->text("backdrop_path");
     out->overview = best->text("overview");
@@ -449,6 +469,14 @@ bool CoverStore::has_title(const std::string &id) const
 {
     return exists(title_path(id));
 }
+std::string CoverStore::year_path(const std::string &id) const
+{
+    return directory_ + "/" + id + ".year";
+}
+bool CoverStore::has_year(const std::string &id) const
+{
+    return exists(year_path(id));
+}
 std::string CoverStore::season_path(const std::string &id, int season) const
 {
     return directory_ + "/" + id + "-s" + std::to_string(season) + ".txt";
@@ -456,6 +484,14 @@ std::string CoverStore::season_path(const std::string &id, int season) const
 bool CoverStore::has_season(const std::string &id, int season) const
 {
     return exists(season_path(id, season));
+}
+std::string CoverStore::season_year_path(const std::string &id, int season) const
+{
+    return directory_ + "/" + id + "-s" + std::to_string(season) + ".year";
+}
+bool CoverStore::has_season_year(const std::string &id, int season) const
+{
+    return exists(season_year_path(id, season));
 }
 std::string CoverStore::tmdb_id_path(const std::string &id) const
 {
@@ -486,6 +522,7 @@ void CoverStore::forget(const std::string &id) const
     unlink(rating_path(id).c_str());
     unlink(genres_path(id).c_str());
     unlink(title_path(id).c_str());
+    unlink(year_path(id).c_str());
     unlink(tmdb_id_path(id).c_str());
     unlink((directory_ + "/" + id + ".none").c_str());
 }
@@ -493,6 +530,7 @@ void CoverStore::forget_season(const std::string &id, int season,
                                const std::vector<std::string> &episodes) const
 {
     unlink(season_path(id, season).c_str());
+    unlink(season_year_path(id, season).c_str());
     for (const std::string &episode : episodes)
     {
         unlink(overview_path(episode).c_str());
@@ -522,11 +560,18 @@ void CoverStore::fill(Movie *movie) const
         movie->title = std::move(title);
     else if (!movie->file_title.empty())
         movie->title = movie->file_title;
+    // The file name's year stays: it says which film of a title this is, and TMDB was asked
+    // with it.
+    if (movie->year == 0 && has_year(movie->id) && save::read_file(year_path(movie->id), &text, 16))
+        movie->year = parse_year(text);
     for (Season &season : movie->seasons)
     {
         if (has_season(movie->id, season.number) &&
             save::read_file(season_path(movie->id, season.number), &text, kMaxOverview + 16))
             season.overview = clean_overview(text, false);
+        if (has_season_year(movie->id, season.number) &&
+            save::read_file(season_year_path(movie->id, season.number), &text, 16))
+            season.year = parse_year(text);
         for (Episode &episode : season.episodes)
         {
             if (has_overview(episode.id) &&
@@ -567,13 +612,17 @@ std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &s
         job.title = movie.file_title.empty() ? movie.title : movie.file_title;
         job.year = movie.year;
         job.show = movie.show;
+        // The year is asked for only where the file name has none (kept since 1.0.0).
         job.want_facts = !store.has_rating(movie.id) || !store.has_genres(movie.id) ||
-                         !store.has_title(movie.id);
+                         !store.has_title(movie.id) ||
+                         (movie.year == 0 && !store.has_year(movie.id));
         // A season is asked for when it, or one of its episodes, has no description yet:
-        // a season or an episode that came after the last fetch.
+        // a season or an episode that came after the last fetch; or no year, fetched before
+        // years were kept.
         for (SeasonJob &season : season_jobs(movie))
         {
-            bool wanted = !store.has_season(movie.id, season.number);
+            bool wanted = !store.has_season(movie.id, season.number) ||
+                          !store.has_season_year(movie.id, season.number);
             for (const auto &episode : season.episodes)
                 wanted = wanted || !store.has_overview(episode.second);
             if (wanted)
@@ -663,7 +712,8 @@ FetchOutcome fetch_season(const TmdbConfig &config, const HttpGet &get, const Co
             *note = i18n::format(i18n::Text::tmdb_cannot_save_description, failure);
         return failure.empty();
     };
-    if (!save_text(store.season_path(id, season.number), clean_overview(found.overview)))
+    if (!save_text(store.season_path(id, season.number), clean_overview(found.overview)) ||
+        !save_text(store.season_year_path(id, season.number), std::to_string(found.year)))
         return FetchOutcome::network;
     for (const auto &episode : season.episodes)
     {
@@ -769,6 +819,8 @@ FetchOutcome fetch_cover(const TmdbConfig &config, const HttpGet &get, const Cov
             failure = save::write_atomic(store.genres_path(job.id), genres.empty() ? "-" : genres);
         if (failure.empty())
             failure = save::write_atomic(store.title_path(job.id), title.empty() ? "\n" : title);
+        if (failure.empty())
+            failure = save::write_atomic(store.year_path(job.id), std::to_string(match.year));
         if (!failure.empty())
         {
             *note = i18n::format(i18n::Text::tmdb_cannot_save_description, failure);

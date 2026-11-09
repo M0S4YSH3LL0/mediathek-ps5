@@ -41,6 +41,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../third_party/stb/stb_image_write.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
@@ -506,6 +507,7 @@ int main(int argc, char **argv)
         {
             const char *folder; // the title the folder gives
             const char *title;  // TMDB's
+            int year;           // of TMDB's first air date; the sample posters say the same
             float rating;
             std::vector<int> genres;
             const char *english;
@@ -513,6 +515,7 @@ int main(int argc, char **argv)
         } shows[] = {
             {"Tidewater County",
              "Tidewater County",
+             2015,
              7.9f,
              {9648, 18},
              "In a ferry town where the tide decides who comes and goes, a new harbour constable "
@@ -523,6 +526,7 @@ int main(int argc, char **argv)
              "f\xC3\xBChrt, und keiner passt zu der Nacht, in der der Leuchtturm erlosch."},
             {"Starfall Station",
              "Starfall Station",
+             2017,
              8.3f,
              {878, 12},
              "Four hundred people live on a station built around a dying star. When its oldest "
@@ -533,6 +537,7 @@ int main(int argc, char **argv)
              "Lehrling die Wartungsprotokolle, die sonst niemand liest."},
             {"The Clockmakers Guild",
              "The Clockmaker's Guild",
+             2019,
              6.8f,
              {35, 10751},
              "An apprentice clockmaker in a city that runs exactly four minutes late.",
@@ -622,12 +627,17 @@ int main(int argc, char **argv)
                     if (movie->file_title == entry.folder)
                     {
                         movie->title = entry.title;
+                        if (movie->year == 0)
+                            movie->year = entry.year;
                         movie->rating = entry.rating;
                         movie->genres = entry.genres;
                         movie->overview = german ? entry.german : entry.english;
                     }
+                // A season a year, as TMDB's air dates would have it.
                 for (hui::media::Season &season : movie->seasons)
                 {
+                    if (movie->year > 0)
+                        season.year = movie->year + std::max(season.number - 1, 0);
                     for (const auto &entry : season_texts)
                         if (movie->file_title == entry.show && season.number == entry.season)
                             season.overview = german ? entry.german : entry.english;

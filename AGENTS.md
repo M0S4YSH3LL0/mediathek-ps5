@@ -200,8 +200,8 @@ movies" message after a scan is the app's own toast at the bottom (`Services::sc
 wallpapers and descriptions in `covers/` (a description is `<id>.txt`; an empty
 one is stored as `"\n"` so TMDB is not asked again, because `CoverStore::exists`
 needs size > 0; likewise `<id>.rating` is `"0"` and `<id>.genres` is `"-"` when TMDB has
-none, and `<id>.title` is `"\n"`; a series adds `<id>.tmdb`, TMDB's number for it, and
-`<id>-s<N>.txt` per season, its episodes `<episode id>.txt` and `.title`), what a file contains in
+none, and `<id>.title` is `"\n"`, `<id>.year` `"0"`; a series adds `<id>.tmdb`, TMDB's number for it, and
+`<id>-s<N>.txt` and `<id>-s<N>.year` per season, its episodes `<episode id>.txt` and `.title`), what a file contains in
 `info/<id>.info` (an episode's under its own id), the extra scan folders in `scan-folders.txt`,
 resume points beside them, and in `added.txt` when a scan first found each film and episode
 (`media::AddedStore`, by id; `Movie::added` is that, not the file's time, which a copy keeps; the
@@ -405,13 +405,15 @@ order of importance; the details page and the Home shelves use the first two
 re-sorts nothing: `main.cpp` calls `Library::sort` after it, and the design finds the focused and
 the playing film again by id); `Movie::file_title`, from the file name, is what TMDB is searched
 with, what is shown until TMDB has answered or when it knows no title, and what search also
-matches. Fetched pictures never replace
+matches. A film's or series' year is the file or folder name's; only without one is TMDB's
+(`<id>.year`: the release, or the first air date) used, and a season's year (`<id>-s<N>.year`, its
+air date) is shown beside its name on the details page. Fetched pictures never replace
 pictures the user put beside the film. The language follows the app unless
 `TMDB_LANGUAGE` says otherwise. The app has its own DNS client and a CA bundle
 in `assets/certs`; `DNS_SERVER` helps behind a router that blocks public DNS. A series is
 searched on `/search/tv`, then each season is one request (`/tv/<id>/season/<n>`) for its
 description and its episodes' names and descriptions; `missing_covers` asks again for a season
-with no file or an episode with no description (one added since), and without searching, as
+with no file or no year file or an episode with no description (one added since), and without searching, as
 `<id>.tmdb` keeps the number. A season TMDB answers with 404 is stored empty. TV genres are
 turned into film genres (`tv_genres_as_films`) so the shelves can mix both.
 
@@ -494,4 +496,5 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   seek), the subtitle source setting, and HDR output on an HDR TV. A 5.1 film plays on the 8-channel port without a crackle at play and resume.
   The *Audio language* track choice and *Audio output*
   Stereo. A film's own forced track shown by itself with subtitles off, and following the sound
-  switched with Square. A forced `.srt` file and 7.1 are *not verified* yet.
+  switched with Square. Checked after 1.0.0: TMDB's year for a series (and its seasons) named
+  without one. A forced `.srt` file and 7.1 are *not verified* yet.

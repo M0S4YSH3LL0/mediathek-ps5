@@ -3462,9 +3462,13 @@ class Mediathek final : public app::Concept
             return;
         const media::Season &season = show.seasons[static_cast<std::size_t>(details_ref_.season)];
         const std::string &about = !season.overview.empty() ? season.overview : show.overview;
-        // The season stays while the episode changes: only the episode fades.
-        ui::text(list, fonts.semibold, ui::upper(season_name(season)), kColumn, y - 4.0f, 16,
-                 kAccent, gfx::Align::left, 3.0f);
+        // The season stays while the episode changes: only the episode fades. Its year is TMDB's
+        // (file names rarely say when a season aired).
+        std::string season_label = ui::upper(season_name(season));
+        if (season.year > 0)
+            season_label += "  \xC2\xB7  " + std::to_string(season.year);
+        ui::text(list, fonts.semibold, season_label, kColumn, y - 4.0f, 16, kAccent,
+                 gfx::Align::left, 3.0f);
         y += 30.0f;
         // The episode is what Play plays: its text keeps the lines it needs, up to four, and the
         // season takes what is left above it, four lines at most. A short episode text leaves

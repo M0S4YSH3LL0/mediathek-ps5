@@ -356,7 +356,7 @@ constexpr const char *kTvAnswer = R"({"page":1,"results":[
 ]})";
 
 constexpr const char *kSeasonAnswer =
-    R"({"id":1,"name":"Season 1","overview":"The first winter.","season_number":1,"episodes":[
+    R"({"id":1,"name":"Season 1","overview":"The first winter.","season_number":1,"air_date":"2015-03-01","episodes":[
   {"episode_number":1,"name":"The Ferry","overview":"She misses the ferry."},
   {"episode_number":2,"name":"Low Water","overview":""}
 ]})";
@@ -378,6 +378,7 @@ TEST(SeriesTmdb, ReadsASeriesHitAndTurnsItsGenresIntoFilmGenres)
     ASSERT_TRUE(pick_match(kTvAnswer, 2015, &match, true));
     EXPECT_EQ(match.id, 4711);
     EXPECT_EQ(match.title, "Tidewater County");
+    EXPECT_EQ(match.year, 2015); // from first_air_date
     // Mystery stays; "Action & Adventure" is both; "Sci-Fi & Fantasy" is both.
     EXPECT_EQ(match.genre_ids, (std::vector<int>{9648, 28, 12, 878, 14}));
     EXPECT_EQ(tv_genres_as_films({10763, 10768}), (std::vector<int>{10763, 10752}));
@@ -388,6 +389,7 @@ TEST(SeriesTmdb, ReadsASeason)
     SeasonAnswer season;
     ASSERT_TRUE(parse_season(kSeasonAnswer, &season));
     EXPECT_EQ(season.overview, "The first winter.");
+    EXPECT_EQ(season.year, 2015);
     ASSERT_EQ(season.episodes.size(), 2u);
     EXPECT_EQ(season.episodes[0].number, 1);
     EXPECT_EQ(season.episodes[0].name, "The Ferry");
@@ -447,9 +449,15 @@ TEST(SeriesTmdb, FetchesTheSeriesThenItsSeasonsAndFillsThem)
     EXPECT_EQ(store.tmdb_id(tide->id), 4711);
     EXPECT_EQ(read_text(store.season_path(tide->id, 1)), "The first winter.");
     EXPECT_EQ(read_text(store.season_path(tide->id, 2)), "\n"); // not asked again
+    EXPECT_EQ(read_text(store.season_year_path(tide->id, 2)), "0");
 
+    // The folder names no year: TMDB's first air date and season air dates fill it in.
+    EXPECT_EQ(tide->year, 0);
     Movie filled = *tide;
     store.fill(&filled);
+    EXPECT_EQ(filled.year, 2015);
+    EXPECT_EQ(filled.seasons[0].year, 2015);
+    EXPECT_EQ(filled.seasons[1].year, 0); // TMDB lists no season 2
     EXPECT_EQ(filled.seasons[0].overview, "The first winter.");
     EXPECT_EQ(filled.seasons[0].episodes[0].overview, "She misses the ferry.");
     EXPECT_EQ(filled.seasons[0].episodes[0].title, "The Ferry");
@@ -496,6 +504,58 @@ TEST(SeriesTmdb, ANewSeasonIsFetchedWithoutSearchingAgain)
     EXPECT_EQ(searches, 0);
     EXPECT_EQ(season_requests, 1);
     EXPECT_EQ(read_text(store.title_path("ep1")), "The Ferry");
+}
+
+TEST(SeriesTmdb, AYearInTheNameWinsAndAMissingOneIsAskedForOnce)
+{
+    const Library library = Library::from_scan(series_scan());
+    const Movie *tide = find_titled(library, "Tidewater County");
+    ASSERT_NE(tide, nullptr);
+    const CoverStore store(temp_directory());
+    // Fetched before years were kept: facts, seasons and episodes, but no year anywhere.
+    std::ofstream(store.rating_path(tide->id)) << "7.9";
+    std::ofstream(store.genres_path(tide->id)) << "9648";
+    std::ofstream(store.title_path(tide->id)) << "Tidewater County";
+    std::ofstream(store.tmdb_id_path(tide->id)) << "4711";
+    for (const Season &season : tide->seasons)
+    {
+        std::ofstream(store.season_path(tide->id, season.number)) << "\n";
+        for (const Episode &episode : season.episodes)
+            std::ofstream(store.overview_path(episode.id)) << "\n";
+    }
+    const auto job_for = [&](const Library &from) -> std::vector<CoverJob>
+    {
+        std::vector<CoverJob> found;
+        for (CoverJob &job : missing_covers(from, store))
+            if (job.id == tide->id)
+                found.push_back(std::move(job));
+        return found;
+    };
+    std::vector<CoverJob> jobs = job_for(library);
+    ASSERT_EQ(jobs.size(), 1u);
+    EXPECT_TRUE(jobs[0].want_facts);       // for the series' year
+    EXPECT_EQ(jobs[0].seasons.size(), 3u); // for each season's year
+
+    // Once the years are stored ("0" where TMDB had none), nothing is asked again.
+    std::ofstream(store.year_path(tide->id)) << "2015";
+    for (const Season &season : tide->seasons)
+        std::ofstream(store.season_year_path(tide->id, season.number)) << "0";
+    EXPECT_TRUE(job_for(library).empty());
+
+    // A year the folder's name gives stays, whatever TMDB says.
+    Movie named = *tide;
+    named.year = 2016;
+    store.fill(&named);
+    EXPECT_EQ(named.year, 2016);
+    Movie unnamed = *tide;
+    store.fill(&unnamed);
+    EXPECT_EQ(unnamed.year, 2015);
+
+    // Forgotten for a new fetch, the years go with the rest.
+    store.forget(tide->id);
+    store.forget_season(tide->id, 1, {});
+    EXPECT_FALSE(store.has_year(tide->id));
+    EXPECT_FALSE(store.has_season_year(tide->id, 1));
 }
 
 } // namespace

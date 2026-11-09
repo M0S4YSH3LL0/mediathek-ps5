@@ -6,6 +6,10 @@
   film's description has room for about nine lines instead of five. On a series' page the
   episode's description keeps the lines it needs (up to four) and the season's takes what is
   left, up to four lines, instead of one line and two.
+- A series or film whose folder or file name gives no year takes TMDB's: the first air date of
+  a series, the release of a film. Each season's heading on the details page shows the year it
+  aired ("SEASON 2 · 2016"). A year in the name still wins. Films and series fetched before ask
+  TMDB once more, for their year and each season's.
 
 ## 1.0.0 (01.000.100)
 

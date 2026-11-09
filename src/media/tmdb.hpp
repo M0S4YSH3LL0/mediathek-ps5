@@ -59,6 +59,7 @@ struct Match
 {
     int id = 0; // TMDB's number for it
     std::string title;
+    int year = 0;               // of its release (a series: its first air date); 0 = none
     std::string poster_path;    // "/abc.jpg" or ""
     std::string backdrop_path;  // "/abc.jpg" or ""
     std::string overview;       // the description in the configured language, or ""
@@ -88,6 +89,7 @@ struct SeasonAnswer
         std::string overview;
     };
     std::string overview;
+    int year = 0; // of its air date; 0 = none
     std::vector<Item> episodes;
 };
 bool parse_season(std::string_view answer, SeasonAnswer *out);
@@ -100,11 +102,13 @@ using HttpGet = std::function<bool(const Request &request, std::size_t max_bytes
 // <id>.txt (the description; empty when TMDB has none, so it is not asked
 // again), <id>.rating (the user score, "0" when TMDB has none), <id>.genres
 // (genre numbers separated by commas, "-" when there are none), <id>.title (TMDB's
-// title in the configured language, an empty line when it has none) and <id>.none
-// for a film TMDB does not know. A series has these under its own id, and also <id>.tmdb
-// (TMDB's number for it, so a new season is fetched without searching again) and
-// <id>-s<N>.txt (the description of season N, "\n" for none); its episodes have <id>.txt and
-// <id>.title under theirs ("\n" when TMDB has nothing for them).
+// title in the configured language, an empty line when it has none), <id>.year (the year
+// of its release, "0" when TMDB has none; used only where the file name gives none) and
+// <id>.none for a film TMDB does not know. A series has these under its own id, and also
+// <id>.tmdb (TMDB's number for it, so a new season is fetched without searching again),
+// <id>-s<N>.txt (the description of season N, "\n" for none) and <id>-s<N>.year (the year it
+// aired, "0" for none); its episodes have <id>.txt and <id>.title under theirs ("\n" when TMDB
+// has nothing for them).
 class CoverStore
 {
   public:
@@ -121,8 +125,12 @@ class CoverStore
     bool has_genres(const std::string &id) const;
     std::string title_path(const std::string &id) const;
     bool has_title(const std::string &id) const;
+    std::string year_path(const std::string &id) const;
+    bool has_year(const std::string &id) const;
     std::string season_path(const std::string &id, int season) const;
     bool has_season(const std::string &id, int season) const;
+    std::string season_year_path(const std::string &id, int season) const;
+    bool has_season_year(const std::string &id, int season) const;
     std::string tmdb_id_path(const std::string &id) const;
     int tmdb_id(const std::string &id) const; // 0 when not known
     bool no_match(const std::string &id) const;
@@ -133,8 +141,9 @@ class CoverStore
     void forget_season(const std::string &id, int season,
                        const std::vector<std::string> &episodes) const;
     // Gives a movie the pictures held here where it has none of its own, and
-    // the description and title held here; with no title held, the file's. A series is
-    // given its seasons' and episodes' descriptions and episode titles too.
+    // the description and title held here; with no title held, the file's. The year held
+    // here only where the file name gave none. A series is given its seasons' descriptions
+    // and years, and its episodes' descriptions and titles too.
     void fill(Movie *movie) const;
     const std::string &directory() const
     {
@@ -174,8 +183,9 @@ std::vector<SeasonJob> season_jobs(const Movie &show);
 // turned down. Each is asked for its poster, and for the wallpaper, description
 // and score, genres and title it has none of. A film that has a cover is asked for
 // nothing, except once for its score, genres and title if it was fetched before
-// they were kept. A series is also asked for each season that has an episode with no
-// description yet (a season added since).
+// they were kept, and for its year when the file name gives none. A series is also asked
+// for each season that has no year yet or an episode with no description yet (a season
+// added since).
 std::vector<CoverJob> missing_covers(const Library &library, const CoverStore &store);
 
 enum class FetchOutcome : unsigned char

@@ -47,6 +47,7 @@ struct Season
 {
     int number = 1;
     std::string overview;          // TMDB's description of the season, or ""
+    int year = 0;                  // when TMDB says it first aired; 0 = unknown
     std::vector<Episode> episodes; // by number, then by file name
 };
 
