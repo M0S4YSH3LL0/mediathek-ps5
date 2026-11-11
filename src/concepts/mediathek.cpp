@@ -159,6 +159,8 @@ constexpr double kSeekHeldStep = 30.0; // first held step, and what each held se
 constexpr double kSeekHeldMax = 300.0; // the longest step, 5 minutes
 // The last seconds of an episode show what comes next; when it ends, that starts.
 constexpr double kUpNextSeconds = 40.0;
+// L1 starts the film again; pressed again within this, an episode gives way to the one before.
+constexpr float kDoublePressSeconds = 1.0f;
 
 // Seconds to jump for a direction held `held` seconds: 30, 60, 90 ... up to 5 minutes.
 double held_seek_step(float held)
@@ -1951,6 +1953,7 @@ class Mediathek final : public app::Concept
         paused_ = false;
         last_save_ = 0.0f;
         seek_flash_ = 0.0f;
+        restart_window_ = 0.0f; // L1 in the new film starts it again, whatever came before
         // The files beside it now; the film's own tracks, and with them the choice Force
         // subtitles makes, once the player has opened it (update_player).
         sniff_subtitle_languages(playing_item_.subtitles);
@@ -1984,6 +1987,38 @@ class Mediathek final : public app::Concept
         ++svc_->revision; // Continue Watching moves on to it
         start_playback(playing_, next, true, feedback);
         notify(feedback, tr(Text::next_episode), audio::Cue::tab);
+    }
+
+    // The episode before the one playing, or an invalid reference (a film, the first episode).
+    media::EpisodeRef earlier() const
+    {
+        if (!playing_ref_.valid() || playing_ < 0 ||
+            static_cast<std::size_t>(playing_) >= library().size() || !movie(playing_).show)
+            return {};
+        return media::previous_episode(movie(playing_), playing_ref_);
+    }
+
+    // L1: the film from its beginning; a second L1 soon after, the episode before (from its
+    // beginning too: it is gone back to for watching again, not to finish), as a CD player's
+    // back button does it.
+    void play_restart(media::Player &player, app::Feedback &feedback)
+    {
+        const media::EpisodeRef previous = earlier();
+        if (restart_window_ > 0.0f && previous.valid())
+        {
+            save_progress();
+            player.close();
+            ++svc_->revision; // Continue Watching follows it
+            start_playback(playing_, previous, false, feedback);
+            notify(feedback, tr(Text::previous_episode), audio::Cue::tab);
+            return;
+        }
+        player.seek_to(0.0);
+        restart_window_ = kDoublePressSeconds;
+        seek_flash_ = 0.0f; // the toast says what happened, not a jump in seconds
+        notify(feedback, tr(Text::from_beginning), audio::Cue::tick);
+        if (paused_)
+            osd_ = 3600.0f;
     }
 
     // The "Up next" card shows in the last seconds of an episode that has one after it.
@@ -2023,6 +2058,7 @@ class Mediathek final : public app::Concept
         player.update(dt);
         osd_ = std::max(0.0f, osd_ - dt);
         seek_flash_ = std::max(0.0f, seek_flash_ - dt);
+        restart_window_ = std::max(0.0f, restart_window_ - dt);
         // A held direction arrives as repeats ~0.11 s apart; a longer gap means it was let go.
         seek_gap_ += dt;
         if (seek_gap_ > kSeekHoldGap)
@@ -2094,9 +2130,15 @@ class Mediathek final : public app::Concept
             play_next(feedback);
             return;
         }
+        // L1 starts again, and twice the episode before.
+        if (input.is_pressed(Action::page_prev))
+        {
+            play_restart(player, feedback);
+            return;
+        }
         if (input.is_pressed(Action::jump_next) || input.is_pressed(Action::page_next))
             jump = 60.0;
-        if (input.is_pressed(Action::jump_prev) || input.is_pressed(Action::page_prev))
+        if (input.is_pressed(Action::jump_prev))
             jump = -60.0;
         if (jump != 0.0)
         {
@@ -3725,9 +3767,10 @@ class Mediathek final : public app::Concept
                 {ui::Button::square, tr(Text::hint_audio)},
                 {ui::Button::triangle, tr(Text::hint_subtitles)},
                 {ui::Button::circle, tr(Text::hint_stop)},
+                {ui::Button::l1, tr(Text::hint_restart)},
                 {ui::Button::r1, tr(Text::next_episode)}};
             // The next episode's button only while there is one.
-            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, upcoming().valid() ? 6 : 5,
+            ui::draw_hints(list, fonts, ui::GlyphStyle::dark(), hints, upcoming().valid() ? 7 : 6,
                            1824, true, hint_layout());
             list.pop_opacity();
         }
@@ -3936,8 +3979,9 @@ class Mediathek final : public app::Concept
     float last_save_ = 0.0f;
     float seek_flash_ = 0.0f;
     float seek_amount_ = 0.0f;
-    float seek_hold_ = 0.0f; // seconds the seek direction has been held
-    float seek_gap_ = 0.0f;  // seconds since the last seek step
+    float seek_hold_ = 0.0f;      // seconds the seek direction has been held
+    float seek_gap_ = 0.0f;       // seconds since the last seek step
+    float restart_window_ = 0.0f; // seconds left in which L1 again means the episode before
     Direction seek_direction_ = Direction::none;
     media::Subtitles subtitles_;
 

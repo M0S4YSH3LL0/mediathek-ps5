@@ -767,6 +767,23 @@ EpisodeRef next_episode(const Movie &show, EpisodeRef ref)
     return {};
 }
 
+EpisodeRef previous_episode(const Movie &show, EpisodeRef ref)
+{
+    if (episode_at(show, ref) == nullptr)
+        return {};
+    if (ref.episode > 0)
+        return {ref.season, ref.episode - 1};
+    if (show.seasons[static_cast<std::size_t>(ref.season)].number == 0)
+        return {}; // next_episode never leads into the specials, so this does not lead out
+    for (int s = ref.season - 1; s >= 0; --s)
+    {
+        const Season &season = show.seasons[static_cast<std::size_t>(s)];
+        if (!season.episodes.empty() && season.number != 0)
+            return {s, static_cast<int>(season.episodes.size()) - 1};
+    }
+    return {};
+}
+
 std::size_t episode_count(const Movie &show)
 {
     std::size_t count = 0;

@@ -257,6 +257,11 @@ TEST(SeriesLibrary, StepsThroughTheEpisodesAcrossSeasonsButNotIntoTheSpecials)
     EXPECT_EQ(next_episode(*tide, {0, 0}), (EpisodeRef{0, 1}));
     EXPECT_EQ(next_episode(*tide, {0, 1}), (EpisodeRef{1, 0})); // into season 2
     EXPECT_FALSE(next_episode(*tide, {1, 0}).valid());          // the specials wait
+    EXPECT_EQ(previous_episode(*tide, {0, 1}), (EpisodeRef{0, 0}));
+    EXPECT_EQ(previous_episode(*tide, {1, 0}), (EpisodeRef{0, 1})); // back into season 1
+    EXPECT_FALSE(previous_episode(*tide, {0, 0}).valid());          // the first has none
+    EXPECT_FALSE(previous_episode(*tide, {2, 0}).valid());          // nor the first special
+    EXPECT_FALSE(previous_episode(*tide, {9, 9}).valid());
     EXPECT_EQ(episode_at(*tide, {9, 9}), nullptr);
 }
 

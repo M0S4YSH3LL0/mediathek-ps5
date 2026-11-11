@@ -429,7 +429,8 @@ file's folder, or the one above a season folder (`season_of_folder`). The episod
 finished, else the first; the design keeps it per series in `show_states_`, rebuilt in `rebuild()`.
 Playing an episode makes a `Movie` of it (`playing_item_`, the series' title, the episode's file),
 so the stage, subtitles and resume points do not care; `playing_ref_` is where it is in the series.
-R1 in the player plays `upcoming()`; the last `kUpNextSeconds` (40) show a card, and the end starts
+R1 in the player plays `upcoming()`; L1 starts the film again, and a second L1 within
+`kDoublePressSeconds` (1 s) plays `earlier()` (`media::previous_episode`) from its beginning; the last `kUpNextSeconds` (40) show a card, and the end starts
 the next one. The preview's samples have series too (`tvshows/`, `series/` beside `movies/`); its
 `SamplePlayer` (`host/snapshot_main.cpp`) gives episodes 45 minutes, and it writes a resume point
 in an episode's last seconds, which the app itself never keeps (92 % is watched), to picture the card.

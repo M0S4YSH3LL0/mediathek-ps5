@@ -10,6 +10,9 @@
   a series, the release of a film. Each season's heading on the details page shows the year it
   aired ("SEASON 2 · 2016"). A year in the name still wins. Films and series fetched before ask
   TMDB once more, for their year and each season's.
+- In the player, L1 starts the film or episode from the beginning (it jumped back a minute
+  before; L2 still does). Pressed twice within a second in a series, it plays the episode before,
+  from its beginning, back into the season before at the start of one.
 
 ## 1.0.0 (01.000.100)
 

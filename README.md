@@ -34,7 +34,8 @@ Put your films in a `movies` folder and your series in `tvshows`. Mediathek find
 - **Series:** a tab of their own, and on Home among the films: in *Continue Watching* with
   the episode up next, and on the genre shelves. The details page chooses the season and
   the episode and shows the description of both. In the player, R1 starts the next
-  episode, and in an episode's last 40 seconds a card counts down to it.
+  episode, and in an episode's last 40 seconds a card counts down to it; L1 starts the
+  episode again, and L1 twice in a row the one before.
 - **Details:** length, video and sound format, audio and subtitle languages, and
   Play, Resume or Start over.
 - **Covers:** posters, wallpapers, descriptions, scores and genres from TMDB with a
@@ -214,7 +215,8 @@ Keep your key private. When you build from source, `make` writes this file from 
 | Triangle | watched (Home)<br>search (Movies, Series) | | next subtitles, then off |
 | R3 | sort (Movies, Series) | | |
 | Options | scan again | | stream info |
-| L1 / R1 | Home / Movies / Series / Settings | previous / next film | seek -60 s / +60 s<br>R1 in a series: next episode |
+| L1 / R1 | Home / Movies / Series / Settings | previous / next film | L1: from the beginning; twice in a series: previous episode<br>R1: seek +60 s; in a series: next episode |
+| L2 / R2 | | | seek -60 s / +60 s |
 | Circle | back (twice on Home to exit) | back | stop |
 
 In the player, a tap seeks 10 s. Hold and the jump starts at 30 s and grows by 30 s

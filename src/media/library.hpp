@@ -101,6 +101,10 @@ EpisodeRef find_episode(const Movie &show, std::string_view id);
 EpisodeRef first_episode(const Movie &show);
 // The episode after `ref`, into the next season at the end of one; invalid after the last.
 EpisodeRef next_episode(const Movie &show, EpisodeRef ref);
+// The episode before `ref`, into the last episode of the season before at the start of one; the
+// way back from next_episode, so the specials are reached only from within them. Invalid before
+// the first.
+EpisodeRef previous_episode(const Movie &show, EpisodeRef ref);
 // How many episodes a series has.
 std::size_t episode_count(const Movie &show);
 // How many seasons a series has, as a viewer counts them: the specials are not one, unless they
