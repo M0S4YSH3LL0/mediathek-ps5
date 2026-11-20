@@ -7,12 +7,12 @@
 **A Netflix-style library for your movies and series on PS5.**<br>
 Put your films in a `movies` folder and your series in `tvshows`. Mediathek finds them, fetches their posters and plays them.
 
-[![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-blue)](CHANGELOG.md)
-[![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#install)
-[![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](docs/STATUS.md)
-[![Languages: English, German](https://img.shields.io/badge/languages-EN%20%7C%20DE-green)](docs/SETTINGS.md#language)
-[![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/M0S4YSH3LL0/mediathek-ps5/total?style=flat&color=8ea2ff&label=downloads)](https://github.com/M0S4YSH3LL0/mediathek-ps5/releases)
+[![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-F83A4C)](CHANGELOG.md)
+[![Platform: PS5](https://img.shields.io/badge/platform-PS5-F83A4C)](#install)
+[![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-F83A4C)](docs/STATUS.md)
+[![Languages: English, German](https://img.shields.io/badge/languages-EN%20%7C%20DE-F83A4C)](docs/SETTINGS.md#language)
+[![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-F83A4C)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/M0S4YSH3LL0/mediathek-ps5/total?style=flat&color=F83A4C&label=downloads)](https://github.com/M0S4YSH3LL0/mediathek-ps5/releases)
 
 [<img src="https://prosperostore.net/press/badge-dark.png" alt="Get it on ProsperoStore" height="56">](https://prosperostore.net/app/PPSA66120/)
 [![Get it on RecompStore](https://recompstore.com/assets/press/badge-dark.svg)](https://recompstore.com/game/PPSA66120)
