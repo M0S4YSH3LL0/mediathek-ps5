@@ -339,4 +339,42 @@ TEST(HdrPeak, TheContentLightLevelThenTheMasteringPeakThenAThousandNits)
     EXPECT_FLOAT_EQ(hdr_peak_nits(0.0f, 50000.0f), 10000.0f);
 }
 
+TEST(CodedColour, AnHdr10StreamIsPqInBt2020WithItsOwnPeak)
+{
+    CodedColour coded;
+    coded.primaries = 9;
+    coded.transfer = 16;
+    coded.matrix = 9;
+    coded.max_content_light = 1200.0f;
+    const YuvColour colour = coded_colour(coded);
+    EXPECT_EQ(colour.transfer, Transfer::pq);
+    EXPECT_EQ(colour.matrix, YuvMatrix::bt2020);
+    EXPECT_TRUE(colour.wide_gamut);
+    EXPECT_FALSE(colour.full_range);
+    EXPECT_FLOAT_EQ(colour.peak_nits, 1200.0f);
+}
+
+TEST(CodedColour, HlgIsShownAsOnTheThousandNitScreenItAssumes)
+{
+    CodedColour coded;
+    coded.transfer = 18;
+    coded.mastering_peak = 4000.0f;
+    EXPECT_EQ(coded_colour(coded).transfer, Transfer::hlg);
+    EXPECT_FLOAT_EQ(coded_colour(coded).peak_nits, 1000.0f);
+}
+
+TEST(CodedColour, AnOrdinaryStreamIsSdrAndAnUnknownMatrixIsBt709)
+{
+    CodedColour coded; // every code 2: unspecified
+    EXPECT_EQ(coded_colour(coded).transfer, Transfer::sdr);
+    EXPECT_EQ(coded_colour(coded).matrix, YuvMatrix::bt709);
+    EXPECT_FALSE(coded_colour(coded).wide_gamut);
+    coded.matrix = 6; // SMPTE 170M, a DVD's
+    coded.full_range = true;
+    EXPECT_EQ(coded_colour(coded).matrix, YuvMatrix::bt601);
+    EXPECT_TRUE(coded_colour(coded).full_range);
+    coded.matrix = 10; // BT.2020 constant luminance is shown as the usual BT.2020
+    EXPECT_EQ(coded_colour(coded).matrix, YuvMatrix::bt2020);
+}
+
 } // namespace

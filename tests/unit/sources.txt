@@ -20,6 +20,8 @@ src/core/save_file.cpp
 src/core/settings.cpp
 src/core/version.cpp
 src/media/*.cpp
+# dav1d's side of the player makes no system calls: the tests decode real AV1 with it.
+src/platform/ps5/av1_decoder.cpp
 src/demo/catalog.cpp
 src/gfx/draw_list.cpp
 src/gfx/font.cpp

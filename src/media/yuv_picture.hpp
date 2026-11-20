@@ -63,6 +63,22 @@ struct YuvColour
 // graded for. Kept within what a tone curve can sensibly use.
 float hdr_peak_nits(float max_content_light, float mastering_peak);
 
+// A picture's colour as its stream codes it, in the numbers of ITU-T H.273 that AV1, HEVC
+// and FFmpeg share: primaries 9 and matrix 9 or 10 are BT.2020, transfer 16 is PQ and 18
+// HLG, matrix 5 and 6 are BT.601; 2 says nothing. The light levels are in nits, 0 unknown.
+struct CodedColour
+{
+    int primaries = 2;
+    int transfer = 2;
+    int matrix = 2;
+    bool full_range = false;
+    float max_content_light = 0.0f;
+    float mastering_peak = 0.0f;
+};
+
+// What the shader needs to show it: an unknown matrix is BT.709, as for the other decoders.
+YuvColour coded_colour(const CodedColour &coded);
+
 // The planes as the graphics chip gets them: rows without gaps, the luma plane first
 // and then the chroma plane with U and V taking turns, 16-bit samples with their 10 bits
 // at the top (so 1.0 is white whatever the decoder wrote).

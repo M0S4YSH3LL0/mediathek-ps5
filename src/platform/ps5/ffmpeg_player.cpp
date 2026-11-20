@@ -13,8 +13,11 @@
 #include "media/hw_stream.hpp"
 #include "media/library.hpp"
 #include "media/mediainfo.hpp"
+#include "media/picture_pool.hpp"
 #include "media/yuv_picture.hpp"
+#include "platform/ps5/av1_decoder.hpp"
 #include "platform/ps5/av_names.hpp"
+#include "platform/ps5/direct_memory.hpp"
 #include "platform/ps5/hw_decoder.hpp"
 #include "platform/ps5/system.hpp"
 
@@ -107,6 +110,18 @@ constexpr int kHwResyncForgiven = 300;
 constexpr int kFirstPictureWaitMs = 15000;
 constexpr int kFirstPicturePollMs = 5;
 constexpr std::int64_t kSlowStepUs = 200000; // a step this long is worth a line in the log
+// AV1 is decoded by dav1d on the CPU, on threads of its own: tile and frame threads, the
+// frames a few at a time (dav1d's own choice for this many threads, about the square root).
+// Six leave the console's other cores to the sound, the demuxer and the screen, as the
+// hardware decoder's six do (its cpu_affinity 0x3f).
+constexpr int kAv1Threads = 6;
+// Up to cinema 4K and a little more: an 8K film would want more memory than there is.
+constexpr unsigned kAv1MaxPixels = 4096u * 2304u;
+// Pictures alive at once: eight references, the frames in flight, the one shown, and the
+// copy film grain is applied to. Each is one block of the pool.
+constexpr std::size_t kAv1PictureBlocks = 20;
+// Errors logged per film; a broken file can have one in every frame.
+constexpr int kAv1ReportedErrors = 8;
 constexpr int kOutputRate = audio::kSampleRate;
 // Subtitle packets of every track are kept, so that one chosen mid-film shows at once: they are
 // small (text a few bytes, a PGS picture some kilobytes), but a disc can have thirty tracks.
@@ -464,7 +479,10 @@ class Session
             "decode+convert %.1f ms/frame over %lld frames, %lld late; opened %.2fs, first "
             "picture %.2fs; video thread: %.1fs waiting for packets, %.1fs for room, %.1fs "
             "converting %lld pictures (%.0f ms each)",
-            what, position, on_hardware_.load(std::memory_order_relaxed) ? "hardware" : "software",
+            what, position,
+            on_hardware_.load(std::memory_order_relaxed) ? "hardware"
+            : on_dav1d_.load(std::memory_order_relaxed)  ? "dav1d"
+                                                         : "software",
             shown, skipped, video_packets, video_bytes >> 10, audio_packets, pictures,
             static_cast<double>(read_bytes) / static_cast<double>(read_us),
             static_cast<long long>(read_bytes >> 20),
@@ -595,6 +613,52 @@ class Session
         return colour;
     }
 
+    // Smaller queues for a film beyond 1080p, whose decoder needs the heap's room.
+    void use_big_limits()
+    {
+        Lock lock(mutex_); // the hardware's failure brings this here mid-film
+        video_limit_ = std::min(video_limit_, kBigVideoPackets);
+        audio_limit_ = std::min(audio_limit_, kBigAudioPackets);
+        picture_limit_ = kBigPictures;
+        slack_ = kBigSlack;
+    }
+
+    // dav1d for an AV1 film. Its pictures live in direct memory (see direct_memory.hpp); the
+    // heap holds only its tables, which grow with the size and the frames in flight, so a
+    // film beyond 1080p gets the smaller queues the software decoder's 4K does.
+    bool open_dav1d(const AVCodecParameters *parameters)
+    {
+        if (parameters->width > kMaxWidth)
+            use_big_limits();
+        av1_pool_ =
+            std::make_unique<media::PicturePool>(direct_picture_memory(), kAv1PictureBlocks);
+        Av1Settings settings;
+        settings.threads = kAv1Threads;
+        settings.max_pixels = kAv1MaxPixels;
+        settings.pool = av1_pool_.get();
+        settings.log = [](const char *line) { sys::log("[HUI] dav1d: %s", line); };
+        int code = 0;
+        av1_ = Av1Decoder::open(settings, &code);
+        sys::log("[HUI] av1: dav1d %s %dx%d threads=%d room=%zu%s", Av1Decoder::version().c_str(),
+                 parameters->width, parameters->height, kAv1Threads, decoder_room(),
+                 av1_ != nullptr ? "" : " failed to start");
+        if (av1_ == nullptr)
+            return fail(i18n::tr(i18n::Text::err_start_decoder), code);
+        if (static_cast<unsigned>(parameters->width) * static_cast<unsigned>(parameters->height) >
+            kAv1MaxPixels)
+        {
+            error_ = i18n::tr(i18n::Text::err_too_big);
+            return false;
+        }
+        pace_.allow_thinning(false); // dav1d cannot leave frames out; it can jump
+        container_colour_ = colour_;
+        const AVRational rate =
+            av_guess_frame_rate(format_, format_->streams[video_stream_], nullptr);
+        av1_frame_time_ = rate.num > 0 && rate.den > 0 ? av_q2d(av_inv_q(rate)) : 0.04;
+        on_dav1d_.store(true, std::memory_order_relaxed);
+        return true;
+    }
+
     // The player's own limits stay as they are here: the frames do not touch the heap.
     bool open_software(const AVCodecParameters *parameters)
     {
@@ -606,13 +670,7 @@ class Session
         // Every frame thread holds frames of its own; at 4K that is more than
         // the fixed heap has left, and running it out ends the app.
         if (parameters->width > kMaxWidth)
-        {
-            Lock lock(mutex_); // the hardware's failure brings this here mid-film
-            video_limit_ = std::min(video_limit_, kBigVideoPackets);
-            audio_limit_ = std::min(audio_limit_, kBigAudioPackets);
-            picture_limit_ = kBigPictures;
-            slack_ = kBigSlack;
-        }
+            use_big_limits();
         const AVPixFmtDescriptor *format =
             av_pix_fmt_desc_get(static_cast<AVPixelFormat>(parameters->format));
         const int depth = format != nullptr ? format->comp[0].depth : 16;
@@ -735,7 +793,14 @@ class Session
         {
             const AVCodecParameters *parameters = format_->streams[video_stream_]->codecpar;
             colour_ = colour_of(parameters);
-            if (!open_hardware(parameters) && !open_software(parameters))
+            // AV1 has a decoder of its own: PacBrew's FFmpeg has only the front for hardware
+            // decoding, which the console's decoder does not offer for AV1.
+            if (parameters->codec_id == AV_CODEC_ID_AV1)
+            {
+                if (!open_dav1d(parameters))
+                    return false;
+            }
+            else if (!open_hardware(parameters) && !open_software(parameters))
                 return false;
             char text[96];
             std::snprintf(text, sizeof(text), "%s %dx%d", video_name(parameters->codec_id),
@@ -1052,6 +1117,11 @@ class Session
             sys::log("[HUI] hw decoder: FFmpeg takes over");
             seek(clock_.load(std::memory_order_relaxed));
         }
+        if (av1_ != nullptr)
+        {
+            av1_video();
+            return;
+        }
         AVFrame *frame = av_frame_alloc();
         int decoder_serial = -1;
         for (;;)
@@ -1158,11 +1228,6 @@ class Session
             show_planes(frame, pts, serial, width, height))
             return;
 
-        sws_ = sws_getCachedContext(sws_, frame->width, frame->height,
-                                    static_cast<AVPixelFormat>(frame->format), width, height,
-                                    AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
-        if (sws_ == nullptr)
-            return;
         int matrix = SWS_CS_ITU709;
         if (frame->colorspace == AVCOL_SPC_BT2020_NCL || frame->colorspace == AVCOL_SPC_BT2020_CL)
             matrix = SWS_CS_BT2020;
@@ -1170,18 +1235,48 @@ class Session
                  frame->colorspace == AVCOL_SPC_SMPTE170M ||
                  (frame->colorspace == AVCOL_SPC_UNSPECIFIED && frame->height < 720))
             matrix = SWS_CS_ITU601;
-        sws_setColorspaceDetails(sws_, sws_getCoefficients(matrix),
-                                 frame->color_range == AVCOL_RANGE_JPEG,
-                                 sws_getCoefficients(SWS_CS_DEFAULT), 1, 0, 1 << 16, 1 << 16);
+        Scaled scaled;
+        scaled.data = frame->data;
+        scaled.linesize = frame->linesize;
+        scaled.format = static_cast<AVPixelFormat>(frame->format);
+        scaled.width = frame->width;
+        scaled.height = frame->height;
+        scaled.matrix = matrix;
+        scaled.full_range = frame->color_range == AVCOL_RANGE_JPEG;
+        scale_to_rgba(scaled, pts, serial, width, height);
+    }
+
+    // A picture swscale makes into RGBA, from planes in memory.
+    struct Scaled
+    {
+        const std::uint8_t *const *data = nullptr;
+        const int *linesize = nullptr;
+        AVPixelFormat format = AV_PIX_FMT_NONE;
+        int width = 0;
+        int height = 0;
+        int matrix = SWS_CS_ITU709;
+        bool full_range = false;
+    };
+
+    // Converts and queues it at `width` x `height`; false when swscale cannot.
+    bool scale_to_rgba(const Scaled &source, double pts, int serial, int width, int height)
+    {
+        sws_ = sws_getCachedContext(sws_, source.width, source.height, source.format, width, height,
+                                    AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
+        if (sws_ == nullptr)
+            return false;
+        sws_setColorspaceDetails(sws_, sws_getCoefficients(source.matrix),
+                                 source.full_range ? 1 : 0, sws_getCoefficients(SWS_CS_DEFAULT), 1,
+                                 0, 1 << 16, 1 << 16);
 
         Picture picture;
         if (!wait_for_room(serial, &picture))
-            return;
+            return true; // not wanted any more, which swscale could have done
         picture.rgba.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
         std::uint8_t *planes[4] = {picture.rgba.data(), nullptr, nullptr, nullptr};
         const int strides[4] = {width * 4, 0, 0, 0};
         const std::int64_t converting = sys::monotonic_us();
-        sws_scale(sws_, frame->data, frame->linesize, 0, frame->height, planes, strides);
+        sws_scale(sws_, source.data, source.linesize, 0, source.height, planes, strides);
         convert_us_.fetch_add(sys::monotonic_us() - converting, std::memory_order_relaxed);
         converted_.fetch_add(1, std::memory_order_relaxed);
         picture.width = width;
@@ -1189,6 +1284,7 @@ class Session
         picture.pts = pts;
         picture.serial = serial;
         queue_picture(std::move(picture));
+        return true;
     }
 
     // HDR goes to the graphics chip as planes, like the hardware decoder's pictures,
@@ -1635,6 +1731,210 @@ class Session
         queue_picture(std::move(picture));
     }
 
+    // ------------------------------------------------------ AV1 through dav1d
+    //
+    // dav1d decodes on threads of its own and hands pictures back a few packets later,
+    // in the order they are shown. The video thread copies each out, as the hardware's
+    // converter does, while dav1d's threads go on with the next frames.
+
+    void av1_video()
+    {
+        int decoder_serial = -1;
+        int errors = 0;
+        const Av1Decoder::Sink sink = [this, &decoder_serial](const Av1Picture &picture)
+        { return show_av1(picture, decoder_serial); };
+        for (;;)
+        {
+            Item item;
+            if (!next_video_item(&item))
+                break;
+            if (item.serial != serial_.load())
+            {
+                av_packet_free(&item.packet);
+                continue;
+            }
+            if (item.serial != decoder_serial)
+            {
+                // A seek lands on a key frame; what dav1d had in flight is from before it.
+                if (decoder_serial >= 0)
+                    av1_->flush();
+                decoder_serial = item.serial;
+                pace_.reset();
+                av1_jumping_ = false;
+            }
+            const std::int64_t began = sys::monotonic_us();
+            if (item.packet == nullptr)
+            {
+                av1_->drain(sink);
+                decode_us_.fetch_add(sys::monotonic_us() - began, std::memory_order_relaxed);
+                Lock lock(mutex_);
+                if (decoder_serial == serial_.load())
+                    video_eof_ = true;
+                pthread_cond_broadcast(&wake_);
+                continue;
+            }
+            // Behind the sound by much: on to the next key frame near it, as the hardware
+            // does. dav1d cannot leave out frames others are predicted from, nor tell which.
+            if (next_pace(item.packet) == media::Skip::to_key_frame)
+            {
+                av1_jumping_ = true;
+                av_packet_free(&item.packet);
+                continue;
+            }
+            if (av1_jumping_)
+            {
+                av1_jumping_ = false;
+                av1_->flush(); // what came before this key frame was never sent
+            }
+            const AVPacket *packet = item.packet;
+            const std::int64_t stamp = packet->pts != AV_NOPTS_VALUE ? packet->pts : packet->dts;
+            const int code =
+                av1_->decode(packet->data, static_cast<std::size_t>(packet->size), stamp, sink);
+            decode_us_.fetch_add(sys::monotonic_us() - began, std::memory_order_relaxed);
+            av_packet_free(&item.packet);
+            if (code < 0 && ++errors <= kAv1ReportedErrors)
+            {
+                char reason[AV_ERROR_MAX_STRING_SIZE] = {};
+                av_strerror(code, reason, sizeof(reason));
+                sys::log("[HUI] av1: decoding error at %.2fs: %s", last_video_pts_, reason);
+            }
+        }
+        // Before the pool, which gets every picture back from it.
+        av1_.reset();
+        on_dav1d_.store(false, std::memory_order_relaxed);
+    }
+
+    bool stopping()
+    {
+        Lock lock(mutex_);
+        return stop_;
+    }
+
+    // False when the session is stopping and dav1d should hand out no more.
+    bool show_av1(const Av1Picture &picture, int serial)
+    {
+        decoded_.fetch_add(1, std::memory_order_relaxed);
+        const double base = av_q2d(format_->streams[video_stream_]->time_base);
+        const double pts = picture.timestamp != AV_NOPTS_VALUE
+                               ? static_cast<double>(picture.timestamp) * base - start_time_
+                               : last_video_pts_ + av1_frame_time_;
+        last_video_pts_ = pts;
+        if (!av1_first_logged_)
+        {
+            av1_first_logged_ = true;
+            std::size_t live = 0;
+            hui_heap_stats(&live, nullptr, nullptr, nullptr);
+            sys::log("[HUI] av1: first picture %dx%d %d-bit layout %d, pictures %zu MiB in %zu "
+                     "blocks, heap %zu MiB",
+                     picture.planes.width, picture.planes.height, picture.bits,
+                     static_cast<int>(picture.layout), av1_pool_->bytes() >> 20,
+                     av1_pool_->blocks(), live >> 20);
+        }
+        if (pts < discard_before_.load() - 0.001)
+            return true; // the way from the key frame to where the seek asked for
+        if (pts < clock_.load(std::memory_order_relaxed) - 0.3 && video_ready_.load())
+        {
+            late_.fetch_add(1, std::memory_order_relaxed);
+            return true;
+        }
+        update_av1_colour(picture.colour);
+        int width = 0;
+        int height = 0;
+        fit_to_screen(
+            av_guess_sample_aspect_ratio(format_, format_->streams[video_stream_], nullptr),
+            picture.planes.width, picture.planes.height, &width, &height);
+        // 4:2:0 up to 10 bits goes to the graphics chip as planes, SDR as well as HDR, as
+        // the hardware decoder's pictures do: a copy here, the conversion there.
+        if (gpu_pictures_.load(std::memory_order_relaxed) && picture.layout == Av1Layout::i420 &&
+            picture.bits <= 10)
+        {
+            Picture out;
+            if (!wait_for_room(serial, &out))
+                return !stopping();
+            const std::int64_t converting = sys::monotonic_us();
+            out.yuv = true;
+            out.layout = media::yuv_layout(picture.planes, width, height);
+            out.colour = colour_;
+            out.rgba.resize(media::yuv_bytes(out.layout));
+            media::copy_planes(picture.planes, out.layout, out.rgba.data());
+            convert_us_.fetch_add(sys::monotonic_us() - converting, std::memory_order_relaxed);
+            converted_.fetch_add(1, std::memory_order_relaxed);
+            out.width = width;
+            out.height = height;
+            out.pts = pts;
+            out.serial = serial;
+            queue_picture(std::move(out));
+            return true;
+        }
+        // Anything else swscale makes into RGBA, without tone mapping.
+        const std::uint8_t *planes[4] = {picture.planes.luma, picture.planes.chroma,
+                                         picture.planes.chroma_v, nullptr};
+        const int pitch = static_cast<int>(picture.planes.pitch);
+        const int chroma_pitch = static_cast<int>(picture.planes.chroma_pitch);
+        const int linesize[4] = {pitch, chroma_pitch, chroma_pitch, 0};
+        Scaled scaled;
+        scaled.data = planes;
+        scaled.linesize = linesize;
+        scaled.format = av1_pixel_format(picture.layout, picture.bits);
+        scaled.width = picture.planes.width;
+        scaled.height = picture.planes.height;
+        scaled.matrix = colour_.matrix == media::YuvMatrix::bt2020  ? SWS_CS_BT2020
+                        : colour_.matrix == media::YuvMatrix::bt601 ? SWS_CS_ITU601
+                                                                    : SWS_CS_ITU709;
+        scaled.full_range = colour_.full_range;
+        if (!scale_to_rgba(scaled, pts, serial, width, height) && !planes_refused_)
+        {
+            planes_refused_ = true;
+            sys::log("[HUI] av1: no conversion for layout %d at %d bits",
+                     static_cast<int>(picture.layout), picture.bits);
+        }
+        return !stopping();
+    }
+
+    static AVPixelFormat av1_pixel_format(Av1Layout layout, int bits)
+    {
+        const int depth = bits > 10 ? 2 : bits > 8 ? 1 : 0;
+        static constexpr AVPixelFormat kFormats[4][3] = {
+            {AV_PIX_FMT_GRAY8, AV_PIX_FMT_GRAY10LE, AV_PIX_FMT_GRAY12LE},
+            {AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_YUV420P12LE},
+            {AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV422P12LE},
+            {AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV444P10LE, AV_PIX_FMT_YUV444P12LE},
+        };
+        return kFormats[static_cast<int>(layout)][depth];
+    }
+
+    // The colours the stream itself names. A stream that names none is shown as its
+    // container says; one whose HDR has no light levels of its own takes the container's.
+    void update_av1_colour(const media::CodedColour &coded)
+    {
+        if (av1_colour_known_ && coded.primaries == av1_coded_.primaries &&
+            coded.transfer == av1_coded_.transfer && coded.matrix == av1_coded_.matrix &&
+            coded.full_range == av1_coded_.full_range &&
+            coded.max_content_light == av1_coded_.max_content_light &&
+            coded.mastering_peak == av1_coded_.mastering_peak)
+            return;
+        av1_colour_known_ = true;
+        av1_coded_ = coded;
+        constexpr int kUnspecified = 2;
+        if (coded.primaries == kUnspecified && coded.transfer == kUnspecified &&
+            coded.matrix == kUnspecified)
+        {
+            colour_ = container_colour_;
+            colour_.full_range = coded.full_range || container_colour_.full_range;
+            return;
+        }
+        colour_ = media::coded_colour(coded);
+        if (coded.max_content_light <= 0.0f && coded.mastering_peak <= 0.0f &&
+            colour_.transfer == media::Transfer::pq &&
+            container_colour_.transfer == media::Transfer::pq)
+            colour_.peak_nits = container_colour_.peak_nits;
+        if (colour_.transfer != media::Transfer::sdr)
+            sys::log("[HUI] hdr %s, %s, peak %.0f nits (content %.0f, mastering %.0f; av1)",
+                     colour_.transfer == media::Transfer::pq ? "PQ" : "HLG",
+                     colour_.wide_gamut ? "BT.2020" : "BT.709", colour_.peak_nits,
+                     coded.max_content_light, coded.mastering_peak);
+    }
+
     // -------------------------------------------------------------- sound
 
     static void *audio_entry(void *self)
@@ -1934,6 +2234,18 @@ class Session
     // and gone once they have left it.
     std::unique_ptr<HwDecoder> hw_;
     std::atomic<bool> on_hardware_{false}; // for the log, which runs on the frame thread
+    // dav1d for AV1: set up at open, used by the video thread, which lets go of the decoder
+    // when it leaves. The pool its pictures live in goes with the session, after it.
+    std::unique_ptr<media::PicturePool> av1_pool_;
+    std::unique_ptr<Av1Decoder> av1_;
+    std::atomic<bool> on_dav1d_{false};
+    double av1_frame_time_ = 0.04;
+    media::YuvColour container_colour_; // what the file's container says, set at open
+    // Video thread only.
+    media::CodedColour av1_coded_;
+    bool av1_colour_known_ = false;
+    bool av1_jumping_ = false;
+    bool av1_first_logged_ = false;
     bool hevc_ = false;
     int hw_visible_width_ = 0;
     int hw_visible_height_ = 0;

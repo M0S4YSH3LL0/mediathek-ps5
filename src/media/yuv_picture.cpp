@@ -147,6 +147,32 @@ float hdr_peak_nits(float max_content_light, float mastering_peak)
     return std::clamp(peak, kLowest, kHighest);
 }
 
+YuvColour coded_colour(const CodedColour &coded)
+{
+    constexpr int kBt2020 = 9;
+    constexpr int kBt2020Constant = 10;
+    constexpr int kBt470bg = 5;
+    constexpr int kSmpte170m = 6;
+    constexpr int kPq = 16;
+    constexpr int kHlg = 18;
+    YuvColour colour;
+    colour.full_range = coded.full_range;
+    if (coded.matrix == kBt2020 || coded.matrix == kBt2020Constant)
+        colour.matrix = YuvMatrix::bt2020;
+    else if (coded.matrix == kBt470bg || coded.matrix == kSmpte170m)
+        colour.matrix = YuvMatrix::bt601;
+    colour.wide_gamut = coded.primaries == kBt2020;
+    if (coded.transfer == kPq)
+        colour.transfer = Transfer::pq;
+    else if (coded.transfer == kHlg)
+        colour.transfer = Transfer::hlg;
+    // HLG has no peak of its own: it is shown as on the 1000-nit screen it assumes.
+    colour.peak_nits = colour.transfer == Transfer::hlg
+                           ? 1000.0f
+                           : hdr_peak_nits(coded.max_content_light, coded.mastering_peak);
+    return colour;
+}
+
 YuvLayout yuv_layout(const YuvPicture &source, int width, int height)
 {
     YuvLayout layout;
