@@ -7,7 +7,7 @@
 **A Netflix-style library for your movies and series on PS5.**<br>
 Put your films in a `movies` folder and your series in `tvshows`. Mediathek finds them, fetches their posters and plays them.
 
-[![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-blue)](CHANGELOG.md)
+[![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-blue)](CHANGELOG.md)
 [![Platform: PS5](https://img.shields.io/badge/platform-PS5-informational)](#what-you-need)
 [![Tested on: PS5 firmware 12.70](https://img.shields.io/badge/tested%20on-FW%2012.70-success)](#status)
 [![Languages: English, German](https://img.shields.io/badge/languages-EN%20%7C%20DE-green)](#settings-and-language)
@@ -333,7 +333,7 @@ rules for changes. A release tag is the exact `contentVersion` of `sce_sys/param
 
 ## Status
 
-Version 1.0.0 (`contentVersion` 01.000.100).
+Version 1.1.0 (`contentVersion` 01.000.110).
 
 **Checked on the author's console, firmware 12.70:** the scan, covers and descriptions,
 the details page, a large 1080p H.264 MKV with sound, seeking, audio and subtitle
@@ -348,8 +348,9 @@ their choice of Automatic, Movies or Series, films shown with their title from T
 red light bar; and (1.0.0) H.264 and HEVC of every size on the hardware decoder, the subtitles
 inside a film and switching them mid-film and after a seek, the subtitle source, HDR output on
 an HDR TV, 5.1 sound on the 8-channel output, the audio language and the Stereo output, and
-a film's own forced subtitles shown by themselves, following the sound switched with Square. The loader
-version was not recorded. Reports from other firmware are welcome.
+a film's own forced subtitles shown by themselves, following the sound switched with Square;
+and (1.1.0) AV1 through dav1d (a 1080p HDR film, seeking included), the larger details page,
+the year from TMDB and L1 in the player. The loader version was not recorded. Reports from other firmware are welcome.
 
 **Not checked on a console:** 4K AV1 films, 4K H.264, HLG and Dolby Vision films, 7.1 sound, a forced
 subtitle file (`Film.de.forced.srt`), and the fallback to the CPU when the graphics chip cannot

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 (01.000.110)
 
 - The details page uses more of the screen: a larger cover and a taller column of text, so a
   film's description has room for about nine lines instead of five. On a series' page the
@@ -13,7 +13,8 @@
 - New: AV1 films play, 1080p and 4K, HDR10 and HLG included. They are decoded on the CPU by
   dav1d, as VLC's PS5 port does it (the console's hardware decoder is not known to take AV1),
   and shown, tone-mapped or sent as HDR10, as the other films are. A 1080p HDR film plays and seeks
-  smoothly on the console; whether 4K keeps up on its CPU is not known yet. Building from source now needs `nasm`.
+  smoothly on the console; whether 4K keeps up on its CPU is not known yet. Building from
+  source now needs `nasm`.
 - In the player, L1 starts the film or episode from the beginning (it jumped back a minute
   before; L2 still does). Pressed twice within a second in a series, it plays the episode before,
   from its beginning, back into the season before at the start of one.

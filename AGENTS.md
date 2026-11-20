@@ -520,7 +520,7 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   seek), the subtitle source setting, and HDR output on an HDR TV. A 5.1 film plays on the 8-channel port without a crackle at play and resume.
   The *Audio language* track choice and *Audio output*
   Stereo. A film's own forced track shown by itself with subtitles off, and following the sound
-  switched with Square. Checked after 1.0.0: TMDB's year for a film or series (and its seasons)
+  switched with Square. Checked in 1.1.0: TMDB's year for a film or series (and its seasons)
   named without one, the details page's larger cover and longer descriptions, and L1 in the
   player (start again; twice, the episode before). AV1 through dav1d: the app starts
   with it, and a 1080p HDR MKV plays and seeks smoothly. A forced `.srt` file, 7.1 and 4K AV1 are
