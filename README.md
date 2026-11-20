@@ -72,7 +72,7 @@ about ten seconds until it appears on the home screen.
 
 | | |
 | --- | --- |
-| ![Details](docs/screenshots/details.jpg) | ![A series: season and episode](docs/screenshots/series.jpg) |
+| ![Details](docs/screenshots/details.jpg) | ![All series](docs/screenshots/series.jpg) |
 | ![All movies](docs/screenshots/movies.jpg) | ![Settings](docs/screenshots/settings.jpg) |
 
 *Pictures from the PC preview, with invented films and series.*
