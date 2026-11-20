@@ -10,6 +10,8 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$root/tools/ninja-build.sh"
 gtest=$(bash "$root/tools/setup-test-dependencies.sh")
+# The AV1 decoder's tests decode real clips with dav1d, built for the PC.
+dav1d=$(bash "$root/tools/build-dav1d.sh" host)
 cxx=$(command -v "${HOST_CXX:-clang++}")
 cc=$(command -v "${HOST_CC:-clang}")
 build="$root/build/tests"
@@ -54,11 +56,12 @@ for source in "${sources[@]}"; do
     else
         ninja_edge CXX "$object" "${compiler_cache[@]}" "$cxx" "${flags[@]}" -pthread \
             "${sanitizers[@]}" "-DHUI_SOURCE_DIR=\"$root\"" -I"$root/src" -I"$root/tests" \
-            -isystem "$gtest/googletest/include" -MD -MF "$object.d" -c "$source" -o "$object"
+            -isystem "$gtest/googletest/include" -isystem "$dav1d/include" \
+            -MD -MF "$object.d" -c "$source" -o "$object"
     fi
     objects+=("$object")
 done
-ninja_inputs=("${objects[@]}" "$cxx")
+ninja_inputs=("${objects[@]}" "$dav1d/lib/libdav1d.a" "$cxx")
 ninja_edge LINK "$build/unit_tests" "$cxx" "${flags[@]}" -pthread "${sanitizers[@]}" \
-    "${objects[@]}" "${ldflags[@]}" -lm -o "$build/unit_tests"
+    "${objects[@]}" "$dav1d/lib/libdav1d.a" "${ldflags[@]}" -lm -o "$build/unit_tests"
 ninja_run

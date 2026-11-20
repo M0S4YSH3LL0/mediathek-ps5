@@ -150,6 +150,9 @@ if (( ${#pacbrew_packages[@]} > 0 || ${#pacbrew_includes[@]} > 0 || ${#pacbrew_a
     printf 'PacBrew dependencies: %s\n' "${pacbrew_packages[*]:-(manual archives)}"
 fi
 
+# AV1 films are decoded by dav1d (src/platform/ps5/av1_decoder.cpp), built here from source.
+dav1d=$(bash "$root/tools/build-dav1d.sh" ps5)
+
 # __DATE__ and __TIME__ are read when this file is compiled, so every build recompiles it.
 touch "$root/src/core/build_info.cpp"
 
@@ -177,7 +180,7 @@ for source in "${sources[@]}"; do
         }
         args+=("-I$root/$include")
     done
-    args+=("${pacbrew_cflags[@]}")
+    args+=("${pacbrew_cflags[@]}" -isystem "$dav1d/include")
     ninja_inputs=("$root/$source" "$root/tooling/prospero-clang18" "$target_compiler")
     ninja_edge CC "$object" env PS5_PAYLOAD_SDK="$sdk_root" \
         PS5_CLANG="$target_compiler" USE_CCACHE="${USE_CCACHE:-1}" \
@@ -204,6 +207,7 @@ for archive in "${archives[@]}"; do
     }
     link_inputs+=("$root/$archive")
 done
+link_inputs+=("$dav1d/lib/libdav1d.a")
 if (( ${#pacbrew_libs[@]} > 0 )); then
     link_inputs+=(--start-group "${pacbrew_libs[@]}" --end-group)
 fi
@@ -282,6 +286,9 @@ for asset in icon0.png pic0.dds pic1.dds snd0.at9; do
     [[ -f $root/sce_sys/$asset ]] && cp "$root/sce_sys/$asset" "$app/sce_sys/$asset"
 done
 [[ ! -d $root/assets ]] || cp -a "$root/assets" "$app/assets"
+# dav1d's licence asks for its notice beside every copy of the binary.
+mkdir -p "$app/licenses"
+cp "$dav1d/COPYING" "$app/licenses/dav1d.txt"
 # Directory listing returns nothing under /app0 on the console, so each
 # audio folder carries an index of its files (read by save::list_files).
 for dir in "$app/assets/audio/music" "$app"/assets/audio/sfx/*/; do

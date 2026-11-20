@@ -43,8 +43,9 @@ fi
 # The application headers include the ps5-opengl SDK's EGL/GL headers.
 bash "$root/tools/prepare-opengl.sh" >/dev/null
 opengl="$root/.deps/ps5-opengl/current/include"
-# The movie player includes FFmpeg's headers from the PacBrew ports.
+# The movie player includes FFmpeg's headers from the PacBrew ports, and dav1d's.
 pacbrew=$(bash "$root/tools/setup-pacbrew-dependencies.sh" --all)
+dav1d=$(bash "$root/tools/build-dav1d.sh" ps5)
 
 # Vendored upstream code under src/third_party is excluded from the analyzer profile.
 mapfile -d '' app_c_sources < <(find "$root/src" -path "$root/src/third_party" -prune \
@@ -61,5 +62,5 @@ if (( ${#app_cpp_sources[@]} )); then
         -DGL_GLEXT_PROTOTYPES=1 -I"$root/src" \
         -isystem "$opengl" \
         -isystem "$sdk/target/include/c++/v1" -isystem "$sdk/target/include" \
-        -isystem "$pacbrew/user/homebrew/include"
+        -isystem "$pacbrew/user/homebrew/include" -isystem "$dav1d/include"
 fi

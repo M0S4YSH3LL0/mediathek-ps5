@@ -66,6 +66,7 @@ required_one_of clang-format 'format validation' clang-format-${LLVM_VERSION:-19
 required_one_of clang-tidy 'static analysis' clang-tidy-${LLVM_VERSION:-19} clang-tidy
 required_one_of llvm-ar 'static archive creation' llvm-ar-${LLVM_VERSION:-19} llvm-ar ar
 required_one_of llvm-ranlib 'static archive indexing' llvm-ranlib-${LLVM_VERSION:-19} llvm-ranlib ranlib
+required nasm 'dav1d assembly (AV1 decoding)'
 required wget 'pinned dependency downloads'
 required unzip 'public SDK extraction'
 required tar 'zlib source extraction'

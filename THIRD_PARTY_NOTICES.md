@@ -141,6 +141,43 @@ OpenSSL (Apache-2.0), libiconv (LGPL-2.1-or-later), liblzma/xz (public domain),
 bzip2 (BSD-style) and zlib (zlib licence). Their sources are available from the
 upstream projects and from the PacBrew recipes in
 [ps5-payload-dev/pacbrew-repo](https://github.com/ps5-payload-dev/pacbrew-repo).
+AV1 films are decoded by [dav1d](https://code.videolan.org/videolan/dav1d) 1.5.4,
+Copyright (C) 2018-2025 VideoLAN and dav1d authors, BSD-2-Clause (below); its static library
+is linked into the app, and the build puts its licence into the app folder as
+`licenses/dav1d.txt`. `tools/build-dav1d.sh`
+downloads its source release after verifying SHA-256
+`686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5` and builds it under ignored
+`.deps/dav1d/` with [Meson](https://mesonbuild.com/) 1.6.1 (Apache-2.0, a build tool only,
+SHA-256 `1eca49eb6c26d58bbee67fd3337d8ef557c0804e30a6d16bfdf269db997464de`); neither is
+included in this repository. Its picture allocator in `src/platform/ps5/av1_decoder.cpp`
+follows dav1d's own. The way it is used follows the PS5 port of VLC.
+
+```text
+Copyright (C) 2018-2025, VideoLAN and dav1d authors
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
 The app never opens a network stream; the https and iconv code is linked
 because FFmpeg's libraries reference it, and the symbols the app's runtime
 lacks for it are stubbed in `src/platform/ps5/libc_gaps.c`.
