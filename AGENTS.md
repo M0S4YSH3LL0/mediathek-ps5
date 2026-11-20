@@ -38,9 +38,11 @@ src/media/                   the movie side, no platform code (mediainfo: langua
                                text, palette pictures, their timing), tmdb + cover_service
                                (poster, wallpaper, description), poster_cache,
                                hw_stream, yuv_picture (feeding the hardware decoder, its pictures to RGBA),
+                               picture_pool (memory blocks for dav1d's pictures),
                                player.hpp (the interface), simulated_player (PC preview)
 src/core/i18n*               texts: i18n_texts.inc is THE table (English, German)
-src/platform/ps5/            ffmpeg_player, hw_decoder (the console's picture decoder), media_probe (stream list of a file, no
+src/platform/ps5/            ffmpeg_player, hw_decoder (the console's picture decoder), av1_decoder (dav1d, no
+                             system calls: the tests run it), direct_memory, media_probe (stream list of a file, no
                              decoding), scanner (talks to the helper), display, video_out (HDR10 output),
                              pad, audio_out, http + dns (own TLS client), system
 src/runtime/app_heap.c       the app's own heap (see "Memory" below)
@@ -48,7 +50,7 @@ helper/mt-scan.c             the scan helper payload, built into assets/helper/m
 src/ui/, src/gfx/, src/audio/  the kit: components, themes, renderer, mixer
 host/                        the PC preview (Mesa, off-screen): snapshot_main.cpp
 tests/unit/                  GoogleTest, no OpenGL; sources.txt lists what is compiled
-tools/                       build.sh, host-snapshots.sh, make-sample-movies.py,
+tools/                       build.sh, host-snapshots.sh, make-sample-movies.py, build-dav1d.sh,
                              fetch-posters.py (PC poster tool), bake-fonts.sh
 sce_sys/                     what the home screen shows (the owner's artwork)
 docs/                        the kit's guides; docs/screenshots are the README's pictures
@@ -66,6 +68,7 @@ Work on a PC first. A console is only for the final check.
 
 ```bash
 export HOST_CXX=clang++-19 HOST_CC=clang-19 USE_CCACHE=0   # LLVM 19 is the default, in CI too
+# nasm must be installed: the build makes dav1d from source (tools/build-dav1d.sh)
 
 tools/host-snapshots.sh build/snapshots mediathek    # PC preview: PNG frames of every screen
 HUI_LANG=de tools/host-snapshots.sh build/snapshots-de mediathek   # the same in German
@@ -363,13 +366,33 @@ settings page above), and the probe leaves it out of the details page's language
 <decoder>`. The info cache (`info/<id>.info`, header `mediainfo 4`) lists the tracks' languages for
 the details page; older files are read again.
 
-**AV1 does not play, at any size.** FFmpeg's `av1` decoder is only a front for hardware decoding,
-PacBrew's FFmpeg has no `libdav1d` or `libaom`, and no AV1 codec of `libSceVideodec2` is known (VLC's
-PS5 port sends H.264, HEVC and VP9 to it). The way planned, as VLC's port does it: build dav1d 1.5.4
-for the console (static, with its x86 assembly through nasm; `meson` is not installed on the author's
-PC), feed it the demuxed packets on a decoding path of its own, and hand its pictures to the GPU
-converter (its chroma comes in two planes, which `copy_planes` already interleaves for FFmpeg's HDR). 1080p should keep up;
-whether 4K does depends on the CPU and is open. The owner deferred it after 0.7.0.
+**AV1 goes to dav1d.** FFmpeg's `av1` decoder is only a front for hardware decoding, PacBrew's
+FFmpeg has no `libdav1d` or `libaom`, and no AV1 codec of `libSceVideodec2` is known (VLC's PS5 port
+sends H.264, HEVC and VP9 to it). So, as VLC's port does it, `tools/build-dav1d.sh` builds dav1d
+1.5.4 from its pinned source release with Meson 1.6.1, which runs from its own source (nothing is
+installed; nasm must be, for the x86 assembly), once with the SDK's `prospero-clang` for the console
+and once with `HOST_CC` for the tests, into `.deps/dav1d/{ps5,host}`; `tools/build.sh` links the
+first, `tools/build-tests.sh` the second. `open_input` sends an AV1 film to `open_dav1d`, never to
+the hardware or FFmpeg; `av1_video` feeds dav1d the demuxed packets (`ps5::Av1Decoder`: one
+`get_picture` per `send_data`, as a second one without new data drains, which waits for a frame in
+flight; draining only at the end of the file) and `show_av1` copies each picture out:
+4:2:0 up to 10 bits to the GPU converter as planes (`copy_planes` interleaves U and V), SDR too, as
+the hardware decoder's pictures go; anything else through swscale. dav1d runs `kAv1Threads` (6)
+threads of its own and picks its frames in flight; it cannot leave frames out, so a decoder 0.8 s
+behind jumps to a key frame (`DecodePace`, flush, as the hardware path does). The colours come from
+the stream's sequence header (`media::coded_colour`), the container's when the stream names none,
+and the light levels from its metadata, else the container's. Its pictures are not in the heap:
+the 8 references and the frames in flight of a 4K 10-bit film are some 25 MB each, so they live in
+direct memory (`media::PicturePool` over `ps5::direct_picture_memory`, type 12 mapped as the hardware
+decoder's frames are, which the CPU reads at 4K60), kept for the film and handed out again; when the
+system has none left a block comes from the heap only while 96 MiB stay free. dav1d's tables stay
+in the heap, and a film beyond 1080p gets the smaller queues. dav1d brings two system imports
+FFmpeg did not: `pthread_getaffinity_np` (libkernel) and `vfprintf` (libSceLibcInternal). The log
+says `[HUI] av1: dav1d 1.5.4 WxH threads=6 room=...`, `[HUI] av1: first picture ... pictures N MiB in
+M blocks, heap N MiB` and `(dav1d)` in `[HUI] playing/stall`; dav1d's own messages are `[HUI]
+dav1d: ...`. The app starts with it and a 1080p HDR film plays and seeks smoothly on the console;
+whether 4K keeps up on the console's CPU is open. The tests decode two small clips in
+`tests/fixtures/av1` (made with libaom-av1, see the test).
 
 **Decoder memory.** Each frame thread holds frames of its own: 4K 10-bit HEVC needs about
 175 MiB on one thread and 320 MiB on four (measured with FFmpeg on a PC), the 1080p
@@ -499,5 +522,6 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   Stereo. A film's own forced track shown by itself with subtitles off, and following the sound
   switched with Square. Checked after 1.0.0: TMDB's year for a film or series (and its seasons)
   named without one, the details page's larger cover and longer descriptions, and L1 in the
-  player (start again; twice, the episode before). A forced `.srt` file and 7.1 are *not
-  verified* yet.
+  player (start again; twice, the episode before). AV1 through dav1d: the app starts
+  with it, and a 1080p HDR MKV plays and seeks smoothly. A forced `.srt` file, 7.1 and 4K AV1 are
+  *not verified* yet.

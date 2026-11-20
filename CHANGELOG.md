@@ -10,6 +10,10 @@
   a series, the release of a film. Each season's heading on the details page shows the year it
   aired ("SEASON 2 · 2016"). A year in the name still wins. Films and series fetched before ask
   TMDB once more, for their year and each season's.
+- New: AV1 films play, 1080p and 4K, HDR10 and HLG included. They are decoded on the CPU by
+  dav1d, as VLC's PS5 port does it (the console's hardware decoder is not known to take AV1),
+  and shown, tone-mapped or sent as HDR10, as the other films are. A 1080p HDR film plays and seeks
+  smoothly on the console; whether 4K keeps up on its CPU is not known yet. Building from source now needs `nasm`.
 - In the player, L1 starts the film or episode from the beginning (it jumped back a minute
   before; L2 still does). Pressed twice within a second in a series, it plays the episode before,
   from its beginning, back into the season before at the start of one.

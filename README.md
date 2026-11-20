@@ -147,25 +147,26 @@ Put series in a `tvshows` or `series` folder (also `TV Shows`, `mediathek/tvshow
 | | |
 | --- | --- |
 | **Files** | `.mkv` `.mp4` `.m4v` `.mov` `.avi` `.wmv` `.ts` `.m2ts` `.mpg` `.mpeg` `.webm` `.flv` `.vob` `.ogv` |
-| **Video** | H.264, HEVC, VP9, VP8, MPEG-4 (Xvid, DivX), MPEG-2, MPEG-1, VC-1, WMV |
+| **Video** | H.264, HEVC, AV1, VP9, VP8, MPEG-4 (Xvid, DivX), MPEG-2, MPEG-1, VC-1, WMV |
 | **Audio** | AAC, AC-3, E-AC-3, TrueHD, DTS, MP2, MP3, Opus, Vorbis, FLAC, ALAC, WMA, PCM |
 | **Subtitles** | Inside the film: SubRip, ASS/SSA (as plain text), mov_text, WebVTT, PGS, VobSub, DVB. Beside it: `.srt`. |
 | **Pictures** | `.jpg` `.jpeg` `.png` |
 
 H.264 (up to High) and HEVC (Main and Main10) films of any size up to 3840 x 2176 go to
-the console's hardware decoder; FFmpeg decodes everything else on the CPU, and takes over
-a film the hardware refuses or gives up on. HDR films (HDR10 and HLG) reach a TV the console
+the console's hardware decoder; AV1 is decoded on the CPU by dav1d, and FFmpeg decodes
+everything else on the CPU, and takes over a film the hardware refuses or gives up on. HDR films (HDR10 and HLG) reach a TV the console
 already sends HDR to as HDR10 (PQ, BT.2020), the menus and controls drawn over them at their usual
 brightness; on an ordinary screen, or with *HDR output* off, they are tone-mapped to SDR. Both work
-on either decoder, as long as the software-decoded films are 8- or 10-bit 4:2:0, which is what HDR
+on every decoder, as long as the software-decoded films are 8- or 10-bit 4:2:0, which is what HDR
 films are. The console's own HDR setting decides whether the TV gets HDR at all.
 
 - **Plays smoothly on the hardware decoder:** H.264 and HEVC at every size: 4K HEVC, HDR
   included, and 1080p H.264 and 10-bit HEVC, smaller films and interlaced recordings.
 - **Do not expect smooth playback:** 4K films the hardware decoder will not take (VP9,
   4:2:2, 12-bit, wider than 3840).
-- **Does not play:** AV1, at any size. The build has no software decoder for it, and the
-  console's hardware decoder is not known to take it.
+- **New:** AV1 (dav1d, on six of the CPU's threads), HDR included. A 1080p HDR film plays
+  smoothly on the console, seeking included; whether 4K keeps up is not checked yet (the console's hardware
+  decoder is not known to take AV1).
 
 A file with a codec the app cannot decode is still listed, but will not play. Audio
 tracks it cannot decode are left out of the list.
@@ -306,6 +307,7 @@ does the day each film and episode was first found (`added.txt`), which is what
 ## Build from source
 
 ```bash
+sudo apt install nasm # dav1d's assembly; clang-19, lld-19, ninja and python3 too
 make                  # the PS5 app folder in dist/PPSA66120; fetches its toolchain
 make test-unit        # GoogleTest, sanitizers on
 make format-check
@@ -315,6 +317,9 @@ python3 tools/make-sample-movies.py                 # the invented films and ser
 tools/host-snapshots.sh build/snapshots mediathek   # PC preview: a PNG of every screen
 HUI_LANG=de tools/host-snapshots.sh build/snapshots-de mediathek   # the same in German
 ```
+
+The build fetches dav1d 1.5.4 and Meson (pinned, checked) into `.deps/dav1d` and builds
+dav1d there, once for the console and once for the tests.
 
 Copy `.env.example` to `.env` for your console's address (`make deploy`) and your TMDB
 key. The preview renders the same UI code with Mesa, with no sound and a test picture
@@ -346,7 +351,7 @@ an HDR TV, 5.1 sound on the 8-channel output, the audio language and the Stereo 
 a film's own forced subtitles shown by themselves, following the sound switched with Square. The loader
 version was not recorded. Reports from other firmware are welcome.
 
-**Not checked on a console:** 4K H.264, HLG and Dolby Vision films, 7.1 sound, a forced
+**Not checked on a console:** 4K AV1 films, 4K H.264, HLG and Dolby Vision films, 7.1 sound, a forced
 subtitle file (`Film.de.forced.srt`), and the fallback to the CPU when the graphics chip cannot
 convert a picture.
 
@@ -364,6 +369,7 @@ folder of sample files, a clean build and lint.
   [PS5 Native App Boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate):
   toolchain and native foundation
 - [FFmpeg](https://ffmpeg.org/), in PacBrew's build: decoding
+- [dav1d](https://code.videolan.org/videolan/dav1d) by VideoLAN: AV1
 - [The Movie Database](https://www.themoviedb.org/): posters, wallpapers and descriptions
 - [Inter](https://github.com/rsms/inter),
   [Montserrat](https://github.com/JulietaUla/Montserrat),
