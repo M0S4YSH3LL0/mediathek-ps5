@@ -15,7 +15,7 @@
 # key in TMDB_API_KEY (the 32-character "API Key" or the long "Read Access
 # Token") in the environment or in the project's .env file, or pass --key.
 # IMDb has no free poster service. The console app fetches covers by itself
-# from the same .env (see README); this tool does the same job from a PC.
+# from the same .env (see docs/SETTINGS.md); this tool does the same job from a PC.
 #
 # This product uses the TMDB API but is not endorsed or certified by TMDB.
 

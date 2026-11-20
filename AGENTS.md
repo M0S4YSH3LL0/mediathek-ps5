@@ -53,7 +53,8 @@ tests/unit/                  GoogleTest, no OpenGL; sources.txt lists what is co
 tools/                       build.sh, host-snapshots.sh, make-sample-movies.py, build-dav1d.sh,
                              fetch-posters.py (PC poster tool), bake-fonts.sh
 sce_sys/                     what the home screen shows (the owner's artwork)
-docs/                        the kit's guides; docs/screenshots are the README's pictures
+docs/                        the user guides (LIBRARY, PLAYBACK, SETTINGS, FAQ, STATUS, BUILD),
+                               the kit's guides; docs/screenshots are the README's pictures
 ```
 
 The kit's guides still apply when you touch the UI: [docs/CRAFT.md](docs/CRAFT.md)
@@ -165,7 +166,7 @@ folder's git repository and takes more than two minutes; use a long timeout.
   When asked: small commits, one-line imperative subject.
 - A release tag must equal `sce_sys/param.json` `contentVersion` exactly
   (`01.000.100` is the app's 1.0.0); the app shows the short form (`kAppVersion` in
-  `mediathek.cpp`). Change both, `README.md` (Status) and `CHANGELOG.md` together.
+  `mediathek.cpp`). Change both, `README.md` (badge and Status), `docs/STATUS.md` and `CHANGELOG.md` together.
 - Never commit build output, console evidence, addresses of machines, personal
   paths or credentials.
 
@@ -499,7 +500,7 @@ Read [docs/CONSOLE_VALIDATION.md](docs/CONSOLE_VALIDATION.md) first. In short:
   have looked at each one.
 - `make test-unit` passes; `make` builds without warnings from your files;
   `make format-check` and `make lint` pass.
-- Docs that mention what you changed are updated (`README.md`, `CHANGELOG.md`,
+- Docs that mention what you changed are updated (`README.md`, the user guides in `docs/`, `CHANGELOG.md`,
   `.env.example`, this file).
 - You say plainly what you did not verify. Frame rate, sound, controller feel,
   FFmpeg playback speed and the network are *not verified* until someone has
